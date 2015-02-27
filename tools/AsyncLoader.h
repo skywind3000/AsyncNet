@@ -15,6 +15,8 @@
 #ifndef __ASYNCNET_H__
 #define __ASYNCNET_H__
 
+#define ASYNCNET_INTERNAL
+
 // No interface will be exported if ASYNCNET_INTERNAL defined
 #ifdef ASYNCNET_INTERNAL
 	#define ANETAPI 
@@ -46,6 +48,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
+//=====================================================================
+// Module Loader
+//=====================================================================
+
+// Initializer: load module, returns zero for success
+int AsyncLoader_Init(const char *dllname);
+void AsyncLoader_Quit(void);
 
 
 //=====================================================================
