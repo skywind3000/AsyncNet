@@ -362,7 +362,7 @@ ANETAPI void asn_notify_trace(AsyncNotify *notify, const char *prefix, int STDOU
 {
 	CAsyncNotify *self = (CAsyncNotify*)notify;
 	AsyncNet::Trace *trace = new AsyncNet::Trace(prefix, STDOUT? true : false, color);
-	trace->open(prefix, STDOUT);
+	trace->open(prefix, STDOUT? true : false);
 	trace->setmask(1);
 	trace = (AsyncNet::Trace*)async_notify_user(self, trace);
 	if (trace) delete trace;

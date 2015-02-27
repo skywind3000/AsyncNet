@@ -1,0 +1,102 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="system">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="source">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="modules">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\system\imembase.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\imemdata.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\inetbase.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\inetcode.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\inetkcp.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\inetnot.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\ineturl.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\iposix.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\isecure.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\itimer.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\system\itoolbox.c">
+      <Filter>system</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\AsyncNet.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\source\TraceLog.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\system\imembase.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\imemdata.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\inetbase.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\inetcode.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\inetkcp.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\inetnot.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\ineturl.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\iposix.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\isecure.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\itimer.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\itoolbox.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\system\system.h">
+      <Filter>system</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\AsyncNet.h">
+      <Filter>source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\source\TraceLog.h">
+      <Filter>source</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

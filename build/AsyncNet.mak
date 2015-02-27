@@ -1,8 +1,11 @@
 mode: dll
-flag: -g, -O3, -Wall
+flag: -O3, -Wall
 link: stdc++
 int: ../build/objs
 unix/link: rt, pthread
+
+win32/flag: -s
+unix/flag: -g
 
 out: ../AsyncNet.$(target)
 
