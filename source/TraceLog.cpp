@@ -1,5 +1,8 @@
 #include "TraceLog.h"
 
+#include <stdarg.h>
+
+
 NAMESPACE_BEGIN(AsyncNet)
 
 //---------------------------------------------------------------------
