@@ -95,7 +95,7 @@ void async_notify_allow_enable(CAsyncNotify *notify, int enable);
 
 // add or update a sid into sid2addr
 void async_notify_sid_add(CAsyncNotify *notify, int sid,
-	struct sockaddr *remote, int size);
+	const struct sockaddr *remote, int size);
 
 // add or update a sid into sid2addr
 void async_notify_sid_del(CAsyncNotify *notify, int sid);

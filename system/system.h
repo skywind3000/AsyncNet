@@ -50,6 +50,7 @@
 #include "imemdata.h"
 #include "inetbase.h"
 #include "inetcode.h"
+#include "inetnot.h"
 #include "ineturl.h"
 #include "iposix.h"
 #include "itoolbox.h"
@@ -1046,16 +1047,13 @@ public:
 	}
 
 	// 建立一个新的对外连接，返回 hid，错误返回 <0
-	long new_connect(const char *ip, int port, int header = 0) {
-		SockAddress remote(ip, port);
-		return async_core_new_connect(_core, remote.address(), 0, header);
+	long new_connect(const struct sockaddr *addr, int len, int header = 0) {
+		return async_core_new_connect(_core, addr, len, header);
 	}
 
 	// 建立一个新的监听连接，返回 hid，错误返回 <0 (-2为端口倍占用)
-	long new_listen(const char *ip, int port, int header = 0, bool reuse = false) {
-		SockAddress remote(ip, port);
-		if (reuse) header |= 0x200;
-		return async_core_new_listen(_core, remote.address(), 0, header);
+	long new_listen(const struct sockaddr *addr, int len, int header = 0) {
+		return async_core_new_listen(_core, addr, len, header);
 	}
 
 	// 建立一个新的连接，fd为已经连接的 socket
@@ -1158,6 +1156,133 @@ public:
 
 protected:
 	CAsyncCore *_core;
+};
+
+
+
+//---------------------------------------------------------------------
+// 异步节点通信
+//---------------------------------------------------------------------
+class AsyncNotify
+{
+public:
+	AsyncNotify(int serverid) {
+		_notify = async_notify_new(serverid);
+		_serverid = serverid;
+		async_notify_option(_notify, ASYNC_NOTIFY_OPT_PROFILE, 1);
+	}
+
+	virtual ~AsyncNotify() {
+		if (_notify) {
+			async_notify_delete(_notify);
+		}
+		_notify = NULL;
+	}
+
+public:
+
+	// 等待事件，millisec为等待的毫秒时间，0表示不等待
+	// 一般要先调用 wait，然后持续调用 read取得消息，直到没有消息了
+	void wait(IUINT32 millisec) {
+		async_notify_wait(_notify, millisec);
+	}
+
+	void wake() {
+		async_notify_wake(_notify);
+	}
+
+	// 读取消息，返回消息长度，如果没有消息，返回-1，长度不够返回 -2
+	// event的值为： ASYNC_NOTIFY_EVT_DATA/ERROR等
+	// event=ASYNC_NOTIFY_EVT_DATA:   收到数据 wparam=sid, lparam=cmd
+	// event=ASYNC_NOTIFY_EVT_ERROR:  错误数据 wparam=sid, lparam=tag
+	// 普通用法：循环调用，没有消息可读时，调用一次wait去
+	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
+		return async_notify_read(_notify, event, wparam, lparam, data, maxsize);
+	}
+
+	// 返回 listenid, -1失败，-2端口占用
+	int listen(const struct sockaddr *addr, int len = 0) {
+		return async_notify_listen(_notify, addr, len, 0);
+	}
+
+	// 移除 listener
+	void remove(int listenid, int code = 0) {
+		async_notify_remove(_notify, listenid, code);
+	}
+
+	// 改变 serverid
+	void change(int new_server_id) {
+		async_notify_change(_notify, new_server_id);
+		_serverid = new_server_id;
+	}
+
+	// 发送数据到服务端
+	int send(int sid, short cmd, const void *data, long size) {
+		return async_notify_send(_notify, sid, cmd, data, size);
+	}
+
+	// 强制关闭连接（一般不需要）
+	int close(int sid, int mode, int code) {
+		return async_notify_close(_notify, sid, mode, code);
+	}
+
+	// 取得监听者端口
+	int get_port(int listenid) {
+		return async_notify_get_port(_notify, listenid);
+	}
+
+
+	// 地址白名单：是否允许
+	void allow_enable(bool on) {
+		async_notify_allow_enable(_notify, on? 1 : 0);
+	}
+
+	// 地址白名单：清空
+	void allow_clear() {
+		async_notify_allow_clear(_notify);
+	}
+
+	// 地址白名单：增加
+	void allow_add(const void *ip, int size = 4) {
+		async_notify_allow_add(_notify, ip, size);
+	}
+
+	// 地址白名单：删除
+	void allow_del(const void *ip, int size = 4) {
+		async_notify_allow_del(_notify, ip, size);
+	}
+	
+	// 节点地址：清楚
+	void sid_clear() {
+		async_notify_sid_clear(_notify);
+	}
+
+	// 节点地址：增加
+	void sid_add(int sid, const struct sockaddr *remote, int len = 0) {
+		async_notify_sid_add(_notify, sid, remote, len);
+	}
+
+	// 节点地址：删除
+	void sid_del(int sid) {
+		async_notify_sid_del(_notify, sid);
+	}
+
+	// 配置：参见 ASYNC_NOTIFY_OPT_*
+	int option(int opt, int value) {
+		return async_notify_option(_notify, opt, value);
+	}
+
+	// 设置日志函数
+	void* setlog(CAsyncNotify_WriteLog fun, void *user) {
+		void *hr = async_notify_install(_notify, NULL);
+		async_notify_user(_notify, user);
+		async_notify_install(_notify, fun);
+		return hr;
+	}
+
+protected:
+	int _serverid;
+	CAsyncNotify *_notify;
 };
 
 

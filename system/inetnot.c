@@ -625,7 +625,7 @@ static int async_notify_firewall(const struct sockaddr *remote, int len,
 
 // add or update a sid into sid2addr
 void async_notify_sid_add(CAsyncNotify *notify, int sid,
-	struct sockaddr *remote, int size)
+	const struct sockaddr *remote, int size)
 {
 	char epname[128];
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
