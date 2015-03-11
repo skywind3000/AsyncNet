@@ -57,6 +57,53 @@ if _asndll == None:
 
 GMASK = int(os.environ.get('CGMASK', '-1'))
 
+CFFI_ENABLE = False
+
+try:
+	import cffi
+	CFFI_ENABLE = True
+except:
+	pass
+
+#----------------------------------------------------------------------
+# cffi interface
+#----------------------------------------------------------------------
+if CFFI_ENABLE:
+	ffi = cffi.FFI()
+	ffi.cdef('''
+	void asn_core_wait(size_t core, unsigned long millisec);
+	void asn_core_notify(size_t core);
+	long asn_core_read(size_t core, int *event, long *wparam, long *lparam, void *data, long size);
+	long asn_core_send(size_t core, long hid, const void *ptr, long len);
+	long asn_core_send_mask(size_t core, long hid, const void *ptr, long len, int mask);
+	int asn_core_close(size_t core, long hid, int code);
+
+	void asn_notify_wait(size_t notify, unsigned long millisec);
+	void asn_notify_wake(size_t notify);
+	long asn_notify_read(size_t notify, int *event, long *wparam, long *lparam, void *data, long maxsize);
+	int asn_notify_send(size_t notify, int sid, short cmd, const void *data, long size);
+	int asn_notify_close(size_t notify, int sid, int mode, int code);
+	''')
+
+	try:
+		DLL = ffi.dlopen(_dllname)
+	except:
+		DLL = None
+		CFFI_ENABLE = False
+
+if CFFI_ENABLE:
+	_cffi_asn_core_wait = DLL.asn_core_wait
+	_cffi_asn_core_notify = DLL.asn_core_notify
+	_cffi_asn_core_read = DLL.asn_core_read
+	_cffi_asn_core_send = DLL.asn_core_send
+	_cffi_asn_core_send_mask = DLL.asn_core_send_mask
+	_cffi_asn_core_close = DLL.asn_core_close
+	
+	_cffi_asn_notify_wait = DLL.asn_notify_wait
+	_cffi_asn_notify_wake = DLL.asn_notify_wake
+	_cffi_asn_notify_read = DLL.asn_notify_read
+	_cffi_asn_notify_send = DLL.asn_notify_send
+
 
 #----------------------------------------------------------------------
 # port interface
@@ -331,6 +378,14 @@ class AsyncCore (object):
 		self.wparam = ctypes.c_long()
 		self.lparam = ctypes.c_long()
 		self.event = ctypes.c_int()
+		if CFFI_ENABLE:
+			self._buffer = ffi.new('unsigned char[]', 0x200000)
+			self._wparam = ffi.new('long[1]')
+			self._lparam = ffi.new('long[1]')
+			self._event = ffi.new('int[1]')
+			self.read = self.__cffi_read
+			self.send = self.__cffi_send
+		self.state = 0
 	
 	def __del__ (self):
 		self.shutdown()
@@ -346,6 +401,9 @@ class AsyncCore (object):
 	# 一般要先调用 wait，然后持续调用 read取得消息，直到没有消息了
 	def wait (self, seconds = 0):
 		if self.obj:
+			if CFFI_ENABLE:
+				_cffi_asn_core_wait(self.obj, long(seconds * 1000))
+				return True
 			_asn_core_wait(self.obj, long(seconds * 1000))
 			return True
 		return False
@@ -353,6 +411,9 @@ class AsyncCore (object):
 	# 唤醒 wait
 	def notify (self):
 		if self.obj:
+			if CFFI_ENABLE:
+				_cffi_asn_core_notify(self.obj)
+				return True
 			_asn_core_notify(self.obj)
 			return True
 		return False
@@ -371,6 +432,17 @@ class AsyncCore (object):
 		data = buffer[:hr]
 		return event.value, wparam.value, lparam.value, data
 
+	# cffi speed up
+	def __cffi_read (self):
+		if not self.obj:
+			return (None, None, None, None)
+		buffer, size = self._buffer, len(self._buffer)
+		event, wparam, lparam = self._event, self._wparam, self._lparam
+		hr = _cffi_asn_core_read(self.obj, event, wparam, lparam, buffer, size)
+		if hr < 0: return (None, None, None, None)
+		data = ffi.buffer(buffer, hr)[:]
+		return event[0], wparam[0], lparam[0], data
+
 	#在有连接连进来之后，通过data得到对端的信息
 	def	parse_remote(self,data):
 		head = ord(data[0])
@@ -383,7 +455,13 @@ class AsyncCore (object):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_send_mask(self.obj, hid, data, len(data), mask)
-	
+
+	# cffi 加速
+	def __cffi_send (self, hid, data, mask = 0):
+		if not self.obj:
+			return -1000
+		return _cffi_asn_core_send_mask(self.obj, hid, data, len(data), mask)
+
 	# 关闭连接，只要连接断开不管主动断开还是被close接口断开，都会收到 leave
 	def close (self, hid, code = 1000):
 		if not self.obj:
@@ -666,6 +744,13 @@ class AsyncNotify (object):
 		self.wparam = ctypes.c_long()
 		self.lparam = ctypes.c_long()
 		self.event = ctypes.c_int()
+		if CFFI_ENABLE:
+			self._buffer = ffi.new('unsigned char[]', 0x200000)
+			self._wparam = ffi.new('long[1]')
+			self._lparam = ffi.new('long[1]')
+			self._event = ffi.new('int[1]')
+			self.read = self.__cffi_read
+			self.send = self.__cffi_send
 		self.option('PROFILE', 1)
 	
 	def __del__ (self):
@@ -681,6 +766,9 @@ class AsyncNotify (object):
 	# 等待并处理消息
 	def wait (self, seconds = 0):
 		if self.obj:
+			if CFFI_ENABLE:
+				_cffi_asn_notify_wait(self.obj, long(seconds * 1000))
+				return True
 			_asn_notify_wait(self.obj, long(seconds * 1000))
 			return True
 		return False
@@ -688,6 +776,9 @@ class AsyncNotify (object):
 	# 唤醒等待
 	def wake (self):
 		if self.obj:
+			if CFFI_ENABLE:
+				_cffi_asn_notify_wake(self.obj)
+				return True
 			_asn_notify_wake(self.obj)
 			return True
 		return False
@@ -705,6 +796,17 @@ class AsyncNotify (object):
 		if hr < 0: return (None, None, None, None)
 		data = buffer[:hr]
 		return event.value, wparam.value, lparam.value, data
+	
+	# cffi speed up
+	def __cffi_read (self):
+		if not self.obj:
+			return (None, None, None, None)
+		buffer, size = self._buffer, len(self._buffer)
+		event, wparam, lparam = self._event, self._wparam, self._lparam
+		hr = _cffi_asn_notify_read(self.obj, event, wparam, lparam, buffer, size)
+		if hr < 0: return (None, None, None, None)
+		data = ffi.buffer(buffer, hr)[:]
+		return event[0], wparam[0], lparam[0], data
 	
 	# 新建监听并返回监听 listen_id
 	def listen (self, ip, port, reuseaddr = False):
@@ -736,6 +838,12 @@ class AsyncNotify (object):
 			return -1000
 		return _asn_notify_send(self.obj, sid, cmd, data, len(data))
 	
+	# cffi 加速
+	def __cffi_send (self, sid, cmd, data):
+		if not self.obj:
+			return -1000
+		return _cffi_asn_notify_send(self.obj, sid, cmd, data, len(data))
+
 	# 关闭某台服务器的连接，mode=1外部连进来的连接，mode=2连出去的连接
 	def close (self, sid, mode, code):
 		if not self.obj:
@@ -885,7 +993,7 @@ def test_async_core():
 			current = time.time()
 			if current > timeslap:
 				timeslap = current + 1
-				core.send(hid_connect, 'ECHO-%d'%index)
+				core.send(hid_connect, 'ECHO\x00%d'%index)
 				index += 1
 	return 0
 
@@ -936,7 +1044,7 @@ def test_async_notify():
 				n2.send(w, l, d)
 		if time.time() > ts:	# 每隔一秒发送一条数据到 n2
 			ts = time.time() + 1
-			n1.send(2002, 3, 'index: %d'%index)
+			n1.send(2002, 3, 'index:\x00 %d'%index)
 			index += 1
 	return 0
 
@@ -978,7 +1086,7 @@ def test_async_post():
 # testing case
 #----------------------------------------------------------------------
 if __name__ == '__main__':
-	test_async_core()
-	#test_async_notify()
+	#test_async_core()
+	test_async_notify()
 		
 	
