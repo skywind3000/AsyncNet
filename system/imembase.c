@@ -1292,7 +1292,7 @@ static imemcache_t *imemcache_create(const char *name,
 	strncpy(cache->name, name, IMCACHE_NAMESIZE);
 
 	if (cache->gfp) cache->gfp->refcnt++;
-	cache->flags |= IMCACHE_FLAG_NODRAIN | IMCACHE_FLAG_NOLOCK;
+	cache->flags |= IMCACHE_FLAG_NOLOCK;
 
 	iqueue_init(&cache->queue);
 
