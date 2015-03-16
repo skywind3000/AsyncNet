@@ -613,3 +613,325 @@ int icsv_writer_push_double(iCsvWriter *writer, double x)
 }
 
 
+
+//=====================================================================
+// Protocol Reader
+//=====================================================================
+struct CAsyncReader
+{
+	int mode;
+	int complete;
+	ilong need;
+	unsigned char spliter;
+	struct IMSTREAM cache;
+	struct IMSTREAM input;
+};
+
+
+CAsyncReader *async_reader_new(imemnode_t *fnode)
+{
+	CAsyncReader *reader;
+	reader = (CAsyncReader*)ikmem_malloc(sizeof(CAsyncReader));
+	if (reader == NULL) return NULL;
+	ims_init(&reader->input, fnode, 0, 0);
+	ims_init(&reader->cache, fnode, 0, 0);
+	reader->spliter = (unsigned char)'\n';
+	reader->mode = ISTREAM_READ_BYTE;
+	reader->need = 0;
+	reader->complete = 0;
+	return reader;
+}
+
+void async_reader_delete(CAsyncReader *reader)
+{
+	if (reader != NULL) {
+		ims_destroy(&reader->input);
+		ims_destroy(&reader->cache);
+		memset(reader, 0, sizeof(CAsyncReader));
+		ikmem_free(reader);
+	}
+}
+
+static void async_reader_redirect(struct IMSTREAM *dst, struct IMSTREAM *src)
+{
+	while (ims_dsize(src) > 0) {
+		ilong size;
+		void *ptr;
+		size = ims_flat(src, &ptr);
+		if (size > 0) {
+			ims_write(dst, ptr, size);
+			ims_drop(src, size);
+		}
+	}
+}
+
+static void async_reader_reset(CAsyncReader *reader)
+{
+	if (ims_dsize(&reader->cache) > 0) {
+		struct IMSTREAM tmp;
+		ims_init(&tmp, reader->cache.fixed_pages, 0, 0);
+		async_reader_redirect(&tmp, &reader->input);
+		async_reader_redirect(&reader->input, &reader->cache);
+		async_reader_redirect(&reader->input, &tmp);
+		ims_destroy(&tmp);
+		reader->complete = 0;
+		assert(ims_dsize(&reader->cache) == 0);
+	}
+}
+
+void async_reader_mode(CAsyncReader *reader, int mode, ilong what)
+{
+	if (mode == ISTREAM_READ_LINE) {
+		if (reader->mode == mode && 
+			reader->spliter == (unsigned char)what) 
+			return;
+		reader->spliter = (unsigned char)what;
+	}
+	else if (mode == ISTREAM_READ_BLOCK) {
+		if (reader->mode == mode) return;
+		reader->need = what;
+	}
+	else {
+		assert(mode == ISTREAM_READ_BYTE);
+		if (reader->mode == mode) return;
+	}
+	reader->mode = mode;
+	async_reader_reset(reader);
+}
+
+long async_reader_read(CAsyncReader *reader, void *data, long maxsize)
+{
+	unsigned char *out = (unsigned char*)data;
+	ilong size = 0;
+	ilong remain = 0;
+	if (reader->mode == ISTREAM_READ_BYTE) {
+		void *pointer;
+		remain = ims_flat(&reader->input, &pointer);
+		if (remain == 0) return -1;
+		if (data == NULL) return 1;
+		if (maxsize < 1) return -2;
+		out[0] = *((unsigned char*)pointer);
+		ims_drop(&reader->input, 1);
+		return 1;
+	}
+	else if (reader->mode == ISTREAM_READ_LINE) {
+		if (reader->complete) {
+			remain = ims_dsize(&reader->cache);
+			if (data == NULL) return remain;
+			if (maxsize < remain) return -2;
+			ims_read(&reader->cache, data, remain);
+			reader->complete = 0;
+			return remain;
+		}	else {
+			unsigned char spliter = reader->spliter;
+			while (1) {
+				void *pointer;
+				unsigned char *src;
+				ilong i;
+				remain = ims_flat(&reader->input, &pointer);
+				if (remain == 0) return -1;
+				src = (unsigned char*)pointer;
+				for (i = 0; i < remain; i++) {
+					if (src[i] == spliter) break;
+				}
+				if (i >= remain) {
+					ims_write(&reader->cache, src, remain);
+					ims_drop(&reader->input, remain);
+				}	else {
+					ims_write(&reader->cache, src, i + 1);
+					ims_drop(&reader->input, i + 1);
+					size = ims_dsize(&reader->cache);
+					if (data == NULL) {
+						reader->complete = 1;
+						return size;
+					}
+					if (maxsize < size) {
+						reader->complete = 1;
+						return -2;
+					}
+					ims_read(&reader->cache, data, size);
+					reader->complete = 0;
+					return size;
+				}
+			}
+		}
+	}
+	else if (reader->mode == ISTREAM_READ_BLOCK) {
+		remain = ims_dsize(&reader->input);
+		size = reader->need;
+		if (remain < size) return -1;
+		if (data == NULL) return size;
+		if (maxsize < size) return -2;
+		ims_read(&reader->input, data, size);
+		return size;
+	}
+	return -1;
+}
+
+void async_reader_feed(CAsyncReader *reader, const void *data, long len)
+{
+	if (len > 0 && data != NULL) {
+		ims_write(&reader->input, data, len);
+	}
+}
+
+
+//=====================================================================
+// Redis Reader
+//=====================================================================
+struct CRedisReader
+{
+	CAsyncReader *reader;
+	struct IMSTREAM stream;
+	char *buffer;
+	int state;
+	int mode;
+	long need;
+	ilong capacity;
+};
+
+CRedisReader *redis_reader_new(imemnode_t *fnode)
+{
+	CRedisReader *rr;
+	rr = (CRedisReader*)ikmem_malloc(sizeof(CRedisReader));
+	if (rr == NULL) return NULL;
+	rr->reader = async_reader_new(fnode);
+	if (rr->reader == NULL) {
+		ikmem_free(rr);
+		return NULL;
+	}
+	rr->capacity = 8;
+	rr->buffer = (char*)ikmem_malloc(rr->capacity);
+	if (rr->buffer == NULL) {
+		async_reader_delete(rr->reader);
+		ikmem_free(rr);
+		return NULL;
+	}
+	ims_init(&rr->stream, fnode, 0, 0);
+	rr->state = 0;
+	rr->mode = 0;
+	async_reader_mode(rr->reader, ISTREAM_READ_BYTE, 0);
+	return rr;
+}
+
+void redis_reader_delete(CRedisReader *rr)
+{
+	if (rr) {
+		if (rr->reader) {
+			async_reader_delete(rr->reader);
+			rr->reader = NULL;
+		}
+		ims_destroy(&rr->stream);
+		if (rr->buffer) {
+			ikmem_free(rr->buffer);
+			rr->buffer = NULL;
+		}
+		memset(rr, 0, sizeof(CRedisReader));
+		ikmem_free(rr);
+	}
+}
+
+static long redis_reader_fetch(CRedisReader *rr) 
+{
+	char *buffer;
+	long hr;
+	hr = async_reader_read(rr->reader, rr->buffer, rr->capacity);
+	if (hr == -2) {
+		long need = async_reader_read(rr->reader, NULL, rr->capacity);
+		rr->buffer = (char*)ikmem_realloc(rr->buffer, need);
+		assert(rr->buffer);
+		rr->capacity = ikmem_ptr_size(rr->buffer);
+		hr = async_reader_read(rr->reader, rr->buffer, rr->capacity);
+	}
+	if (hr == -1) {
+		return -1;
+	}
+	if (hr < 0) return hr;
+	buffer = rr->buffer;
+	while (hr > 0) {
+		if (buffer[hr - 1] != '\r' && buffer[hr - 1] != '\n') break;
+		if (hr > 0) hr--;
+	}
+	return hr;
+}
+
+void redis_reader_feed(CRedisReader *rr, const void *data, long len)
+{
+	char head[4];
+	async_reader_feed(rr->reader, data, len);
+	while (1) {
+		char *buffer = rr->buffer;
+		if (rr->state == 0) {
+			unsigned char ch;
+			async_reader_mode(rr->reader, ISTREAM_READ_BYTE, 0);
+			if (async_reader_read(rr->reader, &ch, 1) < 1) break;
+			rr->mode = ch;
+			rr->state = 1;
+		}
+		if (rr->state == 1) {
+			long hr;
+			async_reader_mode(rr->reader, ISTREAM_READ_LINE, '\n');
+			hr = redis_reader_fetch(rr);
+			if (hr < 0) break;
+			buffer = rr->buffer;
+			if (rr->mode != '$') {
+				unsigned char cc = (unsigned char)rr->mode;
+				iencode32u_lsb(head, hr);
+				ims_write(&rr->stream, head, 4);
+				ims_write(&rr->stream, &cc, 1);
+				ims_write(&rr->stream, buffer, hr);
+				rr->state = 0;
+			}	else {
+				long need = 0;
+				long i;
+				for (i = 0; i < hr; i++) {
+					char ch = buffer[i];
+					if (ch >= '0' && ch <= '9') {
+						need = (need * 10) + (ch - '0');
+					}
+				}
+				rr->need = need;
+				rr->state = 2;
+			}
+		}
+		if (rr->state == 2) {
+			unsigned char cc = '$';
+			long hr;
+			async_reader_mode(rr->reader, ISTREAM_READ_BLOCK, rr->need);
+			hr = redis_reader_fetch(rr);
+			if (hr < 0) break;
+			iencode32u_lsb(head, hr);
+			ims_write(&rr->stream, head, 4);
+			ims_write(&rr->stream, &cc, 1);
+			ims_write(&rr->stream, rr->buffer, hr);
+			rr->state = 3;
+		}
+		if (rr->state == 3) {
+			long hr;
+			async_reader_mode(rr->reader, ISTREAM_READ_LINE, '\n');
+			hr = redis_reader_fetch(rr);
+			if (hr < 0) break;
+			rr->state = 0;
+		}
+	}
+}
+
+long redis_reader_read(CRedisReader *rr, int *mode, void *data, long maxsize)
+{
+	unsigned char cc;
+	char head[4];
+	IUINT32 tt;
+	long size;
+	if (ims_peek(&rr->stream, head, 4) < 4) return -1;
+	idecode32u_lsb(head, &tt);
+	size = (long)tt;
+	if (data == NULL) return size;
+	if (maxsize < size) return -2;
+	ims_drop(&rr->stream, 4);
+	ims_read(&rr->stream, &cc, 1);
+	if (mode) mode[0] = cc;
+	ims_read(&rr->stream, data, size);
+	return size;
+}
+
+
