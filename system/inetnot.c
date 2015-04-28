@@ -506,6 +506,15 @@ void async_notify_delete(CAsyncNotify *notify)
 		notify->sid2hid = NULL;
 	}
 
+	if (notify->cache) {
+		imnode_delete(notify->cache);
+		notify->cache = NULL;
+	}
+
+	if (notify->vector.data) {
+		iv_destroy(&notify->vector);
+	}
+
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 	IMUTEX_DESTROY(&notify->lock);
 

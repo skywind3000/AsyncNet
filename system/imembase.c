@@ -954,15 +954,18 @@ static ilong imemcache_drain_list(imemcache_t *cache, int id, ilong tofree)
 
 	while (!iqueue_is_empty(head)) {
 		if (tofree >= 0 && free_count >= tofree) break;
-		imutex_lock(&cache->list_lock);
+		if (IMCACHE_NOLOCK(cache) == 0)
+			imutex_lock(&cache->list_lock);
 		p = head->prev;
 		if (p == head) {
-			imutex_unlock(&cache->list_lock);
+			if (IMCACHE_NOLOCK(cache) == 0)
+				imutex_unlock(&cache->list_lock);
 			break;
 		}
 		slab = iqueue_entry(p, imemslab_t, queue);
 		iqueue_del(p);
-		imutex_unlock(&cache->list_lock);
+		if (IMCACHE_NOLOCK(cache) == 0)
+			imutex_unlock(&cache->list_lock);
 		if (id == 0) {
 			while (!IMEMSLAB_ISFULL(slab)) imslab_alloc(slab);
 			cache->free_objects -= slab->inuse;
@@ -1217,8 +1220,11 @@ static void *imemcache_free(imemcache_t *cache, void *ptr)
 		imutex_unlock(&cache->list_lock);
 
 		if (cache->free_objects >= cache->free_limit) {
-			if (cache->count_free > 1) 
+			if (cache->count_free > 1) {
+				imutex_lock(&cache->list_lock);
 				imemcache_drain_list(cache, 0, cache->count_free >> 1);
+				imutex_unlock(&cache->list_lock);
+			}
 		}
 
 	}	else {
