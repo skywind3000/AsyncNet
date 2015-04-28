@@ -59,7 +59,7 @@ struct CAsyncNotify
 	struct IMEMNODE *cache;		// cache for msg stream buffer
 	struct IQUEUEHEAD ping;		// ping queue
 	struct IQUEUEHEAD idle;		// idle queue
-	struct IVECTOR vector;		// buffer for data
+	struct IVECTOR *vector;		// buffer for data
 	struct CAsyncNode *nodes;	// hid -> nodes look-up table
 	idict_t *sid2hid_in;		// sid -> hid look-up table
 	idict_t *sid2hid_out;		// out sid -> hid
@@ -377,13 +377,18 @@ CAsyncNotify* async_notify_new(int serverid)
 		return NULL;
 	}
 
+	notify->vector = iv_create();
+	if (notify->vector == NULL) {
+		ikmem_free(notify);
+		return NULL;
+	}
+
 	notify->maxsize = 0;
 	ims_init(&notify->msgs, notify->cache, 0, 0);
-	iv_init(&notify->vector, NULL);
 
 	if (async_notify_data_resize(notify, 0x200000) != 0) {
 		imnode_delete(notify->cache);
-		iv_destroy(&notify->vector);
+		iv_delete(notify->vector);
 		ikmem_free(notify);
 		return NULL;
 	}
@@ -511,8 +516,9 @@ void async_notify_delete(CAsyncNotify *notify)
 		notify->cache = NULL;
 	}
 
-	if (notify->vector.data) {
-		iv_destroy(&notify->vector);
+	if (notify->vector) {
+		iv_delete(notify->vector);
+		notify->vector = NULL;
 	}
 
 	ASYNC_NOTIFY_CRITICAL_END(notify);
@@ -532,8 +538,8 @@ static int async_notify_data_resize(CAsyncNotify *notify, long size)
 {
 	if (size <= 0) return -1;
 	if (size < notify->maxsize) return 0;
-	if (iv_resize(&notify->vector, size) != 0) return -2;
-	notify->data = (char*)notify->vector.data;
+	if (iv_resize(notify->vector, size) != 0) return -2;
+	notify->data = (char*)notify->vector->data;
 	notify->maxsize = size;
 	return 0;
 }
@@ -1468,7 +1474,7 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 int async_notify_send(CAsyncNotify *notify, int sid, short cmd, 
 	const void *data, long size)
 {
-	int hr = -1;
+	int hr = 0;
 	long hid;
 
 	if (cmd < 0) return -5;
