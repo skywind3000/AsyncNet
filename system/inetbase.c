@@ -26,6 +26,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <sys/select.h>
 
 #ifndef __AVM3__
 #include <poll.h>
@@ -3019,7 +3020,8 @@ static int ipe_poll_set(ipolld ipd, int fd, int mask)
 	ee.events = 0;
 	ee.data.fd = fd;
 
-	if (fd >= ps->usr_len) return -1;
+	if ((unsigned int)fd >= (unsigned int)ps->usr_len) return -1;
+	if (fd < 0) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
 	ps->fv.fds[fd].mask = mask & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
