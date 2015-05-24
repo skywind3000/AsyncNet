@@ -910,6 +910,22 @@ static const char *async_notify_epname(char *p, const void *ep, int len)
 }
 
 //---------------------------------------------------------------------
+// print node info
+//---------------------------------------------------------------------
+static void async_notify_node_info(CAsyncNotify *notify, long hid, 
+	const char *text)
+{
+	if (notify->logmask & ASYNC_NOTIFY_LOG_DEBUG) {
+		CAsyncNode *node = &notify->nodes[hid & 0xffff];
+		int cmode = async_core_get_mode(notify->core, hid);
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_DEBUG,
+			"[DEBUG] node %s: hid=%lx cmode=%d nmode=%d",
+			text, hid, cmode, node->mode);
+	}
+}
+
+
+//---------------------------------------------------------------------
 // process network event
 //---------------------------------------------------------------------
 static void async_notify_on_new(CAsyncNotify *notify, long hid, long tag,
@@ -917,6 +933,7 @@ static void async_notify_on_new(CAsyncNotify *notify, long hid, long tag,
 {
 	CAsyncNode *node;
 	char text[128];
+	int mode;
 
 	// check if listening socket or out coming socket
 	node = async_notify_node_get(notify, hid);
@@ -933,9 +950,26 @@ static void async_notify_on_new(CAsyncNotify *notify, long hid, long tag,
 	}
 
 	node = async_notify_node_new(notify, hid);
+
+	if (node == NULL) {
+		async_notify_node_info(notify, hid, "conflict");
+		async_core_close(notify->core, hid, 8163);
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR, 
+			"[ERROR] fatal error to create node hid=%lxh conflict", hid);
+		assert(node != NULL);
+		return;
+	}
+
 	node->mode = ASYNC_CORE_NODE_IN;
 	node->state = ASYNC_NOTIFY_STATE_ESTAB;
 	node->sid = -1;
+
+	mode = async_core_get_mode(notify->core, hid);
+
+	if (mode != ASYNC_CORE_NODE_IN) {
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
+			"[ERROR] fatal mode error for hid=%lxh mode=%d", hid, mode);
+	}
 
 	async_notify_hid_init(notify, hid);
 	notify->count_in++;
@@ -954,7 +988,14 @@ static void async_notify_on_leave(CAsyncNotify *notify, long hid, long tag,
 	int sid;
 
 	node = async_notify_node_get(notify, hid);
-	assert(node != NULL);
+
+	if (node == NULL) {
+		async_notify_node_info(notify, hid, "null");
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
+			"[ERROR] fatal node null hid=%lxh", hid);
+		assert(node != NULL);
+		return;
+	}
 
 	sid = node->sid;
 	cc[0] = sockerr;
@@ -1012,8 +1053,24 @@ static void async_notify_on_estab(CAsyncNotify *notify, long hid, long tag)
 {
 	CAsyncNode *node;
 	node = async_notify_node_get(notify, hid);
-	assert(node != NULL);
-	assert(node->mode == ASYNC_CORE_NODE_OUT);
+
+	if (node == NULL) {
+		async_notify_node_info(notify, hid, "null");
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
+			"[ERROR] fatal error on estab connection hid=%lx", hid);
+		assert(node != NULL);
+		return;
+	}
+
+	if (node->mode != ASYNC_CORE_NODE_OUT) {
+		async_notify_node_info(notify, hid, "mode error");
+		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
+			"[ERROR] fatal error on connection mode hid=%lx mode=%d", 
+			hid, node->mode);
+		assert(node->mode == ASYNC_CORE_NODE_OUT);
+		return;
+	}
+
 	node->state = ASYNC_NOTIFY_STATE_ESTAB;
 
 	async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO,
@@ -1403,7 +1460,7 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 	if (hid < 0) {
 		if (notify->logmask & ASYNC_NOTIFY_LOG_ERROR) {
 			async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
-				"[ERROR] cannot send to sid=%d: hid failed", sid);
+				"[ERROR] cannot send to sid=%d: hid failed: %ld", sid, hid);
 		}
 		return -3;
 	}
@@ -1475,7 +1532,7 @@ int async_notify_send(CAsyncNotify *notify, int sid, short cmd,
 	const void *data, long size)
 {
 	int hr = 0;
-	long hid;
+	long hid = 0, x = 0;
 
 	if (cmd < 0) return -5;
 	if (sid == notify->sid) return -6;
@@ -1495,7 +1552,8 @@ int async_notify_send(CAsyncNotify *notify, int sid, short cmd,
 		veclen[0] = 4;
 		veclen[1] = size;
 		async_notify_header_write(head, ASYNC_NOTIFY_MSG_DATA, cmd);
-		async_core_send_vector(notify->core, hid, vecptr, veclen, 2, 0);
+		x = async_core_send_vector(notify->core, hid, vecptr, veclen, 2, 0);
+		if (x < 0) hr = -1000 + x;
 		// update idle time
 		async_notify_node_active(notify, hid, 1);
 	}	else {

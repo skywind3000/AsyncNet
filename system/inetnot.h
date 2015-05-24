@@ -127,6 +127,8 @@ void async_notify_sid_clear(CAsyncNotify *notify);
 #define ASYNC_NOTIFY_LOG_REJECT		2
 #define ASYNC_NOTIFY_LOG_ERROR		4
 #define ASYNC_NOTIFY_LOG_WARNING	8
+#define ASYNC_NOTIFY_LOG_DEBUG		16
+
 
 // config
 int async_notify_option(CAsyncNotify *notify, int type, long value);
