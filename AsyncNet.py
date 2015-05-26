@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #======================================================================
 #
-# QuickNet.py - QuickNet 接口
+# AsyncNet.py - QuickNet 接口
 #
 # NOTE:
 # for more information, please see the readme file.
