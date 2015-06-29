@@ -1797,7 +1797,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			else {
 				if (async_sock_update(sock, 1) != 0) {
 					needclose = 1;
-					code = 0;
+					code = 2000;
 				}
 				if (sock->mode == ASYNC_CORE_NODE_OUT) {
 					if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
@@ -2016,6 +2016,7 @@ int async_core_notify(CAsyncCore *core)
 				core->xfd[ASYNC_CORE_PIPE_FLAG] = 1;
 				hr = 0;
 			}
+			dummy = dummy;
 		}
 	}	else {
 		hr = 1;
