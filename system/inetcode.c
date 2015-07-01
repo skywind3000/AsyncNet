@@ -1797,13 +1797,13 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			else {
 				if (async_sock_update(sock, 1) != 0) {
 					needclose = 1;
-					code = 2000;
+					code = 0;
 				}
 				if (sock->mode == ASYNC_CORE_NODE_OUT) {
 					if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
 						if ((event & IPOLL_ERR) && needclose == 0) {
 							needclose = 1;
-							code = 2001;
+							code = 2000;
 						}
 					}
 				}
@@ -1815,7 +1815,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 					if (size < 0) {	/* not enough data or size error */
 						if (size == -3 || size == -4) {	/* size error */
 							needclose = 1;
-							code = 2002;
+							code = (size == -3)? 2001 : 2002;
 						}
 						break;
 					}
@@ -1903,7 +1903,7 @@ static long _async_core_send_vector(CAsyncCore *core, long hid,
 	long hr;
 	if (sock == NULL) return -100;
 	if (sock->limited > 0 && sock->sendmsg.size > (iulong)sock->limited) {
-		async_core_event_close(core, sock, 2005);
+		async_core_event_close(core, sock, 2007);
 		return -200;
 	}
 	hr = async_sock_send_vector(sock, vecptr, veclen, count, mask);
@@ -2965,7 +2965,8 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		proxy->data[406] = strlen(addr);
 		memcpy(proxy->data + 407, addr, strlen(addr));
 		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
-		iencode16u_lsb((char*)(proxy->data + 400), 7 + (short)strlen(addr));
+		iencode16u_lsb((char*)(proxy->data + 400), 
+			(unsigned short)(7 + strlen(addr)));
 		if (authent) {
 			i = strlen(user);
 			j = strlen(pass);
@@ -2974,7 +2975,8 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 			memcpy(proxy->data + 704, user, i);
 			proxy->data[704 + i] = j;
 			memcpy(proxy->data + 704 + i + 1, pass, j);
-			iencode16u_lsb((char*)proxy->data + 700, 3 + i + j);
+			iencode16u_lsb((char*)proxy->data + 700, 
+				(unsigned short)(3 + i + j));
 		}
 		break;
 	}

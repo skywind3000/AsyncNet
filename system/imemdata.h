@@ -1768,10 +1768,10 @@ static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
 	unsigned char *out = (unsigned char*)d;
 	unsigned char masks[4];
 	ilong i;
-	masks[0] = (m >> 24) & 0xff;
-	masks[1] = (m >> 16) & 0xff;
-	masks[2] = (m >>  8) & 0xff;
-	masks[3] = (m >>  0) & 0xff;
+	masks[0] = (unsigned char)((m >> 24) & 0xff);
+	masks[1] = (unsigned char)((m >> 16) & 0xff);
+	masks[2] = (unsigned char)((m >>  8) & 0xff);
+	masks[3] = (unsigned char)((m >>  0) & 0xff);
 	for (i = 0; i < c; ptr++, out++, i++) {
 		out[0] = ptr[0] ^ masks[i & 3];
 	}

@@ -1059,7 +1059,7 @@ static void async_notify_on_estab(CAsyncNotify *notify, long hid, long tag)
 		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
 			"[ERROR] fatal error on estab connection hid=%lx", hid);
 		async_core_close(notify->core, hid, 8801);
-		assert(node != NULL);
+		//assert(node != NULL);
 		return;
 	}
 
@@ -1069,7 +1069,7 @@ static void async_notify_on_estab(CAsyncNotify *notify, long hid, long tag)
 		async_notify_log(notify, ASYNC_NOTIFY_LOG_ERROR,
 			"[ERROR] fatal error on connection mode hid=%lx mode=%d", 
 			hid, node->mode);
-		assert(node->mode == ASYNC_CORE_NODE_OUT);
+		//assert(node->mode == ASYNC_CORE_NODE_OUT);
 		return;
 	}
 
