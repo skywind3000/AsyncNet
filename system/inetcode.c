@@ -861,6 +861,7 @@ struct CAsyncCore
 	long index;
 	int xfd[3];
 	int nolock;
+	int flags;
 	IMUTEX_TYPE lock;
 	IMUTEX_TYPE xmtx;
 	IMUTEX_TYPE xmsg;
@@ -879,6 +880,7 @@ struct CAsyncCore
 #define ASYNC_CORE_PIPE_FLAG		2
 
 #define ASYNC_CORE_FLAG_PROGRESS	1
+#define ASYNC_CORE_FLAG_SENSITIVE	2
 
 /* used to monitor self-pipe trick */
 static unsigned int async_core_monitor = 0; 
@@ -958,6 +960,7 @@ CAsyncCore* async_core_new(int flags)
 	core->lastsec = 0;
 	core->maxsize = ASYNC_SOCK_MAXSIZE;
 	core->limited = 0;
+	core->flags = 0;
 
 	core->xfd[0] = -1;
 	core->xfd[1] = -1;
@@ -1903,8 +1906,13 @@ static long _async_core_send_vector(CAsyncCore *core, long hid,
 	long hr;
 	if (sock == NULL) return -100;
 	if (sock->limited > 0 && sock->sendmsg.size > (iulong)sock->limited) {
-		async_core_event_close(core, sock, 2007);
-		return -200;
+		if ((sock->flags & ASYNC_CORE_FLAG_SENSITIVE) == 0) {
+			async_sock_update(sock, 2);
+		}
+		if (sock->sendmsg.size > (iulong)sock->limited) {
+			async_core_event_close(core, sock, 2007);
+			return -200;
+		}
 	}
 	hr = async_sock_send_vector(sock, vecptr, veclen, count, mask);
 	if (sock->sendmsg.size > 0 && sock->fd >= 0) {
@@ -2176,6 +2184,13 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			sock->flags |= ASYNC_CORE_FLAG_PROGRESS;
 		}	else {
 			sock->flags &= ~ASYNC_CORE_FLAG_PROGRESS;
+		}
+		break;
+	case ASYNC_CORE_OPTION_SENSITIVE:
+		if (value) {
+			sock->flags |= ASYNC_CORE_FLAG_SENSITIVE;
+		}	else {
+			sock->flags &= ~ASYNC_CORE_FLAG_SENSITIVE;
 		}
 		break;
 	case ASYNC_CORE_OPTION_GETFD:

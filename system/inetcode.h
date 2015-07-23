@@ -308,6 +308,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_GETFD			9
 #define ASYNC_CORE_OPTION_REUSEPORT		10
 #define ASYNC_CORE_OPTION_UNIXREUSE		11
+#define ASYNC_CORE_OPTION_SENSITIVE		12
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
