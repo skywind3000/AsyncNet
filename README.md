@@ -21,3 +21,8 @@ python AsyncNet.py
 ```
 
 check test_async_core() and test_async_notify() in AsyncNet.py for more.
+
+C/C++ Library
+===========
+
+use tools/AsyncLoader.h tools/AsyncLoader.c in your code.
