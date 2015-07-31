@@ -267,7 +267,7 @@ typedef struct IMEMSLAB imemslab_t;
 #ifndef IMUTEX_TYPE
 
 #ifndef IMUTEX_DISABLE
-#if (defined(WIN32) || defined(_WIN32))
+#if (defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64))
 #if ((!defined(_M_PPC)) && (!defined(_M_PPC_BE)) && (!defined(_XBOX)))
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0500
@@ -310,6 +310,7 @@ typedef struct IMEMSLAB imemslab_t;
 
 #endif
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -347,7 +348,7 @@ typedef struct IMEMGFP imemgfp_t;
 /* IMEMLRU                                                            */
 /*====================================================================*/
 #ifndef IMCACHE_ARRAYLIMIT
-#define IMCACHE_ARRAYLIMIT 64
+#define IMCACHE_ARRAYLIMIT 128
 #endif
 
 #ifndef IMCACHE_NODECOUNT_SHIFT
@@ -361,7 +362,7 @@ typedef struct IMEMGFP imemgfp_t;
 #endif
 
 #ifndef IMCACHE_LRU_SHIFT
-#define IMCACHE_LRU_SHIFT	2
+#define IMCACHE_LRU_SHIFT	3
 #endif
 
 #define IMCACHE_LRU_COUNT	(1 << IMCACHE_LRU_SHIFT)
@@ -410,6 +411,7 @@ struct IMEMCACHE
 	size_t num;	
 	ilong flags;
 	ilong user;
+	int index;
 	void*extra;
 
 	char name[IMCACHE_NAMESIZE + 1];
@@ -456,6 +458,7 @@ void ikmem_cache_free(imemcache_t *cache, void *ptr);
 size_t ikmem_ptr_size(const void *ptr);
 void ikmem_option(size_t watermark);
 imemcache_t *ikmem_get(const char *name);
+imemcache_t *ikmem_vector(int id);
 
 ilong ikmem_page_info(ilong *pg_inuse, ilong *pg_new, ilong *pg_del);
 ilong ikmem_cache_info(int id, int *inuse, int *cnew, int *cdel, int *cfree);

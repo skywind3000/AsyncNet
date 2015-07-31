@@ -1118,6 +1118,10 @@ static void imemcache_list_free(imemcache_t *cache, void *ptr)
 /*====================================================================*/
 /* IMEMECACHE INTERFACE                                               */
 /*====================================================================*/
+
+/* callback to fetch processor id */
+int (*__ihook_processor_id)(void) = NULL;
+
 static int imemcache_fill_batch(imemcache_t *cache, int array_index)
 {
 	imemlru_t *array = &cache->array[array_index];
@@ -1140,6 +1144,43 @@ static int imemcache_fill_batch(imemcache_t *cache, int array_index)
 	return count;
 }
 
+int imemcache_batch_new(imemcache_t *cache, void **ptr, int count)
+{
+	int n = 0;
+
+	imutex_lock(&cache->list_lock);
+
+	for (n = 0; n < count; n++) {
+		void *p = imemcache_list_alloc(cache);
+		if (ptr == NULL) break;
+		ptr[n] = p;
+	}
+
+	imutex_unlock(&cache->list_lock);
+
+	return n;
+}
+
+int imemcache_batch_del(imemcache_t *cache, void **ptr, int count)
+{
+	int n = 0;
+
+	imutex_lock(&cache->list_lock);
+
+	for (n = 0; n < count; n++) {
+		imemcache_list_free(cache, ptr[n]);
+	}
+
+	if (cache->free_objects >= cache->free_limit) {
+		if (cache->count_free > 1) {
+			imemcache_drain_list(cache, 0, cache->count_free >> 1);
+		}
+	}
+
+	imutex_unlock(&cache->list_lock);
+
+	return count;
+}
 
 static void *imemcache_alloc(imemcache_t *cache)
 {
@@ -1148,7 +1189,9 @@ static void *imemcache_alloc(imemcache_t *cache)
 	void *ptr = NULL;
 	void **head;
 
-	array_index = 0;
+	if (__ihook_processor_id) 
+		array_index = __ihook_processor_id();
+
 	array_index &= (IMCACHE_LRU_COUNT - 1);
 
 	array = &cache->array[array_index];
@@ -1182,7 +1225,9 @@ static void *imemcache_free(imemcache_t *cache, void *ptr)
 	int array_index = 0;
 	int invalidptr, count;
 
-	array_index = 0;
+	if (__ihook_processor_id) 
+		array_index = __ihook_processor_id();
+
 	array_index &= (IMCACHE_LRU_COUNT - 1);
 	
 	head = (void**)(lptr - sizeof(void*));
@@ -1299,6 +1344,7 @@ static imemcache_t *imemcache_create(const char *name,
 
 	if (cache->gfp) cache->gfp->refcnt++;
 	cache->flags |= IMCACHE_FLAG_NOLOCK;
+	cache->index = 0;
 
 	iqueue_init(&cache->queue);
 
@@ -1379,6 +1425,11 @@ static size_t ikmem_range_low = 0;
 extern const ikmemhook_t ikmem_std_hook;
 static const ikmemhook_t *ikmem_hook = IKMEM_DEFAULT_HOOK;
 
+int ikmem_boot_flags = 0;
+
+// invoked when IKMEM_ENABLE_BOOT is defined
+void ikmem_boot_hook(int stage);
+
 
 static int ikmem_append(size_t size, struct IMEMGFP *gfp)
 {
@@ -1433,6 +1484,8 @@ static int ikmem_append(size_t size, struct IMEMGFP *gfp)
 		ikmem_array = p1;
 		ikmem_lookup = p2;
 	}
+
+	cache->index = ikmem_count;
 
 	ikmem_array[ikmem_count] = cache;
 	ikmem_lookup[ikmem_count++] = cache;
@@ -1513,7 +1566,7 @@ static void ikmem_insert(size_t objsize, int approxy)
 		optimize = ikmem_array[index]->obj_size;
 		if (optimize < objsize) continue;
 		if (optimize == objsize) break;
-		if (optimize - objsize <= (objsize >> 3) && approxy) break;
+		if (optimize - objsize <= (objsize >> 4) && approxy) break;
 	}
 
 	if (index < ikmem_count) 
@@ -1523,7 +1576,7 @@ static void ikmem_insert(size_t objsize, int approxy)
 	ikmem_append(objsize, gfp);
 }
 
-static imemcache_t *ikmem_choose_size(size_t size)
+imemcache_t *ikmem_choose_size(size_t size)
 {
 	int index;
 	if (size >= imem_page_size) return NULL;
@@ -1537,13 +1590,14 @@ static imemcache_t *ikmem_choose_size(size_t size)
 
 static void ikmem_setup_caches(size_t *sizelist)
 {
+	static int Z[] = { 24, 40, 48, 56, 80, 96, 112, 160, 192, 224, 330, -1 };
 	size_t fib1 = 8, fib2 = 16, f;
 	size_t *sizevec, *p;
 	size_t k = 0;
 	ilong limit, shift, count, i, j;
 	imemcache_t *cache;
 
-	limit = 32;
+	limit = 64;
 	sizevec = (size_t*)internal_malloc(0, sizeof(ilong) * limit);
 	assert(sizevec);
 
@@ -1564,11 +1618,20 @@ static void ikmem_setup_caches(size_t *sizelist)
 		ikmem_sizevec_append(((size_t)1) << shift);
 	}
 
+	#ifndef IKMEM_DISABLE_JESIZE
+	for (i = 0; Z[i] >= 0; i++) {
+		k = (size_t)Z[i];
+		ikmem_sizevec_append(k);
+	}
+	fib1 = 168;
+	fib2 = 272;
+	#endif
+
 	for (; fib2 < (imem_gfp_default.page_size >> 2); ) {
 		f = fib1 + fib2;
 		fib1 = fib2;
 		fib2 = f;
-		#ifdef IKMEM_USEFIB
+		#ifndef IKMEM_DISABLE_FIB
 		ikmem_sizevec_append(f);
 		#endif
 	}
@@ -1597,8 +1660,9 @@ static void ikmem_setup_caches(size_t *sizelist)
 		ikmem_size_lookup2[f >> 10] = ikmem_choose_size(f);
 
 	for (i = 0; i < ikmem_count; i++) {
-		cache = ikmem_array[i];
+		cache = ikmem_lookup[i];
 		cache->extra = (ilong*)internal_malloc(0, sizeof(ilong) * 8);
+		cache->index = i;
 		assert(cache->extra);
 		memset(cache->extra, 0, sizeof(ilong) * 8);
 	}
@@ -1607,39 +1671,134 @@ static void ikmem_setup_caches(size_t *sizelist)
 	ikmem_size_lookup2[0] = NULL;
 }
 
+#define IKMEM_MUTEX_MAX		8
+
+#define IKMEM_MUTEX_INIT	(-1)
+#define IKMEM_MUTEX_ONCE	(-2)
+#define IKMEM_MUTEX_BOOT0	(-3)
+#define IKMEM_MUTEX_BOOT1	(-4)
+
+IMUTEX_TYPE* ikmem_mutex_once(int id)
+{
+	static IMUTEX_TYPE mutexs[IKMEM_MUTEX_MAX];
+#if defined(IMUTEX_DISABLE) 
+	return &mutexs[0];
+#elif defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
+	static volatile int mutex_inited = 0;
+	if (mutex_inited == 0) {
+		static DWORD align_dwords[20] = { 
+			0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0
+		};
+		unsigned char *align_ptr = (unsigned char*)align_dwords;
+		LONG *once;
+		LONG last = 0;
+		while (((size_t)align_ptr) & 63) align_ptr++;
+		once = (LONG*)align_ptr;
+		last = InterlockedExchange(once, 1);
+		if (last == 0) {
+			if (mutex_inited == 0) {
+				int i = 0;
+				for (i = 0; i < IKMEM_MUTEX_MAX; i++) {
+					IMUTEX_INIT(&mutexs[i]);
+				}
+				mutex_inited = 1;
+			}
+		}
+		while (mutex_inited == 0) Sleep(1);
+	}
+	return &mutexs[(id + 4) & (IKMEM_MUTEX_MAX - 1)];
+#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
+	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+	static volatile int mutex_inited = 0;
+	if (mutex_inited == 0) {
+		pthread_mutex_lock(&mutex);
+		if (mutex_inited == 0) {
+			int i;
+			for (i = 0; i < IKMEM_MUTEX_MAX; i++) {
+				IMUTEX_INIT(&mutexs[i]);
+			}
+			mutex_inited = 1;
+		}
+		pthread_mutex_unlock(&mutex);
+	}
+	return &mutexs[(id + 4) & (IKMEM_MUTEX_MAX - 1)];
+#else
+	return &mutexs[0];
+#endif
+}
+
+int ikmem_current_cpu(void)
+{
+#if defined(IMUTEX_DISABLE) 
+	return 0;
+#elif defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
+	return (int)(GetCurrentThreadId() % 67);
+#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
+	size_t self = (size_t)pthread_self();
+	return (int)(self % 67);
+#else
+	return 0;
+#endif
+}
 
 void ikmem_init(int page_shift, int pg_malloc, size_t *sz)
 {
 	size_t psize;
 	ilong limit;
 
-	assert(ikmem_inited == 0 && imslab_inited == 0);
-	assert(imem_gfp_inited == 0);
+	if (ikmem_inited != 0)
+		return;
 
-	imem_gfp_init(page_shift, pg_malloc);
-	imslab_set_init();
+	IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_INIT);
+
+	IMUTEX_LOCK(mutex);
+
+	if (ikmem_inited == 0) {
+		imem_gfp_init(page_shift, pg_malloc);
+		imslab_set_init();
+		
+		ikmem_lookup = NULL;
+		ikmem_array = NULL;
+		ikmem_count = 0;
+		ikmem_inuse = 0;
+
+		psize = imem_gfp_default.page_size - IMROUNDUP(sizeof(void*));
+		ikmem_append(psize, 0);
+
+		limit = imem_page_shift - 4;
+		limit = limit < 10? 10 : limit;
+		
+		ikmem_setup_caches(sz);
+
+		imutex_init(&ikmem_lock);
+		iqueue_init(&ikmem_head);
+		iqueue_init(&ikmem_large_ptr);
+
+		ikmem_range_high = (size_t)0;
+		ikmem_range_low = ~((size_t)0);
+
+	#if defined(IMUTEX_DISABLE) 
+		__ihook_processor_id = NULL;
+	#else
+		__ihook_processor_id = ikmem_current_cpu;
+	#endif
+
+		ikmem_inited = 1;
+	}
+
+	IMUTEX_UNLOCK(mutex);
 	
-	ikmem_lookup = NULL;
-	ikmem_array = NULL;
-	ikmem_count = 0;
-	ikmem_inuse = 0;
-
-	psize = imem_gfp_default.page_size - IMROUNDUP(sizeof(void*));
-	ikmem_append(psize, 0);
-
-	limit = imem_page_shift - 4;
-	limit = limit < 10? 10 : limit;
-	
-	ikmem_setup_caches(sz);
-
-	imutex_init(&ikmem_lock);
-	iqueue_init(&ikmem_head);
-	iqueue_init(&ikmem_large_ptr);
-
-	ikmem_range_high = (size_t)0;
-	ikmem_range_low = ~((size_t)0);
-
-	ikmem_inited = 1;
+#ifdef IKMEM_ENABLE_BOOT
+	if ((ikmem_boot_flags & 1) == 0) {
+		mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT0);
+		IMUTEX_LOCK(mutex);
+		if ((ikmem_boot_flags & 1) == 0) {
+			ikmem_boot_hook(0);
+			ikmem_boot_flags |= 1;
+		}
+		IMUTEX_UNLOCK(mutex);
+	}
+#endif
 }
 
 void ikmem_destroy(void)
@@ -1651,6 +1810,18 @@ void ikmem_destroy(void)
 	if (ikmem_inited == 0) {
 		return;
 	}
+
+#ifdef IKMEM_ENABLE_BOOT
+	if (ikmem_boot_flags) {
+		IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT0);
+		IMUTEX_LOCK(mutex);
+		if (ikmem_boot_flags) {
+			ikmem_boot_hook(1);
+			ikmem_boot_flags = 0;
+		}
+		IMUTEX_UNLOCK(mutex);
+	}
+#endif
 
 	imutex_lock(&ikmem_lock);
 	for (p = ikmem_head.next; p != &ikmem_head; ) {
@@ -1695,42 +1866,23 @@ void ikmem_destroy(void)
 }
 
 
-
+/*====================================================================*/
+/* IKMEM CORE                                                         */
+/*====================================================================*/
 #define IKMEM_LARGE_HEAD	\
 	IMROUNDUP(sizeof(iqueue_head) + sizeof(void*) + sizeof(ilong))
 
 #define IKMEM_STAT(cache, id) (((ilong*)((cache)->extra))[id])
 
+
 void ikmem_once_init(void)
 {
-#if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
-	static DWORD align_dwords[20] = { 
-		0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0
-	};
-	unsigned char *align_ptr = (unsigned char*)align_dwords;
-	LONG *once;
-	LONG last = 0;
-	while (((size_t)align_ptr) & 63) align_ptr++;
-	once = (LONG*)align_ptr;
-	last = InterlockedExchange(once, 1);
-	if (last == 0) {
-		if (ikmem_inited == 0) {
-			ikmem_init(0, 0, NULL);
-		}
-	}
-	while (ikmem_inited == 0) Sleep(1);
-#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
-	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-	pthread_mutex_lock(&mutex);
+	IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_ONCE);
+	IMUTEX_LOCK(mutex);
 	if (ikmem_inited == 0) {
 		ikmem_init(0, 0, NULL);
 	}
-	pthread_mutex_unlock(&mutex);
-#else
-	if (ikmem_inited == 0) {
-		ikmem_init(0, 0, NULL);
-	}
-#endif
+	IMUTEX_UNLOCK(mutex);
 }
 
 void* ikmem_core_malloc(size_t size);
@@ -1879,7 +2031,11 @@ void* ikmem_core_realloc(void *ptr, size_t size)
 
 	if (ikmem_inited == 0) ikmem_once_init();
 
-	if (ptr == NULL) return ikmem_core_malloc(size);
+	if (ptr == NULL) {
+		if (size == 0) return NULL;
+		return ikmem_core_malloc(size);
+	}
+
 	oldsize = ikmem_core_ptrsize(ptr);
 
 	if (size == 0) {
@@ -1920,8 +2076,32 @@ void ikmem_core_shrink(void)
 	}
 }
 
+imemcache_t *ikmem_core_get(int id)
+{
+	if (id < 0 || id >= ikmem_count) return NULL;
+	return ikmem_lookup[id];
+}
+
+void ikmem_boot_once(void)
+{
+#ifdef IKMEM_ENABLE_BOOT
+	if ((ikmem_boot_flags & 2) == 0) {
+		IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT1);
+		IMUTEX_LOCK(mutex);
+		if ((ikmem_boot_flags & 2) == 0) {
+			ikmem_boot_hook(2);
+			ikmem_boot_flags |= 2;
+		}
+		IMUTEX_UNLOCK(mutex);
+	}
+#endif
+}
+
 void* ikmem_malloc(size_t size)
 {
+#ifdef IKMEM_ENABLE_BOOT
+	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
+#endif
 	if (ikmem_hook) {
 		return ikmem_hook->kmem_malloc_fn(size);
 	}
@@ -1930,6 +2110,9 @@ void* ikmem_malloc(size_t size)
 
 void* ikmem_realloc(void *ptr, size_t size)
 {
+#ifdef IKMEM_ENABLE_BOOT
+	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
+#endif
 	if (ikmem_hook) {
 		return ikmem_hook->kmem_realloc_fn(ptr, size);
 	}
@@ -1938,6 +2121,9 @@ void* ikmem_realloc(void *ptr, size_t size)
 
 void ikmem_free(void *ptr)
 {
+#ifdef IKMEM_ENABLE_BOOT
+	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
+#endif
 	if (ikmem_hook) {
 		ikmem_hook->kmem_free_fn(ptr);
 		return;
@@ -2000,7 +2186,6 @@ imemcache_t *ikmem_get(const char *name)
 {
 	return ikmem_search(name, 1);
 }
-
 
 ilong ikmem_page_info(ilong *pg_inuse, ilong *pg_new, ilong *pg_del)
 {
@@ -2095,6 +2280,11 @@ void *ikmem_cache_alloc(imemcache_t *cache)
 void ikmem_cache_free(imemcache_t *cache, void *ptr)
 {
 	imemcache_free(cache, ptr);
+}
+
+void ikmem_cache_shrink(imemcache_t *cache)
+{
+	imemcache_shrink(cache);
 }
 
 
