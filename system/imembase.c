@@ -1743,13 +1743,14 @@ int ikmem_current_cpu(void)
 
 void ikmem_init(int page_shift, int pg_malloc, size_t *sz)
 {
+	IMUTEX_TYPE *mutex;
 	size_t psize;
 	ilong limit;
 
 	if (ikmem_inited != 0)
 		return;
 
-	IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_INIT);
+	mutex = ikmem_mutex_once(IKMEM_MUTEX_INIT);
 
 	IMUTEX_LOCK(mutex);
 
