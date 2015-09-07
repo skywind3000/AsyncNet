@@ -1484,10 +1484,11 @@ void ikmset(void *ikmalloc_fn_ptr, void *ikfree_fn_ptr)
 /* init network */
 int inet_init(void)
 {
+	int retval = 0;
+
 	#if defined(_WIN32) || defined(WIN32)
 	static int inited = 0;
 	WSADATA WSAData;
-	int retval = 0;
 
 	#ifdef _XBOX
     XNetStartupParams xnsp;
@@ -1515,7 +1516,7 @@ int inet_init(void)
 	#elif defined(__unix)
 	#endif
 
-	return 0;
+	return retval;
 }
 
 
