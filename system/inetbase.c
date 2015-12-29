@@ -5269,6 +5269,7 @@ int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
 	#elif defined(__CYGWIN__) || defined(__AVM3__)
 		retval = -3;
 	#elif defined(__linux__) && (!defined(__ANDROID__))
+		#if 0
 		cpu_set_t mask;
 		int i;
 		CPU_ZERO(&mask);
@@ -5283,6 +5284,9 @@ int iposix_thread_affinity(iPosixThread *thread, unsigned int cpumask)
 		retval = sched_setaffinity(thread->ptid, sizeof(mask), &mask);
 		#endif
 		if (retval != 0) retval = -2;
+		#else
+		retval = -3;
+		#endif
 	#else
 		retval = -4;
 	#endif
