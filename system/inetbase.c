@@ -5135,8 +5135,10 @@ int iposix_thread_cancel(iPosixThread *thread)
 
 	if (thread == NULL) return -1;
 	if (thread->target == NULL) return -2;
-	
+
 	IMUTEX_LOCK(&thread->lock);
+
+	thread->alive = 0;
 
 	if (thread->target == NULL) {
 		IMUTEX_UNLOCK(&thread->lock);
@@ -5145,6 +5147,7 @@ int iposix_thread_cancel(iPosixThread *thread)
 
 	if (thread->state == IPOSIX_THREAD_STATE_STOP) {
 		IMUTEX_UNLOCK(&thread->lock);
+		thread->alive = 0;
 		return 0;
 	}
 
@@ -5174,6 +5177,7 @@ int iposix_thread_cancel(iPosixThread *thread)
 			thread->attr_inited = 0;
 		}
 	#endif
+		thread->alive = 0;
 	}
 
 	thread->state = IPOSIX_THREAD_STATE_STOP;
