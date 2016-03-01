@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #======================================================================
 #
-# emake.py - emake version 3.30
+# emake.py - emake version 3.61
 #
 # history of this file:
 # 2009.08.20   skywind   create this file
@@ -19,6 +19,8 @@
 # 2013.12.19   skywind   new $(target) config
 # 2014.02.09   skywind   new build-event and environ
 # 2014.04.15   skywind   new 'arglink' and 'argcc' config
+# 2015.09.03   skywind   new replace in config.parameters()
+# 2016.01.14   skywind   new compile flags with different source file
 #
 #======================================================================
 import sys, time, os
@@ -293,23 +295,12 @@ def execute(args, shell = False, capture = False):
 			args = shlex.split(cmd)
 	for n in args:
 		if sys.platform[:3] != 'win':
-			text = ''
-			for ch in n:
-				if ch == ' ': text += '\\ '
-				elif ch == '\\': text += '\\\\'
-				elif ch == '\"': text += '\\\"'
-				elif ch == '\t': text += '\\t'
-				elif ch == '\n': text += '\\n'
-				elif ch == '\r': text += '\\r'
-				else:
-					text += ch
+			replace = { ' ':'\\ ', '\\':'\\\\', '\"':'\\\"', '\t':'\\t', \
+				'\n':'\\n', '\r':'\\r' }
+			text = ''.join([ replace.get(ch, ch) for ch in n ])
 			parameters.append(text)
 		else:
-			translate = False
-			if ' ' in n: translate = True
-			if '\t' in n: translate = True
-			if '"' in n: translate = True
-			if translate:
+			if (' ' in n) or ('\t' in n) or ('"' in n): 
 				parameters.append('"%s"'%(n.replace('"', ' ')))
 			else:
 				parameters.append(n)
@@ -378,6 +369,7 @@ class configure(object):
 		self.searchdirs = None
 		self.environ = {}
 		self.exename = {}
+		self.replace = {}
 		self.cygwin = ''
 		for n in os.environ:
 			self.environ[n] = os.environ[n]
@@ -531,7 +523,7 @@ class configure(object):
 					sys.stderr.flush()
 				else:
 					self.config['default']['home'] = dirhome
-			for exename in ('gcc', 'ld', 'ar', 'dllwrap'):
+			for exename in ('gcc', 'ld', 'ar', 'as', 'nasm', 'yasm', 'dllwrap'):
 				if not exename in config['default']:
 					continue
 				self.exename[exename] = config['default'][exename]
@@ -592,7 +584,7 @@ class configure(object):
 			#sys.stderr.write('warning: %s cannot be open\n'%(self.ininame))
 			sys.stderr.flush()
 		defined = self.exename.get('gcc', None) and True or False
-		for name in ('gcc', 'ar', 'ld', 'dllwrap'):
+		for name in ('gcc', 'ar', 'ld', 'as', 'nasm', 'yasm', 'dllwrap'):
 			exename = self.exename.get(name, name)
 			if not self.unix:
 				elements = list(os.path.splitext(exename)) + ['', '']
@@ -669,6 +661,12 @@ class configure(object):
 		else:
 			self.fpic = True
 		#self.__python_config()
+		self.replace = {}
+		self.replace['home'] = self.dirhome
+		self.replace['emake'] = self.dirpath
+		self.replace['inihome'] = os.path.dirname(self.inipath)
+		self.replace['inipath'] = self.inipath
+		self.replace['target'] = self.target
 		self.inited = True
 		return 0
 
@@ -772,12 +770,13 @@ class configure(object):
 	
 	# 添加链接库
 	def push_link (self, link):
-		if link[-2:].lower() == '.o':
+		if link[-2:].lower() in ('.o', '.a'):
 			link = self.pathtext(self.path(link))
 		else:
 			link = '-l%s'%link.replace(' ', '_')
 		if not link in self.link:
 			self.link[link] = len(self.link)
+		#print 'push: ' + link
 		return 0
 	
 	# 添加预定义
@@ -887,6 +886,15 @@ class configure(object):
 		x.sort()
 		y = [ n for (k, n) in x ]
 		return y
+	
+	# 替换字符串 
+	def __replace_key (self, text):
+		for key in self.replace:
+			value = self.replace[key]
+			check = '$(' + key + ')'
+			if check in text:
+				text = text.replace(check, value)
+		return text
 
 	# 返回序列化的参数	
 	def parameters (self):
@@ -896,7 +904,7 @@ class configure(object):
 		for lib in self.sequence(self.lib):
 			text += '-L%s '%lib
 		for flag in self.sequence(self.flag):
-			text += '%s '%flag
+			text += '%s '%self.__replace_key(flag)
 		for pdef in self.sequence(self.pdef):
 			text += '-D%s '%pdef
 		self.param_compile = text.strip(' ')
@@ -904,15 +912,15 @@ class configure(object):
 		if self.xlink:
 			text = '-Xlinker "-(" '
 		for link in self.sequence(self.link):
-			text += '%s '%link
+			text += '%s '%self.__replace_key(link)
 		if self.xlink:
 			text += ' -Xlinker "-)"'
 		else:
 			text = text + ' ' + text
 		self.param_build = self.param_compile + ' ' + text
 		for flnk in self.sequence(self.flnk):
-			self.param_build += ' %s'%flnk
-		wl = ','.join(self.sequence(self.wlnk))
+			self.param_build += ' %s'%self.__replace_key(flnk)
+		wl = ','.join([ self.__replace_key(n) for n in self.sequence(self.wlnk) ])
 		if wl and self.wlnk:
 			self.param_build += ' -Wl,' + wl
 		return text
@@ -965,6 +973,17 @@ class configure(object):
 				return True
 		return False
 	
+	# 取得可执行名称
+	def getname (self, binname):
+		exename = self.exename.get(binname, binname)
+		path = os.path.abspath(os.path.join(self.dirhome, exename))
+		if not self.unix:
+				name = self.pathshort(path)
+				if (not name) and os.path.exists(path + '.exe'):
+					name = self.pathshort(path + '.exe')
+				if name: path = name
+		return path
+	
 	# 执行GNU工具集
 	def execute (self, binname, parameters, printcmd = False, capture = False):
 		path = os.path.abspath(os.path.join(self.dirhome, binname))
@@ -994,8 +1013,8 @@ class configure(object):
 		return self.execute(self.exename['gcc'], parameters, printcmd, capture)
 
 	# 编译
-	def compile (self, srcname, objname, printcmd = False, capture = False):
-		cmd = '-c %s -o %s'%(self.pathrel(srcname), self.pathrel(objname))
+	def compile (self, srcname, objname, cflags, printcmd = False, capture = False):
+		cmd = '-c %s -o %s %s'%(self.pathrel(srcname), self.pathrel(objname), cflags)
 		return self.gcc(cmd, False, printcmd, capture)
 	
 	# 使用 dllwrap
@@ -1319,6 +1338,7 @@ class coremake(object):
 		self._mode = 'exe'	# exe win dll lib
 		self._src = []		# 源代码
 		self._obj = []		# 目标文件
+		self._opt = []
 		self._export = {}	# DLL导出配置
 		self._environ = {}	# 环境变量
 		self.inited = 0
@@ -1399,9 +1419,10 @@ class coremake(object):
 		return src2obj
 	
 	# 添加源文件和目标文件
-	def push (self, srcname, objname):
+	def push (self, srcname, objname, options):
 		self._src.append(os.path.abspath(srcname))
 		self._obj.append(os.path.abspath(objname))
+		self._opt.append(options)
 	
 	# 创建目录
 	def mkdir (self, path):
@@ -1499,6 +1520,7 @@ class coremake(object):
 		for i in xrange(len(self._src)):
 			srcname = self._src[i]
 			objname = self._obj[i]
+			options = self._opt[i]
 			if srcname == objname:
 				continue
 			if skipexist and os.path.exists(objname):
@@ -1510,7 +1532,7 @@ class coremake(object):
 				if name[:1] == '"':
 					name = name[1:-1]
 				print name
-			self.config.compile(srcname, objname, printcmd)
+			self.config.compile(srcname, objname, options, printcmd)
 			if not os.path.exists(objname):
 				retval = -1
 				break
@@ -1519,7 +1541,7 @@ class coremake(object):
 	# 多核编译：skipexist(是否需要跳过已有的obj文件)
 	def _compile_threading (self, skipexist, printmode, printcmd, cpus):
 		# 估算编译时间，文件越大假设时间越长，放在最前面
-		ctasks = [ (os.path.getsize(s), s, o) for s, o in zip(self._src, self._obj) ]
+		ctasks = [ (os.path.getsize(s), s, o, t) for s, o, t in zip(self._src, self._obj, self._opt) ]
 		ctasks.sort()
 		import threading
 		self._task_lock = threading.Lock()
@@ -1557,7 +1579,7 @@ class coremake(object):
 			if not self._task_queue:
 				mutex.release()
 				break
-			weight, srcname, objname = self._task_queue.pop()
+			weight, srcname, objname, options = self._task_queue.pop()
 			mutex.release()
 			if srcname == objname:
 				continue
@@ -1566,7 +1588,7 @@ class coremake(object):
 			try: os.remove(os.path.abspath(objname))
 			except: pass
 			timeslap = time.time()
-			output = self.config.compile(srcname, objname, printcmd, True)
+			output = self.config.compile(srcname, objname, options, printcmd, True)
 			timeslap = time.time() - timeslap
 			result = True
 			if not os.path.exists(objname):
@@ -1663,6 +1685,8 @@ class coremake(object):
 		environ['EMOUTN'] = os.path.splitext(self._out)[0]
 		environ['EMOUTE'] = os.path.splitext(self._out)[1]
 		environ['EMOUTP'] = os.path.dirname(self._out)
+		for name in ('gcc', 'ar', 'ld', 'as', 'nasm', 'yasm', 'dllwrap'):
+			environ['EM' + name.upper()] = self.config.getname(name)
 		for k, v in environ.items():	# 展开宏
 			environ[k] = self.config._expand(environ, envsave, k, v)
 		for k, v in environ.items():
@@ -1735,6 +1759,7 @@ class iparser (object):
 		self.libdict = {}
 		self.srcdict = {}
 		self.chkdict = {}
+		self.optdict = {}
 		self.impdict = {}
 		self.expdict = {}
 		self.linkdict = {}
@@ -1760,7 +1785,7 @@ class iparser (object):
 		return self.src.__iter__()
 	
 	# 添加代码
-	def push_src (self, filename):
+	def push_src (self, filename, options):
 		filename = os.path.abspath(filename)
 		realname = os.path.normcase(filename)
 		if filename in self.srcdict:	
@@ -1769,6 +1794,7 @@ class iparser (object):
 			return -1
 		self.srcdict[filename] = ''
 		self.chkdict[realname] = ''
+		self.optdict[filename] = options
 		self.src.append(filename)
 		return 0
 	
@@ -1961,7 +1987,7 @@ class iparser (object):
 				retval = -1
 				break
 		os.chdir(savedir)
-		self.push_src(self.makefile)
+		self.push_src(self.makefile, '')
 		return retval
 
 	# 扫描工程文件
@@ -1997,7 +2023,15 @@ class iparser (object):
 	def _process_src (self, textline, fname = '', lineno = -1):
 		ext1 = ('.c', '.cpp', '.cc', '.cxx', '.asm')
 		ext2 = ('.s', '.o', '.obj', '.m', '.mm')
-		for name in textline.replace(';', ',').split(','):
+		pos = textline.find(':')
+		if pos >= 0:
+			body = textline[:pos]
+			options = ''
+			options = textline[pos + 1:].strip('\r\n\t ')
+		else:
+			body = textline
+			options = ''
+		for name in body.replace(';', ',').split(','):
 			srcname = self.pathconf(name)
 			if not srcname:
 				continue
@@ -2017,7 +2051,7 @@ class iparser (object):
 					self.error('error: %s: Unknow file type'%absname, \
 						fname, lineno)
 					return -2
-				self.push_src(absname)
+				self.push_src(absname, options)
 		return 0
 
 	# 处理：分析信息
@@ -2448,8 +2482,13 @@ class emake (object):
 		#print 'open', parser.out, parser.mode, parser.int
 		for src in self.parser:
 			obj = self.parser[src]
-			self.coremake.push(src, obj)
-		if self._config() != 0:
+			opt = self.parser.optdict[src]
+			self.coremake.push(src, obj, opt)
+		savedir = os.getcwd()
+		os.chdir(os.path.dirname(os.path.abspath(makefile)))
+		hr = self._config()
+		os.chdir(savedir)
+		if hr != 0:
 			return -2
 		self.coremake._environ = {}
 		for k, v in environ.items():
@@ -2461,6 +2500,8 @@ class emake (object):
 		return 0
 	
 	def _config (self):
+		self.config.replace['makefile'] = self.coremake._main
+		self.config.replace['workspace'] = os.path.dirname(self.coremake._main)
 		for name, fname, lineno in self.parser.imp:
 			if not name in self.config.config:
 				self.parser.error('error: %s: No such config section'%name, \
@@ -2493,6 +2534,7 @@ class emake (object):
 		for name, fname, lineno in self.parser.exp:
 			self.coremake.dllwrap(name)
 		self.config.parameters()
+		#print 'replace', self.config.replace
 		return 0
 	
 	def compile (self, printmode = -1):
@@ -2700,7 +2742,7 @@ def __update_file(name, content):
 def getemake():
 	import urllib2
 	url1 = 'http://skywind3000.github.io/emake/emake.py'
-	url2 = 'http://www.skywind.com/php/getemake.php'
+	url2 = 'http://www.skywind.me/php/getemake.php'
 	success = True
 	content = ''
 	for url in (url1, url2):
@@ -2746,7 +2788,7 @@ def update():
 	return 0
 
 def help():
-	print "Emake v3.37 Feb.16 2015"
+	print "Emake v3.61 Jan.14 2016"
 	print "By providing a completely new way to build your projects, Emake"
 	print "is a easy tool which controls the generation of executables and other"
 	print "non-source files of a program from the program's source files. "
@@ -2804,7 +2846,7 @@ def main(argv = None):
 			break
 
 	if len(argv) == 1:
-		version = '(emake v3.37 Jul.06 2015 %s)'%sys.platform
+		version = '(emake v3.61 Jan.14 2016 %s)'%sys.platform
 		print 'usage: "emake.py [option] srcfile" %s'%version
 		print 'options  :  -b | -build      build project'
 		print '            -c | -compile    compile project'
