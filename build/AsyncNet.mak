@@ -2,7 +2,8 @@ mode: dll
 flag: -O3, -Wall
 link: stdc++
 int: ../build/objs/$(target)
-unix/link: rt, pthread
+linux/link: rt, pthread
+darwin/link: pthread
 
 win32/flag: -s
 unix/flag: -g
