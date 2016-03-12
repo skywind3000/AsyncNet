@@ -689,30 +689,6 @@ void ikmset(void *ikmalloc_func, void *ikfree_func);
 
 
 /*===================================================================*/
-/* INLINE COMPATIBLE                                                 */
-/*===================================================================*/
-#ifndef INLINE
-#ifdef __GNUC__
-
-#if __GNUC_MINOR__ >= 1  && __GNUC_MINOR__ < 4
-#define INLINE         __inline__ __attribute__((always_inline))
-#else
-#define INLINE         __inline__
-#endif
-
-#elif (defined(_MSC_VER) || defined(__BORLANDC__) || defined(__WATCOMC__))
-#define INLINE __inline
-#else
-#define INLINE 
-#endif
-#endif
-
-#ifndef inline
-#define inline INLINE
-#endif
-
-
-/*===================================================================*/
 /* Simple Assistant Function                                         */
 /*===================================================================*/
 
