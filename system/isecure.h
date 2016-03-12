@@ -256,6 +256,16 @@ void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
 	void *out, size_t size, int ntimes);
 
 
+
+//=====================================================================
+// CRYPTO XTEA: https://en.wikipedia.org/wiki/XTEA
+//=====================================================================
+
+void CRYPTO_XTEA_Encipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
+
+void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
+
+
 #ifdef __cplusplus
 }
 #endif

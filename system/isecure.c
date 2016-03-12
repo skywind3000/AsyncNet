@@ -803,3 +803,31 @@ void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
 }
 
 
+
+//=====================================================================
+// CRYPTO XTEA: https://en.wikipedia.org/wiki/XTEA
+//=====================================================================
+void CRYPTO_XTEA_Encipher(int nrounds, const IUINT32 key[4], IUINT32 v[2])
+{
+	IUINT32 v0 = v[0], v1 = v[1], sum = 0, delta = 0x9E3779B9;
+	for (; nrounds > 0; nrounds--) {
+	v0 += (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + key[sum & 3]);
+	sum += delta;
+	v1 += (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + key[(sum >> 11) & 3]);
+	}
+	v[0] = v0; v[1] = v1;
+}
+
+void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2])
+{
+	IUINT32 v0 = v[0], v1 = v[1], delta = 0x9E3779B9;
+	IUINT32 sum = delta * ((IUINT32)nrounds);
+	for (; nrounds > 0; nrounds--) {
+		v1 -= (((v0 << 4) ^ (v0 >> 5)) + v0) ^ (sum + key[(sum >> 11) & 3]);
+		sum -= delta;
+		v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + key[sum & 3]);
+	}
+	v[0]=v0; v[1]=v1;
+}
+
+

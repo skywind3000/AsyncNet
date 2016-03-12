@@ -2,41 +2,41 @@
 //
 // system.h - system wrap for c++ 
 // 
-// NOTE: ¼¯³ÉÁË±¾Ä¿Â¼ÏÂ¼¸´ó C»ù´¡Ä£¿é²¢Ìá¹©ÏÂÃæÀà£º
+// NOTE: é›†æˆäº†æœ¬ç›®å½•ä¸‹å‡ å¤§ CåŸºç¡€æ¨¡å—å¹¶æä¾›ä¸‹é¢ç±»ï¼š
 // 
 // SystemError       Exception
 //
-// CriticalSection   »¥³âËø
-// CriticalScope     ÇøÓò»¥³â
-// ConditionVariable Ìõ¼ş±äÁ¿£¬¿çÆ½Ì¨µÄ pthread_cond_t
-// EventPosix        ÊÂ¼ş£¬¿çÆ½Ì¨µÄ Win32 Event
-// ReadWriteLock     ¶ÁĞ´Ëø
-// ConditionLock     Ìõ¼ş±äÁ¿¼òÒ×°æ£¬Ïàµ±ÓÚ cond + mutex
+// CriticalSection   äº’æ–¥é”
+// CriticalScope     åŒºåŸŸäº’æ–¥
+// ConditionVariable æ¡ä»¶å˜é‡ï¼Œè·¨å¹³å°çš„ pthread_cond_t
+// EventPosix        äº‹ä»¶ï¼Œè·¨å¹³å°çš„ Win32 Event
+// ReadWriteLock     è¯»å†™é”
+// ConditionLock     æ¡ä»¶å˜é‡ç®€æ˜“ç‰ˆï¼Œç›¸å½“äº cond + mutex
 //
-// Thread            Ïß³Ì¿ØÖÆ¶ÔÏó
-// Clock             ÓÃÓÚ¶ÁÈ¡µÄÊ±ÖÓ
-// Timer             ÓÃÓÚµÈ´ı»½ĞÑµÄÊ±ÖÓ
-// Semaphore         ĞÅºÅÁ¿
+// Thread            çº¿ç¨‹æ§åˆ¶å¯¹è±¡
+// Clock             ç”¨äºè¯»å–çš„æ—¶é’Ÿ
+// Timer             ç”¨äºç­‰å¾…å”¤é†’çš„æ—¶é’Ÿ
+// Semaphore         ä¿¡å·é‡
 //
-// KernelPoll        Òì²½ÊÂ¼ş£º¾«¼òµÄ libevent
-// SockAddress       Ì×½Ó×ÖµØÖ·£ºIPV4µØÖ·¹ÜÀí
+// KernelPoll        å¼‚æ­¥äº‹ä»¶ï¼šç²¾ç®€çš„ libevent
+// SockAddress       å¥—æ¥å­—åœ°å€ï¼šIPV4åœ°å€ç®¡ç†
 //
-// MemNode           ÄÚ´æ½Úµã£º¹Ì¶¨½Úµã·ÖÅäÆ÷£¨¿É×ö¹Ì¶¨ÄÚ´æ·ÖÅäÆ÷ÓÃ£©
-// MemStream         ÄÚ´æÁ÷£º»ùÓÚÒ³Ãæ½»»¥µÄ FIFO»º´æ
-// RingBuffer        »·»º´æ£º»·×´ FIFO»º´æ
-// CryptRC4          RC4¼ÓÃÜ
+// MemNode           å†…å­˜èŠ‚ç‚¹ï¼šå›ºå®šèŠ‚ç‚¹åˆ†é…å™¨ï¼ˆå¯åšå›ºå®šå†…å­˜åˆ†é…å™¨ç”¨ï¼‰
+// MemStream         å†…å­˜æµï¼šåŸºäºé¡µé¢äº¤äº’çš„ FIFOç¼“å­˜
+// RingBuffer        ç¯ç¼“å­˜ï¼šç¯çŠ¶ FIFOç¼“å­˜
+// CryptRC4          RC4åŠ å¯†
 //
-// AsyncSock         ·Ç×èÈû TCPÌ×½Ó×Ö
-// AsyncCore         Òì²½¿ò¼Ü
+// AsyncSock         éé˜»å¡ TCPå¥—æ¥å­—
+// AsyncCore         å¼‚æ­¥æ¡†æ¶
 //
-// Queue             Ïß³Ì°²È«µÄ¶ÓÁĞ
-// TaskPool          Ïß³Ì³ØÈÎÎñ¹ÜÀíÆ÷
+// Queue             çº¿ç¨‹å®‰å…¨çš„é˜Ÿåˆ—
+// TaskPool          çº¿ç¨‹æ± ä»»åŠ¡ç®¡ç†å™¨
 //
-// CsvReader         CSVÎÄ¼ş¶ÁÈ¡
-// CsvWriter         CSVÎÄ¼şĞ´Èë
-// HttpRequest       ·´ÕÕ PythonµÄ urllib£¬·Ç×èÈûºÍ×èÈûÄ£Ê½
-// Path              ·ÂÕÕ PythonµÄ os.path Â·¾¶Á¬½Ó£¬¾ø¶ÔÂ·¾¶µÈ
-// DateTime          È¡ÈÕÆÚºÍÊ±¼ä£¨¾«È·µ½ºÁÃëµÄ£©
+// CsvReader         CSVæ–‡ä»¶è¯»å–
+// CsvWriter         CSVæ–‡ä»¶å†™å…¥
+// HttpRequest       åç…§ Pythonçš„ urllibï¼Œéé˜»å¡å’Œé˜»å¡æ¨¡å¼
+// Path              ä»¿ç…§ Pythonçš„ os.path è·¯å¾„è¿æ¥ï¼Œç»å¯¹è·¯å¾„ç­‰
+// DateTime          å–æ—¥æœŸå’Œæ—¶é—´ï¼ˆç²¾ç¡®åˆ°æ¯«ç§’çš„ï¼‰
 //
 //=====================================================================
 #ifndef __SYSTEM_H__
@@ -146,7 +146,7 @@ inline int SystemError::line() const {
 
 
 //---------------------------------------------------------------------
-// »¥³âËø
+// äº’æ–¥é”
 //---------------------------------------------------------------------
 class CriticalSection
 {
@@ -165,7 +165,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ×Ô¶¯Ëø
+// è‡ªåŠ¨é”
 //---------------------------------------------------------------------
 class CriticalScope
 {
@@ -194,7 +194,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Ìõ¼ş±äÁ¿£º
+// æ¡ä»¶å˜é‡ï¼š
 //---------------------------------------------------------------------
 class ConditionVariable
 {
@@ -228,7 +228,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ÊÂ¼ş»úÖÆ
+// äº‹ä»¶æœºåˆ¶
 //---------------------------------------------------------------------
 class EventPosix
 {
@@ -267,7 +267,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ¶ÁĞ´Ëø
+// è¯»å†™é”
 //---------------------------------------------------------------------
 class ReadWriteLock
 {
@@ -294,23 +294,23 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Ìõ¼şËø£ºÏàµ±ÓÚ ConditionVariable + CriticalSection
+// æ¡ä»¶é”ï¼šç›¸å½“äº ConditionVariable + CriticalSection
 //---------------------------------------------------------------------
 class ConditionLock
 {
 public:
 
-	// »½ĞÑËùÓĞµÈ´ı½ø³Ì
+	// å”¤é†’æ‰€æœ‰ç­‰å¾…è¿›ç¨‹
 	void wake(bool all = false) { if (!all) _cond.wake(); else _cond.wake_all(); }
 
-	// µÈ´ıÈô¸ÉºÁÃë£¬³É¹¦·µ»Ø true
+	// ç­‰å¾…è‹¥å¹²æ¯«ç§’ï¼ŒæˆåŠŸè¿”å› true
 	bool sleep(unsigned long millisec) { return _cond.sleep(_lock, millisec); }
 	bool sleep() { return _cond.sleep(_lock); }
 
-	// ½øÈëÁÙ½çÇø
+	// è¿›å…¥ä¸´ç•ŒåŒº
 	void enter() { _lock.enter(); }
 
-	// ÊÍ·ÅÁÙ½çÇø
+	// é‡Šæ”¾ä¸´ç•ŒåŒº
 	void leave() { _lock.leave(); }
 
 private:
@@ -320,16 +320,16 @@ private:
 
 
 //---------------------------------------------------------------------
-// Ïß³ÌÀà PythonÄ£Ê½
+// çº¿ç¨‹ç±» Pythonæ¨¡å¼
 //---------------------------------------------------------------------
 class Thread
 {
 public:
-	// ÕâÊÇÏß³ÌÆô¶¯µÄº¯Êı£¬Thread¹¹Ôìº¯ÊıÊ±´«Èë£¬¿ªÊ¼ºó»á±»³ÖĞøµ÷ÓÃ
-	// Ö±µ½Ëü·µ»Ø false/0£¬»òÕßµ÷ÓÃÁË set_notalive
+	// è¿™æ˜¯çº¿ç¨‹å¯åŠ¨çš„å‡½æ•°ï¼ŒThreadæ„é€ å‡½æ•°æ—¶ä¼ å…¥ï¼Œå¼€å§‹åä¼šè¢«æŒç»­è°ƒç”¨
+	// ç›´åˆ°å®ƒè¿”å› false/0ï¼Œæˆ–è€…è°ƒç”¨äº† set_notalive
 	typedef int (*ThreadRunFunction)(void *parameter);
 
-	// ¹¹Ôìº¯Êı£¬´«ÈëÆô¶¯º¯Êı¼°²ÎÊı£¬
+	// æ„é€ å‡½æ•°ï¼Œä¼ å…¥å¯åŠ¨å‡½æ•°åŠå‚æ•°ï¼Œ
 	Thread(ThreadRunFunction func, void *parameter, const char *name = NULL) {
 		_thread = iposix_thread_new(func, parameter, name);
 		if (_thread == NULL)
@@ -348,7 +348,7 @@ public:
 		_thread = NULL;
 	}
 
-	// ¿ªÊ¼Ïß³Ì
+	// å¼€å§‹çº¿ç¨‹
 	void start() {
 		int hr = iposix_thread_start(_thread);
 		if (hr != 0) {
@@ -363,30 +363,30 @@ public:
 		}
 	}
 
-	// µÈ´ıÏß³Ì½áÊø
+	// ç­‰å¾…çº¿ç¨‹ç»“æŸ
 	bool join(unsigned long millisec = 0xffffffff) {
 		int hr = iposix_thread_join(_thread, millisec);
 		if (hr != 0) return false;
 		return true;
 	}
 
-	// É±ËÀÏß³Ì£ºÎ£ÏÕ
+	// æ€æ­»çº¿ç¨‹ï¼šå±é™©
 	bool kill() {
 		int hr = iposix_thread_cancel(_thread);
 		return hr == 0? true : false;
 	}
 
-	// ÉèÖÃÎª·Ç»î¶¯
+	// è®¾ç½®ä¸ºéæ´»åŠ¨
 	void set_notalive() {
 		iposix_thread_set_notalive(_thread);
 	}
 
-	// ¼ì²âÊÇ·ñÔËĞĞÖĞ
+	// æ£€æµ‹æ˜¯å¦è¿è¡Œä¸­
 	bool is_running() const {
 		return iposix_thread_is_running(_thread)? true : false;
 	}
 
-	// Ïß³ÌÓÅÏÈ¼¶
+	// çº¿ç¨‹ä¼˜å…ˆçº§
 	enum ThreadPriority
 	{
 		PriorityLow	= 0,
@@ -396,49 +396,49 @@ public:
 		PriorityRealtime = 4,
 	};
 
-	// ÉèÖÃÏß³ÌÓÅÏÈ¼¶£¬¿ªÊ¼Ïß³ÌÖ®Ç°ÉèÖÃ
+	// è®¾ç½®çº¿ç¨‹ä¼˜å…ˆçº§ï¼Œå¼€å§‹çº¿ç¨‹ä¹‹å‰è®¾ç½®
 	bool set_priority(enum ThreadPriority priority) {
 		return iposix_thread_set_priority(_thread, (int)priority) == 0 ? true : false;
 	}
 
-	// ÉèÖÃÕ»´óĞ¡£¬¿ªÊ¼Ïß³ÌÇ°ÉèÖÃ£¬Ä¬ÈÏ 1024 * 1024
+	// è®¾ç½®æ ˆå¤§å°ï¼Œå¼€å§‹çº¿ç¨‹å‰è®¾ç½®ï¼Œé»˜è®¤ 1024 * 1024
 	bool set_stack(int stacksize) {
 		return iposix_thread_set_stack(_thread, stacksize) == 0? true : false;
 	}
 
-	// ÉèÖÃÔËĞĞµÄ cpu£¬±ØĞëÊÇ¿ªÊ¼Ïß³ÌºóÉèÖÃ
+	// è®¾ç½®è¿è¡Œçš„ cpuï¼Œå¿…é¡»æ˜¯å¼€å§‹çº¿ç¨‹åè®¾ç½®
 	bool set_affinity(unsigned int cpumask) {
 		return iposix_thread_affinity(_thread, cpumask) == 0? true : false;
 	}
 
-	// ÉèÖÃĞÅºÅ
+	// è®¾ç½®ä¿¡å·
 	void set_signal(int sig) {
 		iposix_thread_set_signal(_thread, sig);
 	}
 
-	// È¡µÃĞÅºÅ
+	// å–å¾—ä¿¡å·
 	int get_signal() {
 		return iposix_thread_get_signal(_thread);
 	}
 
-	// È¡µÃÃû×Ö
+	// å–å¾—åå­—
 	const char *get_name() const {
 		return iposix_thread_get_name(_thread);
 	}
 
-	// ÒÔÏÂÎªÏß³ÌÄÚ²¿µ÷ÓÃµÄ¾²Ì¬³ÉÔ±
+	// ä»¥ä¸‹ä¸ºçº¿ç¨‹å†…éƒ¨è°ƒç”¨çš„é™æ€æˆå‘˜
 
-	// È¡µÃµ±Ç°Ïß³ÌÃû³Æ
+	// å–å¾—å½“å‰çº¿ç¨‹åç§°
 	static const char *CurrentName() {
 		return iposix_thread_get_name(NULL);
 	}
 
-	// È¡µÃµ±Ç°Ïß³ÌĞÅºÅ
+	// å–å¾—å½“å‰çº¿ç¨‹ä¿¡å·
 	static int CurrentSignal() { 
 		return iposix_thread_get_signal(NULL); 
 	}
 
-	// ÉèÖÃµ±Ç°Ïß³ÌĞÅºÅ
+	// è®¾ç½®å½“å‰çº¿ç¨‹ä¿¡å·
 	static void SetCurrentSignal(int sig) {
 		iposix_thread_set_signal(NULL, sig);
 	}
@@ -450,24 +450,24 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Ê±¼äº¯Êı
+// æ—¶é—´å‡½æ•°
 //---------------------------------------------------------------------
 class Clock
 {
 public:
-	// È¡µÃ 32Î»µÄºÁÃë¼¶±ğÊ±ÖÓ
+	// å–å¾— 32ä½çš„æ¯«ç§’çº§åˆ«æ—¶é’Ÿ
 	static inline IUINT32 GetInMs() { return iclock(); }
 
-	// È¡µÃ 64Î»µÄºÁÃë¼¶±ğÊ±ÖÓ
+	// å–å¾— 64ä½çš„æ¯«ç§’çº§åˆ«æ—¶é’Ÿ
 	static IUINT64 GetTick() { return iclock64(); }	// millisec
 
-	// È¡µÃ 64Î»µÄÎ¢Ãë¼¶±ğÊ±ÖÓ£¨1Î¢Ãë=1/1000000Ãë£©
+	// å–å¾— 64ä½çš„å¾®ç§’çº§åˆ«æ—¶é’Ÿï¼ˆ1å¾®ç§’=1/1000000ç§’ï¼‰
 	static IUINT64 GetRealTime() { return iclockrt(); }	// usec
 };
 
 
 //---------------------------------------------------------------------
-// Ê±ÖÓ¿ØÖÆ
+// æ—¶é’Ÿæ§åˆ¶
 //---------------------------------------------------------------------
 class Timer
 {
@@ -483,16 +483,16 @@ public:
 		_timer = NULL;
 	}
 
-	// ¿ªÊ¼Ê±ÖÓ
+	// å¼€å§‹æ—¶é’Ÿ
 	bool start(unsigned long delay, bool periodic = true) {
 		return iposix_timer_start(_timer, delay, periodic? 1 : 0) == 0 ? true : false;
 	}
-	// ½áÊøÊ±ÖÓ
+	// ç»“æŸæ—¶é’Ÿ
 	void stop() {
 		iposix_timer_stop(_timer);
 	}
 
-	// µÈ´ı£¬Ä¬ÈÏÎŞÏŞµÈ´ı£¬µ¥Î»ºÁÃë
+	// ç­‰å¾…ï¼Œé»˜è®¤æ— é™ç­‰å¾…ï¼Œå•ä½æ¯«ç§’
 	bool wait(unsigned long timeout = 0xffffffff) {
 		if (timeout == 0xffffffff) {
 			return iposix_timer_wait(_timer)? true : false;
@@ -501,12 +501,12 @@ public:
 		}
 	}
 
-	// ÎŞÌõ¼ş»½ĞÑµÈ´ı
+	// æ— æ¡ä»¶å”¤é†’ç­‰å¾…
 	void set() {
 		iposix_timer_set(_timer);
 	}
 
-	// ÎŞÌõ¼şÈ¡ÏûµÈ´ı
+	// æ— æ¡ä»¶å–æ¶ˆç­‰å¾…
 	void reset() {
 		iposix_timer_reset(_timer);
 	}
@@ -517,7 +517,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ĞÅºÅÁ¿
+// ä¿¡å·é‡
 //---------------------------------------------------------------------
 class Semaphore
 {
@@ -567,7 +567,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Òì²½ÊÂ¼ş Polling£ºÏß³Ì²»°²È«
+// å¼‚æ­¥äº‹ä»¶ Pollingï¼šçº¿ç¨‹ä¸å®‰å…¨
 //---------------------------------------------------------------------
 class KernelPoll
 {
@@ -586,21 +586,21 @@ public:
 		}
 	}
 
-	// Ôö¼ÓÒ»¸öÌ×½Ó×Ö£¬maskÊÇ³õÊ¼ÊÂ¼şÑÚÂë£ºIPOLL_IN(1) / IPOLL_OUT(2) / IPOLL_ERR(4) µÄ×éºÏ
-	// udataÊÇÕâ¸öÊÂ¼ş¶ÔÓ¦µÄ¶ÔÏóÖ¸Õë£¬ºóÆÚ´Ó eventÈ¡³öÊÂ¼şÊ±Õâ¸öÖ¸Õë»áÏàÓ¦È¡³ö
+	// å¢åŠ ä¸€ä¸ªå¥—æ¥å­—ï¼Œmaskæ˜¯åˆå§‹äº‹ä»¶æ©ç ï¼šIPOLL_IN(1) / IPOLL_OUT(2) / IPOLL_ERR(4) çš„ç»„åˆ
+	// udataæ˜¯è¿™ä¸ªäº‹ä»¶å¯¹åº”çš„å¯¹è±¡æŒ‡é’ˆï¼ŒåæœŸä» eventå–å‡ºäº‹ä»¶æ—¶è¿™ä¸ªæŒ‡é’ˆä¼šç›¸åº”å–å‡º
 	int add(int fd, int mask, void *udata) { return ipoll_add(_ipoll_desc, fd, mask, udata); }
 
-	// É¾³ıÒ»¸öÌ×½Ó×Ö£¬²»ÔÙ½ÓÊÜËüµÄĞÂÊÂ¼ş
+	// åˆ é™¤ä¸€ä¸ªå¥—æ¥å­—ï¼Œä¸å†æ¥å—å®ƒçš„æ–°äº‹ä»¶
 	int del(int fd) { return ipoll_del(_ipoll_desc, fd); }
 
-	// ÉèÖÃÌ×½Ó×ÖµÄÊÂ¼şÑÚÂë£ºIPOLL_IN(1) / IPOLL_OUT(2) / IPOLL_ERR(4) µÄ×éºÏ
+	// è®¾ç½®å¥—æ¥å­—çš„äº‹ä»¶æ©ç ï¼šIPOLL_IN(1) / IPOLL_OUT(2) / IPOLL_ERR(4) çš„ç»„åˆ
 	int set(int fd, int mask) { return ipoll_set(_ipoll_desc, fd, mask); }
 	
-	// µÈ´ı¶àÉÙºÁÃë£¬Ö±µ½ÓĞÊÂ¼ş²úÉú¡£millisecÎª0µÄ»°¾Í²»×èÈûÖ±½Ó·µ»Ø
-	// ·µ»ØÓĞ¶àÉÙ¸öÌ×½Ó×ÖÒÑ¾­ÓĞÊÂ¼şÁË¡£
+	// ç­‰å¾…å¤šå°‘æ¯«ç§’ï¼Œç›´åˆ°æœ‰äº‹ä»¶äº§ç”Ÿã€‚millisecä¸º0çš„è¯å°±ä¸é˜»å¡ç›´æ¥è¿”å›
+	// è¿”å›æœ‰å¤šå°‘ä¸ªå¥—æ¥å­—å·²ç»æœ‰äº‹ä»¶äº†ã€‚
 	int wait(int millisec) { return ipoll_wait(_ipoll_desc, millisec); }
 
-	// È¡µÃÊÂ¼ş£¬³ÖĞøµ÷ÓÃ£¬Ö±µ½·µ»Ø false
+	// å–å¾—äº‹ä»¶ï¼ŒæŒç»­è°ƒç”¨ï¼Œç›´åˆ°è¿”å› false
 	bool event(int *fd, int *event, void **udata) { 
 		int retval = ipoll_event(_ipoll_desc, fd, event, udata);
 		return (retval == 0)? true : false;
@@ -612,7 +612,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ÍøÂçµØÖ·£ºIPV4
+// ç½‘ç»œåœ°å€ï¼šIPV4
 //---------------------------------------------------------------------
 class SockAddress
 {
@@ -673,13 +673,13 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ÄÚ´æ½Úµã·ÖÅäÆ÷
+// å†…å­˜èŠ‚ç‚¹åˆ†é…å™¨
 //---------------------------------------------------------------------
 class MemNode
 {
 public:
-	// ³õÊ¼»¯½Úµã·ÖÅäÆ÷£¬´«ÈëÃ¿¸önodeµÄ´óĞ¡£¬»¹ÓĞÔö³¤ÏŞÖÆ£¨×î¶àÒ»´ÎĞÔÏòÏµÍ³ÇëÇó
-	// ·ÖÅä¶àÉÙ¸ö½Úµã£©¡£
+	// åˆå§‹åŒ–èŠ‚ç‚¹åˆ†é…å™¨ï¼Œä¼ å…¥æ¯ä¸ªnodeçš„å¤§å°ï¼Œè¿˜æœ‰å¢é•¿é™åˆ¶ï¼ˆæœ€å¤šä¸€æ¬¡æ€§å‘ç³»ç»Ÿè¯·æ±‚
+	// åˆ†é…å¤šå°‘ä¸ªèŠ‚ç‚¹ï¼‰ã€‚
 	MemNode(int nodesize = 8, int growlimit = 1024) {
 		_node = imnode_create(nodesize, growlimit);
 		if (_node == NULL) {
@@ -690,31 +690,31 @@ public:
 
 	virtual ~MemNode() { imnode_delete(_node); _node = NULL; }
 
-	// ·ÖÅäÒ»¸öĞÂ½Úµã
+	// åˆ†é…ä¸€ä¸ªæ–°èŠ‚ç‚¹
 	ilong new_node() { return imnode_new(_node); }
 	
-	// É¾³ıÒ»¸öÒÑ·ÖÅä½Úµã
+	// åˆ é™¤ä¸€ä¸ªå·²åˆ†é…èŠ‚ç‚¹
 	void delete_node(ilong id) { imnode_del(_node, id); }
 
-	// È¡µÃ½ÚµãËù¶ÔÓ¦µÄ¶ÔÏóÖ¸Õë
+	// å–å¾—èŠ‚ç‚¹æ‰€å¯¹åº”çš„å¯¹è±¡æŒ‡é’ˆ
 	const void *node(ilong id) const { return IMNODE_DATA(_node, id); }
 
-	// È¡µÃ½ÚµãËù¶ÔÓ¦µÄ¶ÔÏóÖ¸Õë
+	// å–å¾—èŠ‚ç‚¹æ‰€å¯¹åº”çš„å¯¹è±¡æŒ‡é’ˆ
 	void *node(ilong id) { return IMNODE_DATA(_node, id); }
 
-	// È¡µÃ½Úµã¶ÔÏó´óĞ¡
+	// å–å¾—èŠ‚ç‚¹å¯¹è±¡å¤§å°
 	int node_size() const { return _nodesize; }
 
-	// µÚÒ»¸öÒÑ·ÖÅä½Úµã£¬<0 ÎªÃ»ÓĞ½Úµã
+	// ç¬¬ä¸€ä¸ªå·²åˆ†é…èŠ‚ç‚¹ï¼Œ<0 ä¸ºæ²¡æœ‰èŠ‚ç‚¹
 	ilong head() const { return imnode_head(_node); }
 
-	// ÏÂÒ»¸öÒÑ¾­·ÖÅäµÄ½Úµã£¬<0 Îª½áÊø
+	// ä¸‹ä¸€ä¸ªå·²ç»åˆ†é…çš„èŠ‚ç‚¹ï¼Œ<0 ä¸ºç»“æŸ
 	ilong next(ilong id) const { return IMNODE_NEXT(_node, id); }
 
-	// ÉÏÒ»¸öÒÑ¾­·ÖÅä½Úµã£¬<0 Îª¿Õ
+	// ä¸Šä¸€ä¸ªå·²ç»åˆ†é…èŠ‚ç‚¹ï¼Œ<0 ä¸ºç©º
 	ilong prev(ilong id) const { return IMNODE_PREV(_node, id); }
 
-	// È¡µÃË÷Òı
+	// å–å¾—ç´¢å¼•
 	const void*& operator [] (ilong index) const {
 		if (index >= _node->node_max || index < 0) {
 			SYSTEM_THROW("memnode index error", 90001);
@@ -722,7 +722,7 @@ public:
 		return (const void*&)IMNODE_NODE(_node, index);
 	}
 
-	// È¡µÃË÷Òı
+	// å–å¾—ç´¢å¼•
 	void*& operator [] (ilong index) {
 		if (index >= _node->node_max || index < 0) {
 			SYSTEM_THROW("memnode index error", 90001);
@@ -730,7 +730,7 @@ public:
 		return (void*&)IMNODE_NODE(_node, index);
 	}
 
-	// È¡µÃ½Úµã·ÖÅäÆ÷ CÔ­Ê¼¶ÔÏó
+	// å–å¾—èŠ‚ç‚¹åˆ†é…å™¨ CåŸå§‹å¯¹è±¡
 	imemnode_t* node_ptr() { return _node; }
 	const imemnode_t* node_ptr() const { return _node; }
 
@@ -744,7 +744,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ÄÚ´æÁ÷
+// å†…å­˜æµ
 //---------------------------------------------------------------------
 class MemStream
 {
@@ -763,25 +763,25 @@ public:
 
 	virtual ~MemStream() { ims_destroy(&_stream); }
 
-	// È¡µÃÊı¾İ´óĞ¡
+	// å–å¾—æ•°æ®å¤§å°
 	ilong size() const { return ims_dsize(&_stream); }
 
-	// Ğ´ÈëÊı¾İ
+	// å†™å…¥æ•°æ®
 	ilong write(const void *data, ilong size) { return ims_write(&_stream, data, size); }
 
-	// ¶ÁÈ¡Êı¾İ£¬²¢´Ó»º´æÖĞÇå³ıÒÑ¶ÁÊı¾İ
+	// è¯»å–æ•°æ®ï¼Œå¹¶ä»ç¼“å­˜ä¸­æ¸…é™¤å·²è¯»æ•°æ®
 	ilong read(void *data, ilong size) { return ims_read(&_stream, data, size); }
 
-	// ¶ÁÈ¡Êı¾İµ«²»ÒÆ¶¯¶ÁÖ¸Õë£¨Êı¾İ²»¶ªÆú£©
+	// è¯»å–æ•°æ®ä½†ä¸ç§»åŠ¨è¯»æŒ‡é’ˆï¼ˆæ•°æ®ä¸ä¸¢å¼ƒï¼‰
 	ilong peek(void *data, ilong size) { return ims_peek(&_stream, data, size); }
 
-	// ¶ªÆúÊı¾İ
+	// ä¸¢å¼ƒæ•°æ®
 	ilong drop(ilong size) { return ims_drop(&_stream, size); }
 
-	// Çå¿ÕÊı¾İ
+	// æ¸…ç©ºæ•°æ®
 	void clear() { ims_clear(&_stream); }
 
-	// È¡µÃµ±Ç°Á¬ĞøµÄÒ»Æ¬Êı¾İµØÖ·Ö¸Õë£¬²¢·µ»ØÁ¬ĞøÊı¾İµÄ´óĞ¡
+	// å–å¾—å½“å‰è¿ç»­çš„ä¸€ç‰‡æ•°æ®åœ°å€æŒ‡é’ˆï¼Œå¹¶è¿”å›è¿ç»­æ•°æ®çš„å¤§å°
 	ilong flat(void **ptr) { return ims_flat(&_stream, ptr); }
 
 protected:
@@ -791,48 +791,48 @@ protected:
 
 
 //---------------------------------------------------------------------
-// »·×´»º´æ
+// ç¯çŠ¶ç¼“å­˜
 //---------------------------------------------------------------------
 class RingBuffer
 {
 public:
-	// ³õÊ¼»¯»·»º´æ
+	// åˆå§‹åŒ–ç¯ç¼“å­˜
 	RingBuffer(void *ptr, ilong size) { iring_init(&_ring, ptr, size); }
 
-	// È¡µÃÊı¾İ´óĞ¡
+	// å–å¾—æ•°æ®å¤§å°
 	ilong size() { return iring_dsize(&_ring); }
 
-	// È¡µÃ»¹¿ÉÒÔ·Å¶àÉÙÊı¾İ
+	// å–å¾—è¿˜å¯ä»¥æ”¾å¤šå°‘æ•°æ®
 	ilong space() { return iring_fsize(&_ring); }
 
-	// Ğ´ÈëÊı¾İ
+	// å†™å…¥æ•°æ®
 	ilong write(const void *ptr, ilong size) { return iring_write(&_ring, ptr, size); }
 
-	// ¶ÁÈ¡Êı¾İ£¬²¢´Ó»º´æÖĞÇå³ıÒÑ¶ÁÊı¾İ
+	// è¯»å–æ•°æ®ï¼Œå¹¶ä»ç¼“å­˜ä¸­æ¸…é™¤å·²è¯»æ•°æ®
 	ilong read(void *ptr, ilong size) { return iring_read(&_ring, ptr, size); }
 
-	// ¶ÁÈ¡Êı¾İµ«²»ÒÆ¶¯¶ÁÖ¸Õë£¨Êı¾İ²»¶ªÆú£©
+	// è¯»å–æ•°æ®ä½†ä¸ç§»åŠ¨è¯»æŒ‡é’ˆï¼ˆæ•°æ®ä¸ä¸¢å¼ƒï¼‰
 	ilong peek(void *ptr, ilong size) { return iring_peek(&_ring, ptr, size); }
 
-	// ¶ªÆúÊı¾İ
+	// ä¸¢å¼ƒæ•°æ®
 	ilong drop(ilong size) { return iring_drop(&_ring, size); }
 
-	// Çå¿ÕÊı¾İ
+	// æ¸…ç©ºæ•°æ®
 	void clear() { iring_clear(&_ring); }
 
-	// È¡µÃµ±Ç°Á¬ĞøµÄÒ»Æ¬Êı¾İµØÖ·Ö¸Õë£¬²¢·µ»ØÁ¬ĞøÊı¾İµÄ´óĞ¡
+	// å–å¾—å½“å‰è¿ç»­çš„ä¸€ç‰‡æ•°æ®åœ°å€æŒ‡é’ˆï¼Œå¹¶è¿”å›è¿ç»­æ•°æ®çš„å¤§å°
 	ilong flat(void **ptr) { return iring_flat(&_ring, ptr); }
 
-	// ´ÓÌØ¶¨Æ«ÒÆ·ÅÈëÊı¾İ
+	// ä»ç‰¹å®šåç§»æ”¾å…¥æ•°æ®
 	ilong put(ilong pos, const void *data, ilong size) { return iring_put(&_ring, pos, data, size); }
 
-	// ´ÓÌØ¶¨Æ«ÒÆÈ¡µÃÊı¾İ
+	// ä»ç‰¹å®šåç§»å–å¾—æ•°æ®
 	ilong get(ilong pos, void *data, ilong size) { return iring_get(&_ring, pos, data, size); }
 
-	// ½»»»¿Õ¼ä£¨¿½±´Êı¾İºÍÖ¸Õë£©
+	// äº¤æ¢ç©ºé—´ï¼ˆæ‹·è´æ•°æ®å’ŒæŒ‡é’ˆï¼‰
 	bool swap(void *ptr, ilong size) { return iring_swap(&_ring, ptr, size)? false : true; }
 
-	// ·µ»ØÊÕÎ²Ö¸ÕëºÍÊı¾İ´óĞ¡
+	// è¿”å›æ”¶å°¾æŒ‡é’ˆå’Œæ•°æ®å¤§å°
 	ilong ring_ptr(char **p1, ilong *s1, char **p2, ilong *s2) { return iring_ptr(&_ring, p1, s1, p2, s2); }
 
 protected:
@@ -859,7 +859,7 @@ public:
 		_box = NULL;
 	}
 
-	// ¼ÓÃÜ
+	// åŠ å¯†
 	void *crypt(const void *src, long size, void *dst) {
 		icrypt_rc4_crypt(_box, &x, &y, (const unsigned char*)src, 
 			(unsigned char*)dst, size);
@@ -875,7 +875,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ·Ç×èÈûÌ×½Ó×Ö
+// éé˜»å¡å¥—æ¥å­—
 //---------------------------------------------------------------------
 class AsyncSock
 {
@@ -984,14 +984,14 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Òì²½ÍøÂç¹ÜÀí
-// ¹ÜÀíÁ¬½øÀ´ÒÔ¼°Á¬³öÈ¥µÄÌ×½Ó×Ö²¢ÇÒ¿ÉÒÔ¹ÜÀí¶à¸ölistenµÄÌ×½Ó×Ö£¬ÒÔhid
-// ¹ÜÀí£¬Èç¹ûÒªĞÂ½¨Á¢Ò»¸ö¼àÌıÌ×½Ó×Ö£¬Ôòµ÷ÓÃ new_listen(ip, port, head)
-// Ôò»á·µ»Ø¼àÌıÌ×½Ó×ÖµÄhid£¬½ô½Ó×ÅÊÕµ½¼àÌıÌ×½Ó×ÖµÄ NEWÏûÏ¢¡£È»ºóÈç¹û
-// ¸Ã¼àÌı¶Ë¿ÚÉÏÓĞÆäËûÁ¬½ÓÁ¬Èë£¬Ôò»áÊÕµ½ÆäËûÁ¬½ÓµÄ NEWÏûÏ¢¡£
-// ÈçÒª½¨Á¢Ò»¸öÁ¬³öÈ¥µÄÁ¬½Ó£¬Ôòµ÷ÓÃ new_connect(ip, port, head)£¬·µ»Ø
-// ¸ÃÁ¬½ÓµÄ hid£¬²¢ÇÒ½ô½Ó×ÅÊÕµ½ NEWÏûÏ¢£¬Èç¹ûÁ¬½Ó³É¹¦»á½øÒ»²½ÓĞ ESTAB
-// ÏûÏ¢£¬·ñÔò£¬½«»áÊÕµ½ LEAVEÏûÏ¢¡£
+// å¼‚æ­¥ç½‘ç»œç®¡ç†
+// ç®¡ç†è¿è¿›æ¥ä»¥åŠè¿å‡ºå»çš„å¥—æ¥å­—å¹¶ä¸”å¯ä»¥ç®¡ç†å¤šä¸ªlistençš„å¥—æ¥å­—ï¼Œä»¥hid
+// ç®¡ç†ï¼Œå¦‚æœè¦æ–°å»ºç«‹ä¸€ä¸ªç›‘å¬å¥—æ¥å­—ï¼Œåˆ™è°ƒç”¨ new_listen(ip, port, head)
+// åˆ™ä¼šè¿”å›ç›‘å¬å¥—æ¥å­—çš„hidï¼Œç´§æ¥ç€æ”¶åˆ°ç›‘å¬å¥—æ¥å­—çš„ NEWæ¶ˆæ¯ã€‚ç„¶åå¦‚æœ
+// è¯¥ç›‘å¬ç«¯å£ä¸Šæœ‰å…¶ä»–è¿æ¥è¿å…¥ï¼Œåˆ™ä¼šæ”¶åˆ°å…¶ä»–è¿æ¥çš„ NEWæ¶ˆæ¯ã€‚
+// å¦‚è¦å»ºç«‹ä¸€ä¸ªè¿å‡ºå»çš„è¿æ¥ï¼Œåˆ™è°ƒç”¨ new_connect(ip, port, head)ï¼Œè¿”å›
+// è¯¥è¿æ¥çš„ hidï¼Œå¹¶ä¸”ç´§æ¥ç€æ”¶åˆ° NEWæ¶ˆæ¯ï¼Œå¦‚æœè¿æ¥æˆåŠŸä¼šè¿›ä¸€æ­¥æœ‰ ESTAB
+// æ¶ˆæ¯ï¼Œå¦åˆ™ï¼Œå°†ä¼šæ”¶åˆ° LEAVEæ¶ˆæ¯ã€‚
 //---------------------------------------------------------------------
 class AsyncCore
 {
@@ -1007,149 +1007,149 @@ public:
 		}
 	}
 
-	// µÈ´ıÊÂ¼ş£¬millisecÎªµÈ´ıµÄºÁÃëÊ±¼ä£¬0±íÊ¾²»µÈ´ı
-	// Ò»°ãÒªÏÈµ÷ÓÃ wait£¬È»ºó³ÖĞøµ÷ÓÃ readÈ¡µÃÏûÏ¢£¬Ö±µ½Ã»ÓĞÏûÏ¢ÁË
+	// ç­‰å¾…äº‹ä»¶ï¼Œmillisecä¸ºç­‰å¾…çš„æ¯«ç§’æ—¶é—´ï¼Œ0è¡¨ç¤ºä¸ç­‰å¾…
+	// ä¸€èˆ¬è¦å…ˆè°ƒç”¨ waitï¼Œç„¶åæŒç»­è°ƒç”¨ readå–å¾—æ¶ˆæ¯ï¼Œç›´åˆ°æ²¡æœ‰æ¶ˆæ¯äº†
 	void wait(IUINT32 millisec) {
 		async_core_wait(_core, millisec);
 	}
 
-	// ÓÃÓÚ»½ĞÑµÈ´ı
+	// ç”¨äºå”¤é†’ç­‰å¾…
 	void notify() {
 		async_core_notify(_core);
 	}
 
-	// ¶ÁÈ¡ÏûÏ¢£¬·µ»ØÏûÏ¢³¤¶È 
-	// Èç¹ûÃ»ÓĞÏûÏ¢£¬·µ»Ø-1
-	// eventµÄÖµÎª£º ASYNC_CORE_EVT_NEW/LEAVE/ESTAB/DATAµÈ
-	// event=ASYNC_CORE_EVT_NEW:   Á¬½ÓĞÂ½¨ wparam=hid(Á¬½Ó±àºÅ), lparam=listen_hid
-	// event=ASYNC_CORE_EVT_LEAVE: Á¬½Ó¶Ï¿ª wparam=hid, lparam=tag
-	// event=ASYNC_CORE_EVT_ESTAB: Á¬½Ó³É¹¦ wparam=hid, lparam=tag (½öÓÃÓÚ new_connect)
-	// event=ASYNC_CORE_EVT_DATA:  ÊÕµ½Êı¾İ wparam=hid, lparam=tag
-	// event=ASYNC_CORE_EVT_PROGRESS: ³É¹¦·¢ËÍÍê´ı·¢ËÍÊı¾İ wparam=hid, lparam=tag
-	// ÆÕÍ¨ÓÃ·¨£ºÑ­»·µ÷ÓÃ£¬Ã»ÓĞÏûÏ¢¿É¶ÁÊ±£¬µ÷ÓÃÒ»´ÎwaitÈ¥
+	// è¯»å–æ¶ˆæ¯ï¼Œè¿”å›æ¶ˆæ¯é•¿åº¦ 
+	// å¦‚æœæ²¡æœ‰æ¶ˆæ¯ï¼Œè¿”å›-1
+	// eventçš„å€¼ä¸ºï¼š ASYNC_CORE_EVT_NEW/LEAVE/ESTAB/DATAç­‰
+	// event=ASYNC_CORE_EVT_NEW:   è¿æ¥æ–°å»º wparam=hid(è¿æ¥ç¼–å·), lparam=listen_hid
+	// event=ASYNC_CORE_EVT_LEAVE: è¿æ¥æ–­å¼€ wparam=hid, lparam=tag
+	// event=ASYNC_CORE_EVT_ESTAB: è¿æ¥æˆåŠŸ wparam=hid, lparam=tag (ä»…ç”¨äº new_connect)
+	// event=ASYNC_CORE_EVT_DATA:  æ”¶åˆ°æ•°æ® wparam=hid, lparam=tag
+	// event=ASYNC_CORE_EVT_PROGRESS: æˆåŠŸå‘é€å®Œå¾…å‘é€æ•°æ® wparam=hid, lparam=tag
+	// æ™®é€šç”¨æ³•ï¼šå¾ªç¯è°ƒç”¨ï¼Œæ²¡æœ‰æ¶ˆæ¯å¯è¯»æ—¶ï¼Œè°ƒç”¨ä¸€æ¬¡waitå»
 	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
 		return async_core_read(_core, event, wparam, lparam, data, maxsize);
 	}
 
-	// ÏòÄ³Á¬½Ó·¢ËÍÊı¾İ£¬hidÎªÁ¬½Ó±êÊ¶
+	// å‘æŸè¿æ¥å‘é€æ•°æ®ï¼Œhidä¸ºè¿æ¥æ ‡è¯†
 	long send(long hid, const void *data, long size) {
 		return async_core_send(_core, hid, data, size);
 	}
 
-	// ¹Ø±ÕÁ¬½Ó£¬Ö»ÒªÁ¬½Ó¶Ï¿ª²»¹ÜÖ÷¶¯¶Ï¿ª»¹ÊÇ±»close½Ó¿Ú¶Ï¿ª£¬¶¼»áÊÕµ½ leave
+	// å…³é—­è¿æ¥ï¼Œåªè¦è¿æ¥æ–­å¼€ä¸ç®¡ä¸»åŠ¨æ–­å¼€è¿˜æ˜¯è¢«closeæ¥å£æ–­å¼€ï¼Œéƒ½ä¼šæ”¶åˆ° leave
 	int close(long hid, int code) {
 		return async_core_close(_core, hid, code);
 	}
 
-	// ·¢ËÍÊ¸Á¿£ºÃâµÃ¶à´Î memcpy
+	// å‘é€çŸ¢é‡ï¼šå…å¾—å¤šæ¬¡ memcpy
 	long send(long hid, const void *vecptr[], long veclen[], int count, int mask = 0) {
 		return async_core_send_vector(_core, hid, vecptr, veclen, count, mask);
 	}
 
-	// ½¨Á¢Ò»¸öĞÂµÄ¶ÔÍâÁ¬½Ó£¬·µ»Ø hid£¬´íÎó·µ»Ø <0
+	// å»ºç«‹ä¸€ä¸ªæ–°çš„å¯¹å¤–è¿æ¥ï¼Œè¿”å› hidï¼Œé”™è¯¯è¿”å› <0
 	long new_connect(const struct sockaddr *addr, int len, int header = 0) {
 		return async_core_new_connect(_core, addr, len, header);
 	}
 
-	// ½¨Á¢Ò»¸öĞÂµÄ¼àÌıÁ¬½Ó£¬·µ»Ø hid£¬´íÎó·µ»Ø <0 (-2Îª¶Ë¿Ú±¶Õ¼ÓÃ)
+	// å»ºç«‹ä¸€ä¸ªæ–°çš„ç›‘å¬è¿æ¥ï¼Œè¿”å› hidï¼Œé”™è¯¯è¿”å› <0 (-2ä¸ºç«¯å£å€å ç”¨)
 	long new_listen(const struct sockaddr *addr, int len, int header = 0) {
 		return async_core_new_listen(_core, addr, len, header);
 	}
 
-	// ½¨Á¢Ò»¸öĞÂµÄÁ¬½Ó£¬fdÎªÒÑ¾­Á¬½ÓµÄ socket
+	// å»ºç«‹ä¸€ä¸ªæ–°çš„è¿æ¥ï¼Œfdä¸ºå·²ç»è¿æ¥çš„ socket
 	long new_assign(int fd, int header = 0, bool check_estab = true) {
 		return async_core_new_assign(_core, fd, header, check_estab? 1 : 0);
 	}
 
-	// È¡µÃÁ¬½ÓÀàĞÍ£ºASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
+	// å–å¾—è¿æ¥ç±»å‹ï¼šASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
 	long get_mode(long hid) const {
 		return async_core_get_mode(_core, hid);
 	}
 
-	// È¡µÃ tag
+	// å–å¾— tag
 	long get_tag(long hid) const {
 		return async_core_get_tag(_core, hid);
 	}
 
-	// ÉèÖÃ tag
+	// è®¾ç½® tag
 	void set_tag(long hid, long tag) {
 		async_core_set_tag(_core, hid, tag);
 	}
 
-	// È¡µÃÄ³Á¬½ÓµÄ´ı·¢ËÍ»º´æ(Ó¦ÓÃ²ã)ÖĞµÄ´ı·¢ËÍÊı¾İ´óĞ¡
-	// ÓÃÀ´ÅĞ¶ÏÄ³Á¬½ÓÊı¾İÊÇ²»ÊÇ·¢²»³öÈ¥»ıÀÛÌ«¶àÁË(ÍøÂçÓµÈû»òÕßÔ¶·½²»½ÓÊÕ)
+	// å–å¾—æŸè¿æ¥çš„å¾…å‘é€ç¼“å­˜(åº”ç”¨å±‚)ä¸­çš„å¾…å‘é€æ•°æ®å¤§å°
+	// ç”¨æ¥åˆ¤æ–­æŸè¿æ¥æ•°æ®æ˜¯ä¸æ˜¯å‘ä¸å‡ºå»ç§¯ç´¯å¤ªå¤šäº†(ç½‘ç»œæ‹¥å¡æˆ–è€…è¿œæ–¹ä¸æ¥æ”¶)
 	long remain(long hid) const {
 		return async_core_remain(_core, hid);
 	}
 
-	// ÉèÖÃ»º´æ¿ØÖÆ²ÎÊı£¬limitedÊÇ´ø·¢ËÍ»º´æ(remain)³¬¹ı¶àÉÙ¾Í¶Ï¿ª¸ÃÁ¬½Ó£¬
-	// Èç¹ûÔ¶¶Ë²»½ÓÊÕ£¬»òÕßÍøÂçÓµÈû£¬ÕâÀïÓÖÒ»Ö±¸øËü·¢ËÍÊı¾İ£¬ÔòremainÔ½À´Ô½´ó
-	// ³¬¹ı¸ÃÖµºó£¬ÏµÍ³¾ÍÒªÖ÷¶¯Ìßµô¸ÃÁ¬½Ó£¬ÈÏÎªËüÉ¥Ê§´¦ÀíÄÜÁ¦ÁË¡£
-	// maxsizeÊÇµ¥¸öÊı¾İ°üµÄ×î´ó´óĞ¡£¬Ä¬ÈÏÊÇ2MB¡£³¬¹ı¸Ã´óĞ¡ÈÏÎª·Ç·¨¡£
+	// è®¾ç½®ç¼“å­˜æ§åˆ¶å‚æ•°ï¼Œlimitedæ˜¯å¸¦å‘é€ç¼“å­˜(remain)è¶…è¿‡å¤šå°‘å°±æ–­å¼€è¯¥è¿æ¥ï¼Œ
+	// å¦‚æœè¿œç«¯ä¸æ¥æ”¶ï¼Œæˆ–è€…ç½‘ç»œæ‹¥å¡ï¼Œè¿™é‡Œåˆä¸€ç›´ç»™å®ƒå‘é€æ•°æ®ï¼Œåˆ™remainè¶Šæ¥è¶Šå¤§
+	// è¶…è¿‡è¯¥å€¼åï¼Œç³»ç»Ÿå°±è¦ä¸»åŠ¨è¸¢æ‰è¯¥è¿æ¥ï¼Œè®¤ä¸ºå®ƒä¸§å¤±å¤„ç†èƒ½åŠ›äº†ã€‚
+	// maxsizeæ˜¯å•ä¸ªæ•°æ®åŒ…çš„æœ€å¤§å¤§å°ï¼Œé»˜è®¤æ˜¯2MBã€‚è¶…è¿‡è¯¥å¤§å°è®¤ä¸ºéæ³•ã€‚
 	void set_limit(long buffer_limit, long max_pkt_size) {
 		async_core_limit(_core, buffer_limit, max_pkt_size);
 	}
 
-	// µÚÒ»¸ö½Úµã
+	// ç¬¬ä¸€ä¸ªèŠ‚ç‚¹
 	long node_head() const {
 		return async_core_node_head(_core);
 	}
 
-	// ÏÂÒ»¸ö½Úµã
+	// ä¸‹ä¸€ä¸ªèŠ‚ç‚¹
 	long node_next(long hid) const {
 		return async_core_node_next(_core, hid);
 	}
 
-	// ÉÏÒ»¸ö½Úµã
+	// ä¸Šä¸€ä¸ªèŠ‚ç‚¹
 	long node_prev(long hid) const {
 		return async_core_node_prev(_core, hid);
 	}
 
-	// ÅäÖÃĞÅÏ¢
+	// é…ç½®ä¿¡æ¯
 	int option(long hid, int opt, long value) {
 		return async_core_option(_core, hid, opt, value);
 	}
 
-	// ÉèÖÃ³¬Ê±
+	// è®¾ç½®è¶…æ—¶
 	void set_timeout(long seconds) {
 		async_core_timeout(_core, seconds);
 	}
 
-	// ½ûÖ¹½ÓÊÕÄ³Á¬½ÓÊı¾İ£¨´ò¿ªºóÁ¬¶Ï¿ª¶¼ÎŞ·¨¼ì²âµ½£¬×îºÃÉèÖÃ³¬Ê±£©
+	// ç¦æ­¢æ¥æ”¶æŸè¿æ¥æ•°æ®ï¼ˆæ‰“å¼€åè¿æ–­å¼€éƒ½æ— æ³•æ£€æµ‹åˆ°ï¼Œæœ€å¥½è®¾ç½®è¶…æ—¶ï¼‰
 	int disable(long hid, bool value) {
 		return async_core_disable(_core, hid, value? 1 : 0);
 	}
 
-	// ÉèÖÃ·À»ğÇ½£º¶¨Òå¼û inetcode.h µÄ CAsyncValidator
+	// è®¾ç½®é˜²ç«å¢™ï¼šå®šä¹‰è§ inetcode.h çš„ CAsyncValidator
 	void set_firewall(CAsyncValidator validator, void *user) {
 		async_core_firewall(_core, validator, user);
 	}
 
-	// È¡µÃÌ×½Ó×Ö±¾µØµØÖ·
+	// å–å¾—å¥—æ¥å­—æœ¬åœ°åœ°å€
 	int sockname(long hid, struct sockaddr *addr, int *addrlen = NULL) {
 		int size = 0;
 		if (addrlen == NULL) addrlen = &size;
 		return async_core_sockname(_core, hid, addr, addrlen);
 	}
 
-	// È¡µÃÌ×½Ó×ÖÔ¶¶ËµØÖ·
+	// å–å¾—å¥—æ¥å­—è¿œç«¯åœ°å€
 	int peername(long hid, struct sockaddr *addr, int *addrlen = NULL) {
 		int size = 0;
 		if (addrlen == NULL) addrlen = &size;
 		return async_core_peername(_core, hid, addr, addrlen);
 	}
 
-	// ÉèÖÃ RC4¼ÓÃÜ£º·¢ËÍ¶Ë
+	// è®¾ç½® RC4åŠ å¯†ï¼šå‘é€ç«¯
 	void rc4_set_skey(long hid, const unsigned char *key, int len) {
 		async_core_rc4_set_skey(_core, hid, key, len);
 	}
 
-	// ÉèÖÃ RC4½âÃÜ£º½ÓÊÕ¶Ë
+	// è®¾ç½® RC4è§£å¯†ï¼šæ¥æ”¶ç«¯
 	void rc4_set_rkey(long hid, const unsigned char *key, int len) {
 		async_core_rc4_set_rkey(_core, hid, key, len);
 	}
 
-	// µÃµ½ÓĞ¶àÉÙ¸öÁ¬½Ó
+	// å¾—åˆ°æœ‰å¤šå°‘ä¸ªè¿æ¥
 	long nfds() const {
 		return async_core_nfds(_core);
 	}
@@ -1161,7 +1161,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// Òì²½½ÚµãÍ¨ĞÅ
+// å¼‚æ­¥èŠ‚ç‚¹é€šä¿¡
 //---------------------------------------------------------------------
 class AsyncNotify
 {
@@ -1181,8 +1181,8 @@ public:
 
 public:
 
-	// µÈ´ıÊÂ¼ş£¬millisecÎªµÈ´ıµÄºÁÃëÊ±¼ä£¬0±íÊ¾²»µÈ´ı
-	// Ò»°ãÒªÏÈµ÷ÓÃ wait£¬È»ºó³ÖĞøµ÷ÓÃ readÈ¡µÃÏûÏ¢£¬Ö±µ½Ã»ÓĞÏûÏ¢ÁË
+	// ç­‰å¾…äº‹ä»¶ï¼Œmillisecä¸ºç­‰å¾…çš„æ¯«ç§’æ—¶é—´ï¼Œ0è¡¨ç¤ºä¸ç­‰å¾…
+	// ä¸€èˆ¬è¦å…ˆè°ƒç”¨ waitï¼Œç„¶åæŒç»­è°ƒç”¨ readå–å¾—æ¶ˆæ¯ï¼Œç›´åˆ°æ²¡æœ‰æ¶ˆæ¯äº†
 	void wait(IUINT32 millisec) {
 		async_notify_wait(_notify, millisec);
 	}
@@ -1191,88 +1191,88 @@ public:
 		async_notify_wake(_notify);
 	}
 
-	// ¶ÁÈ¡ÏûÏ¢£¬·µ»ØÏûÏ¢³¤¶È£¬Èç¹ûÃ»ÓĞÏûÏ¢£¬·µ»Ø-1£¬³¤¶È²»¹»·µ»Ø -2
-	// eventµÄÖµÎª£º ASYNC_NOTIFY_EVT_DATA/ERRORµÈ
-	// event=ASYNC_NOTIFY_EVT_DATA:   ÊÕµ½Êı¾İ wparam=sid, lparam=cmd
-	// event=ASYNC_NOTIFY_EVT_ERROR:  ´íÎóÊı¾İ wparam=sid, lparam=tag
-	// ÆÕÍ¨ÓÃ·¨£ºÑ­»·µ÷ÓÃ£¬Ã»ÓĞÏûÏ¢¿É¶ÁÊ±£¬µ÷ÓÃÒ»´ÎwaitÈ¥
+	// è¯»å–æ¶ˆæ¯ï¼Œè¿”å›æ¶ˆæ¯é•¿åº¦ï¼Œå¦‚æœæ²¡æœ‰æ¶ˆæ¯ï¼Œè¿”å›-1ï¼Œé•¿åº¦ä¸å¤Ÿè¿”å› -2
+	// eventçš„å€¼ä¸ºï¼š ASYNC_NOTIFY_EVT_DATA/ERRORç­‰
+	// event=ASYNC_NOTIFY_EVT_DATA:   æ”¶åˆ°æ•°æ® wparam=sid, lparam=cmd
+	// event=ASYNC_NOTIFY_EVT_ERROR:  é”™è¯¯æ•°æ® wparam=sid, lparam=tag
+	// æ™®é€šç”¨æ³•ï¼šå¾ªç¯è°ƒç”¨ï¼Œæ²¡æœ‰æ¶ˆæ¯å¯è¯»æ—¶ï¼Œè°ƒç”¨ä¸€æ¬¡waitå»
 	long read(int *event, long *wparam, long *lparam, void *data, long maxsize) {
 		return async_notify_read(_notify, event, wparam, lparam, data, maxsize);
 	}
 
-	// ·µ»Ø listenid, -1Ê§°Ü£¬-2¶Ë¿ÚÕ¼ÓÃ
+	// è¿”å› listenid, -1å¤±è´¥ï¼Œ-2ç«¯å£å ç”¨
 	int listen(const struct sockaddr *addr, int len = 0) {
 		return async_notify_listen(_notify, addr, len, 0);
 	}
 
-	// ÒÆ³ı listener
+	// ç§»é™¤ listener
 	void remove(int listenid, int code = 0) {
 		async_notify_remove(_notify, listenid, code);
 	}
 
-	// ¸Ä±ä serverid
+	// æ”¹å˜ serverid
 	void change(int new_server_id) {
 		async_notify_change(_notify, new_server_id);
 		_serverid = new_server_id;
 	}
 
-	// ·¢ËÍÊı¾İµ½·şÎñ¶Ë
+	// å‘é€æ•°æ®åˆ°æœåŠ¡ç«¯
 	int send(int sid, short cmd, const void *data, long size) {
 		return async_notify_send(_notify, sid, cmd, data, size);
 	}
 
-	// Ç¿ÖÆ¹Ø±ÕÁ¬½Ó£¨Ò»°ã²»ĞèÒª£©
+	// å¼ºåˆ¶å…³é—­è¿æ¥ï¼ˆä¸€èˆ¬ä¸éœ€è¦ï¼‰
 	int close(int sid, int mode, int code) {
 		return async_notify_close(_notify, sid, mode, code);
 	}
 
-	// È¡µÃ¼àÌıÕß¶Ë¿Ú
+	// å–å¾—ç›‘å¬è€…ç«¯å£
 	int get_port(int listenid) {
 		return async_notify_get_port(_notify, listenid);
 	}
 
 
-	// µØÖ·°×Ãûµ¥£ºÊÇ·ñÔÊĞí
+	// åœ°å€ç™½åå•ï¼šæ˜¯å¦å…è®¸
 	void allow_enable(bool on) {
 		async_notify_allow_enable(_notify, on? 1 : 0);
 	}
 
-	// µØÖ·°×Ãûµ¥£ºÇå¿Õ
+	// åœ°å€ç™½åå•ï¼šæ¸…ç©º
 	void allow_clear() {
 		async_notify_allow_clear(_notify);
 	}
 
-	// µØÖ·°×Ãûµ¥£ºÔö¼Ó
+	// åœ°å€ç™½åå•ï¼šå¢åŠ 
 	void allow_add(const void *ip, int size = 4) {
 		async_notify_allow_add(_notify, ip, size);
 	}
 
-	// µØÖ·°×Ãûµ¥£ºÉ¾³ı
+	// åœ°å€ç™½åå•ï¼šåˆ é™¤
 	void allow_del(const void *ip, int size = 4) {
 		async_notify_allow_del(_notify, ip, size);
 	}
 	
-	// ½ÚµãµØÖ·£ºÇå³ş
+	// èŠ‚ç‚¹åœ°å€ï¼šæ¸…æ¥š
 	void sid_clear() {
 		async_notify_sid_clear(_notify);
 	}
 
-	// ½ÚµãµØÖ·£ºÔö¼Ó
+	// èŠ‚ç‚¹åœ°å€ï¼šå¢åŠ 
 	void sid_add(int sid, const struct sockaddr *remote, int len = 0) {
 		async_notify_sid_add(_notify, sid, remote, len);
 	}
 
-	// ½ÚµãµØÖ·£ºÉ¾³ı
+	// èŠ‚ç‚¹åœ°å€ï¼šåˆ é™¤
 	void sid_del(int sid) {
 		async_notify_sid_del(_notify, sid);
 	}
 
-	// ÅäÖÃ£º²Î¼û ASYNC_NOTIFY_OPT_*
+	// é…ç½®ï¼šå‚è§ ASYNC_NOTIFY_OPT_*
 	int option(int opt, int value) {
 		return async_notify_option(_notify, opt, value);
 	}
 
-	// ÉèÖÃÈÕÖ¾º¯Êı
+	// è®¾ç½®æ—¥å¿—å‡½æ•°
 	void* setlog(CAsyncNotify_WriteLog fun, void *user) {
 		void *hr = async_notify_install(_notify, NULL);
 		async_notify_user(_notify, user);
@@ -1287,7 +1287,7 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ¶àÏß³Ì°²È«¶ÓÁĞ
+// å¤šçº¿ç¨‹å®‰å…¨é˜Ÿåˆ—
 //---------------------------------------------------------------------
 class Queue
 {
@@ -1340,7 +1340,7 @@ protected:
 
 #ifndef __AVM2__
 //---------------------------------------------------------------------
-// URL ÇëÇó·â×°
+// URL è¯·æ±‚å°è£…
 //---------------------------------------------------------------------
 class HttpRequest
 {
@@ -1348,7 +1348,7 @@ public:
 	HttpRequest() { _urld = NULL; }
 	virtual ~HttpRequest() { close(); }
 
-	// ´ò¿ªÒ»¸öURL
+	// æ‰“å¼€ä¸€ä¸ªURL
 	// POST mode: size >= 0 && data != NULL 
 	// GET mode: size < 0 || data == NULL
 	// proxy format: a string: (type, addr, port [,user, passwd]) join by "\n"
@@ -1362,13 +1362,13 @@ public:
 		return (_urld == NULL)? false : true;
 	}
 
-	// ¹Ø±ÕÇëÇó
+	// å…³é—­è¯·æ±‚
 	void close() { 
 		if (_urld != NULL) ineturl_close(_urld);
 		_urld = NULL; 
 	}
 
-	// ¶ÁÈ¡Êı¾İ£¬·µ»ØÖµÈçÏÂ£º
+	// è¯»å–æ•°æ®ï¼Œè¿”å›å€¼å¦‚ä¸‹ï¼š
 	// returns IHTTP_RECV_AGAIN for block
 	// returns IHTTP_RECV_DONE for okay
 	// returns IHTTP_RECV_CLOSED for closed
@@ -1394,7 +1394,7 @@ public:
 		}
 	}
 
-	// ÇëÇóÒ»¸öÔ¶³Ì URL£¬½«½á¹û·´À¡¸ø content
+	// è¯·æ±‚ä¸€ä¸ªè¿œç¨‹ URLï¼Œå°†ç»“æœåé¦ˆç»™ content
 	// returns >= 0 for okay, below zero for errors:
 	// returns IHTTP_RECV_CLOSED for closed
 	// returns IHTTP_RECV_NOTFIND for not find
@@ -1439,7 +1439,7 @@ public:
 		_readed = false;
 	}
 
-	// ´ò¿ª CSVÎÄ¼ş
+	// æ‰“å¼€ CSVæ–‡ä»¶
 	bool open(const char *filename) {
 		close();
 		_reader = icsv_reader_open_file(filename);
@@ -1448,7 +1448,7 @@ public:
 		return true;
 	}
 
-	// ´ò¿ªÄÚ´æ
+	// æ‰“å¼€å†…å­˜
 	bool open(const char *text, ilong size) {
 		close();
 		_reader = icsv_reader_open_memory(text, size);
@@ -1457,7 +1457,7 @@ public:
 		return true;
 	}
 
-	// ¶ÁÈ¡Ò»ĞĞ£º·µ»Ø¶àÉÙÁĞ
+	// è¯»å–ä¸€è¡Œï¼šè¿”å›å¤šå°‘åˆ—
 	int read() {
 		if (_reader == NULL) return -1;
 		int retval = icsv_reader_read(_reader);
@@ -1468,18 +1468,18 @@ public:
 		return retval;
 	}
 
-	// ·µ»ØÓĞ¶àÉÙÁĞ
+	// è¿”å›æœ‰å¤šå°‘åˆ—
 	int size() const { 
 		return _count;
 	}
 
-	// ÅĞ¶ÏÊÇ·ñÎÄ¼ş½áÊø
+	// åˆ¤æ–­æ˜¯å¦æ–‡ä»¶ç»“æŸ
 	bool eof() const {
 		if (_reader == NULL) return true;
 		return icsv_reader_eof(_reader)? true : false;
 	}
 
-	// Á÷²Ù×÷·û
+	// æµæ“ä½œç¬¦
 	CsvReader& operator >> (char *ptr) { get(_index++, ptr, 1024); return *this; }
 	CsvReader& operator >> (std::string &str) { get(_index++, str); return *this; }
 	CsvReader& operator >> (ivalue_t *str) { get(_index++, str); return *this; }
@@ -1493,7 +1493,7 @@ public:
 	CsvReader& operator >> (double &value) { get(_index++, value); return *this; }
 	CsvReader& operator >> (const void *p) { if (p == NULL) read(); return *this; }
 
-	// ĞĞ¸´Î»
+	// è¡Œå¤ä½
 	void reset() { _index = 0; }
 
 	bool get(int pos, char *ptr, int size) {
@@ -1670,7 +1670,7 @@ static inline bool NetworkInit()
 
 
 //---------------------------------------------------------------------
-// Posix ÎÄ¼ş·ÃÎÊ
+// Posix æ–‡ä»¶è®¿é—®
 //---------------------------------------------------------------------
 #ifndef IDISABLE_FILE_SYSTEM_ACCESS
 
@@ -1678,7 +1678,7 @@ class Path {
 
 public:
 
-	// È¡µÃ¾ø¶ÔÂ·¾¶
+	// å–å¾—ç»å¯¹è·¯å¾„
 	static inline bool Absolute(const char *path, std::string &output) {
 		char buffer[IPOSIX_MAXBUFF];
 		if (iposix_path_abspath(path, buffer, IPOSIX_MAXPATH) == NULL) {
@@ -1689,7 +1689,7 @@ public:
 		return true;
 	}
 
-	// ¹éÒ»»¯Â·¾¶
+	// å½’ä¸€åŒ–è·¯å¾„
 	static inline bool Normalize(const char *path, std::string &output) {
 		char buffer[IPOSIX_MAXBUFF];
 		if (iposix_path_normal(path, buffer, IPOSIX_MAXPATH) == NULL) {
@@ -1700,7 +1700,7 @@ public:
 		return true;
 	}
 
-	// Á¬½ÓÂ·¾¶
+	// è¿æ¥è·¯å¾„
 	static inline bool Join(const char *p1, const char *p2, std::string &output) {
 		char buffer[IPOSIX_MAXBUFF];
 		if (iposix_path_join(p1, p2, buffer, IPOSIX_MAXPATH) == NULL) {
@@ -1711,7 +1711,7 @@ public:
 		return true;
 	}
 
-	// ÇĞ·ÖÂ·¾¶Îª£ºÂ·¾¶ + ÎÄ¼şÃû
+	// åˆ‡åˆ†è·¯å¾„ä¸ºï¼šè·¯å¾„ + æ–‡ä»¶å
 	static inline bool Split(const char *path, std::string &dir, std::string &file) {
 		char buf1[IPOSIX_MAXBUFF];
 		char buf2[IPOSIX_MAXBUFF];
@@ -1725,7 +1725,7 @@ public:
 		return true;
 	}
 
-	// ·Ö¸îÀ©Õ¹Ãû
+	// åˆ†å‰²æ‰©å±•å
 	static inline bool SplitExt(const char *path, std::string &p1, std::string &p2) {
 		char buf1[IPOSIX_MAXBUFF];
 		char buf2[IPOSIX_MAXBUFF];
@@ -1739,12 +1739,12 @@ public:
 		return true;
 	}
 
-	// È¡µÃ¿ÉÖ´ĞĞÎÄ¼şÂ·¾¶
+	// å–å¾—å¯æ‰§è¡Œæ–‡ä»¶è·¯å¾„
 	static inline const char *GetProcPath() {
 		return iposix_get_exepath();
 	}
 
-	// È¡µÃ¿ÉÖ´ĞĞÎÄ¼şÄ¿Â¼
+	// å–å¾—å¯æ‰§è¡Œæ–‡ä»¶ç›®å½•
 	static inline const char *GetProcDir() {
 		return iposix_get_execwd();
 	}
@@ -1765,7 +1765,7 @@ public:
 
 
 //---------------------------------------------------------------------
-// Posix Ê±¼ä
+// Posix æ—¶é—´
 //---------------------------------------------------------------------
 struct DateTime
 {
@@ -1809,37 +1809,37 @@ inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
 
 
 //---------------------------------------------------------------------
-// Ïß³ÌÈÎÎñ½Ó¿Ú
+// çº¿ç¨‹ä»»åŠ¡æ¥å£
 //---------------------------------------------------------------------
 struct TaskInt
 {
-	// ÈÎÎñÏß³Ì³ØÖ´ĞĞÍêÒ»¸öÈÎÎñ¾Í»á×Ô¶¯É¾³ıÈÎÎñ£¬µ«ÊÇÈç¹ûÈÎÎñ»¹Ã»ÓĞÖ´
-	// ĞĞ£¬ÈÎÎñÏß³Ì³Ø¾ÍÎö¹¹ÁËµÄ»°£¬ÓĞ¿ÉÄÜÏÂÃæµÄrun/done/error/final¶¼
-	// Ã»ÓĞµ÷ÓÃµ½£¬ÈÎÎñ¾Í»áÌáÇ°±»É¾³ı
+	// ä»»åŠ¡çº¿ç¨‹æ± æ‰§è¡Œå®Œä¸€ä¸ªä»»åŠ¡å°±ä¼šè‡ªåŠ¨åˆ é™¤ä»»åŠ¡ï¼Œä½†æ˜¯å¦‚æœä»»åŠ¡è¿˜æ²¡æœ‰æ‰§
+	// è¡Œï¼Œä»»åŠ¡çº¿ç¨‹æ± å°±ææ„äº†çš„è¯ï¼Œæœ‰å¯èƒ½ä¸‹é¢çš„run/done/error/finaléƒ½
+	// æ²¡æœ‰è°ƒç”¨åˆ°ï¼Œä»»åŠ¡å°±ä¼šæå‰è¢«åˆ é™¤
 	virtual ~TaskInt() {}
 	
-	// ¹¤×÷Ïß³Ìµ÷ÓÃµÄÖ÷º¯Êı
+	// å·¥ä½œçº¿ç¨‹è°ƒç”¨çš„ä¸»å‡½æ•°
 	virtual void run() = 0;
 
-	// Ö÷Ïß³Ìµ÷ÓÃ£¬Èç¹û run Ã»ÓĞÅ×³öÒì³££¨¶àÏß³ÌÀï¾¡Á¿±ğÒì³££©
+	// ä¸»çº¿ç¨‹è°ƒç”¨ï¼Œå¦‚æœ run æ²¡æœ‰æŠ›å‡ºå¼‚å¸¸ï¼ˆå¤šçº¿ç¨‹é‡Œå°½é‡åˆ«å¼‚å¸¸ï¼‰
 	virtual void done() {}
 
-	// Ö÷Ïß³Ìµ÷ÓÃ£¬Èç¹û run Å×³öÒì³££¬Ôòµ÷ÓÃÕâÀï
+	// ä¸»çº¿ç¨‹è°ƒç”¨ï¼Œå¦‚æœ run æŠ›å‡ºå¼‚å¸¸ï¼Œåˆ™è°ƒç”¨è¿™é‡Œ
 	virtual void error() {}
 
-	// Ö÷Ïß³Ìµ÷ÓÃ£¬½áÊøµ÷ÓÃ£¬ÊÍ·Å×ÊÔ´ÓÃ
+	// ä¸»çº¿ç¨‹è°ƒç”¨ï¼Œç»“æŸè°ƒç”¨ï¼Œé‡Šæ”¾èµ„æºç”¨
 	virtual void final() {}
 };
 
 
 //---------------------------------------------------------------------
-// ÈÎÎñÏß³Ì³Ø
+// ä»»åŠ¡çº¿ç¨‹æ± 
 //---------------------------------------------------------------------
 class TaskPool
 {
 public:
 
-	// ¿ªÊ¼£ºÉè¶¨Ãû³ÆÒÔ¼°Ïß³ÌÊıÁ¿
+	// å¼€å§‹ï¼šè®¾å®šåç§°ä»¥åŠçº¿ç¨‹æ•°é‡
 	TaskPool(const char *name, int nthreads, int slap = 50) {
 		_name = name;
 		if (nthreads < 1) {
@@ -1864,7 +1864,7 @@ public:
 		_nthreads = nthreads;
 	}
 
-	// ½áÊøÏß³Ì³Ø²¢É¾³ıÎ´Íê³ÉµÄÈÎÎñ
+	// ç»“æŸçº¿ç¨‹æ± å¹¶åˆ é™¤æœªå®Œæˆçš„ä»»åŠ¡
 	virtual ~TaskPool() {
 		TaskNode *node;
 		void *obj;
@@ -1889,7 +1889,7 @@ public:
 		}
 	}
 
-	// ¿ªÊ¼Ïß³Ì
+	// å¼€å§‹çº¿ç¨‹
 	inline bool start() {
 		if (_start) return true;
 		_stop = false;
@@ -1901,7 +1901,7 @@ public:
 		return true;
 	}
 
-	// ½áÊøÏß³Ì
+	// ç»“æŸçº¿ç¨‹
 	inline void stop() {
 		if (_start == false) return;
 		_stop = true;
@@ -1912,7 +1912,7 @@ public:
 		_start = false;
 	}
 
-	// ·ÅÈëÈÎÎñ
+	// æ”¾å…¥ä»»åŠ¡
 	inline bool push(TaskInt *task) {
 		if (_stop) return false;
 		TaskNode *node = new TaskNode;
@@ -1921,7 +1921,7 @@ public:
 		return true;
 	}
 
-	// ¸üĞÂ£ºÔÚÖ÷Ïß³Ì´¦ÀíÈÎÎñµÄ½á¹û£¬µ÷ÓÃÈÎÎñµÄ done/error/final·½·¨£¬Ñ­»·µ÷ÓÃ
+	// æ›´æ–°ï¼šåœ¨ä¸»çº¿ç¨‹å¤„ç†ä»»åŠ¡çš„ç»“æœï¼Œè°ƒç”¨ä»»åŠ¡çš„ done/error/finalæ–¹æ³•ï¼Œå¾ªç¯è°ƒç”¨
 	inline void update() {
 		while (1) {
 			void *objs[64];
@@ -1946,7 +1946,7 @@ public:
 		}
 	}
 
-	// È¡µÃÎ´Ö´ĞĞÍê³ÉµÄÈÎÎñÊıÁ¿
+	// å–å¾—æœªæ‰§è¡Œå®Œæˆçš„ä»»åŠ¡æ•°é‡
 	inline int size() {
 		int x1, x2;
 		x1 = (int)_queue_in.size();
@@ -1954,7 +1954,7 @@ public:
 		return x1 + x2;
 	}
 
-	// µÈ´ıËùÓĞÈÎÎñ½áÊø
+	// ç­‰å¾…æ‰€æœ‰ä»»åŠ¡ç»“æŸ
 	inline void wait() {
 		while (size() > 0) {
 			update();
@@ -1965,7 +1965,7 @@ public:
 protected:
 	struct TaskNode { TaskInt *task; bool ok; };
 
-	// ´¦ÀíÒ»¸öÈÎÎñ
+	// å¤„ç†ä¸€ä¸ªä»»åŠ¡
 	inline void __task_invoke(TaskNode *node) {
 		node->ok = true;
 		try { node->task->run(); }
@@ -1973,7 +1973,7 @@ protected:
 		_queue_out.put(node, IEVENT_INFINITE);
 	}
 
-	// Ïß³Ìµ¥´Îµ÷ÓÃÈë¿Ú
+	// çº¿ç¨‹å•æ¬¡è°ƒç”¨å…¥å£
 	inline int __run() {
 		if (_stop) return 0;
 		if (_nthreads > 1) {
@@ -1992,7 +1992,7 @@ protected:
 		return 1;
 	}
 
-	// Ïß³Ì¾²Ì¬Èë¿Ú
+	// çº¿ç¨‹é™æ€å…¥å£
 	static int __thread_entry(void *p) {
 		TaskPool *self = (TaskPool*)p;
 		int hr = self->__run();
@@ -2013,11 +2013,11 @@ protected:
 
 
 //---------------------------------------------------------------------
-// ×Ö·û´®´¦Àí
+// å­—ç¬¦ä¸²å¤„ç†
 //---------------------------------------------------------------------
 typedef std::vector<std::string> StringList;
 
-// È¥³ıÍ·²¿Î²²¿¶àÓà×Ö·û£¬±ÈÈç£ºStringStrip(text, "\r\n\t ")
+// å»é™¤å¤´éƒ¨å°¾éƒ¨å¤šä½™å­—ç¬¦ï¼Œæ¯”å¦‚ï¼šStringStrip(text, "\r\n\t ")
 static inline void StringStrip(std::string &str, const char *seps) {
 	size_t p1, p2, i;
 	for (p1 = 0; p1 < str.size(); p1++) {
@@ -2032,7 +2032,7 @@ static inline void StringStrip(std::string &str, const char *seps) {
 		if (skip == 0) 
 			break;
 	}
-	for (p2 = str.size() - 1; p2 >= 0 && p2 >= p1; p2--) {
+	for (p2 = str.size() - 1; p2 >= p1; p2--) {
 		char ch = str[p2];
 		int skip = 0;
 		for (i = 0; seps[i]; i++) {
@@ -2047,7 +2047,7 @@ static inline void StringStrip(std::string &str, const char *seps) {
 	str = str.substr(p1, p2 - p1 + 1);
 }
 
-// ·Ö¸î×Ö·û´®µ½ StringList£¬±ÈÈç£ºStringSplit(text, slist, "\n");
+// åˆ†å‰²å­—ç¬¦ä¸²åˆ° StringListï¼Œæ¯”å¦‚ï¼šStringSplit(text, slist, "\n");
 static inline void StringSplit(const std::string &str, StringList &out, const char *seps) {
 	out.clear();
 	for (size_t i = 0, j = 0; i <= str.size(); ) {
@@ -2071,7 +2071,7 @@ static inline void StringSplit(const std::string &str, StringList &out, const ch
 	}
 }
 
-// ×Ö·û´®Á¬½Ó
+// å­—ç¬¦ä¸²è¿æ¥
 static inline void StringJoin(std::string &out, const StringList &src, const char *s) {
 	for (size_t i = 0; i < src.size(); i++) {
 		if (i == 0) out = src[i];
@@ -2083,7 +2083,7 @@ static inline void StringJoin(std::string &out, const StringList &src, const cha
 }
 
 
-// ×Ö·û´®ÅäÖÃ£º±ÈÈç·Ö¸î"abc=1;x=100;y=100;z=0"Îª nameºÍ value
+// å­—ç¬¦ä¸²é…ç½®ï¼šæ¯”å¦‚åˆ†å‰²"abc=1;x=100;y=100;z=0"ä¸º nameå’Œ value
 static inline void StringConfig(const std::string &str, StringList &names, StringList &datas) {
 	StringList lines;
 	names.clear();
@@ -2104,70 +2104,70 @@ static inline void StringConfig(const std::string &str, StringList &names, Strin
 }
 
 
-// ×Ö·û´®µ½ÕûÊı
+// å­—ç¬¦ä¸²åˆ°æ•´æ•°
 static inline int String2Int(const std::string &str, int base = 0) {
 	return (int)istrtol(str.c_str(), NULL, base);
 }
 
-// ×Ö·û´®µ½ÎŞ·ûºÅÕûĞÎ
+// å­—ç¬¦ä¸²åˆ°æ— ç¬¦å·æ•´å½¢
 static inline unsigned int String2UInt(const std::string &str, int base = 0) {
 	return (unsigned int)istrtoul(str.c_str(), NULL, base);
 }
 
-// ×Ö·û´®µ½³¤ÕûĞÎ
+// å­—ç¬¦ä¸²åˆ°é•¿æ•´å½¢
 static inline long String2Long(const std::string &str, int base = 0) {
 	return istrtol(str.c_str(), NULL, base);
 }
 
-// ×Ö·û´®µ½ÎŞ·ûºÅ³¤ÕûĞÎ
+// å­—ç¬¦ä¸²åˆ°æ— ç¬¦å·é•¿æ•´å½¢
 static inline unsigned long String2ULong(const std::string &str, int base = 0) {
 	return istrtoul(str.c_str(), NULL, base);
 }
 
-// ×Ö·û´®µ½64Î»ÕûÊı
+// å­—ç¬¦ä¸²åˆ°64ä½æ•´æ•°
 static inline IINT64 String2Int64(const std::string &str, int base = 0) {
 	return istrtoll(str.c_str(), NULL, base);
 }
 
-// ×Ö·û´®µ½64Î»ÕûÊı£¬ÎŞ·ûºÅ
+// å­—ç¬¦ä¸²åˆ°64ä½æ•´æ•°ï¼Œæ— ç¬¦å·
 static inline IINT64 String2UInt64(const std::string &str, int base = 0) {
 	return istrtoull(str.c_str(), NULL, base);
 }
 
-// ³¤ÕûĞÎµ½×Ö·û´®
+// é•¿æ•´å½¢åˆ°å­—ç¬¦ä¸²
 static inline void StringFromLong(std::string &out, long x, int base = 10) {
 	char text[24];
 	iltoa(x, text, base);
 	out = text;
 }
 
-// ÎŞ·ûºÅ³¤ÕûĞÎµ½×Ö·û´®
+// æ— ç¬¦å·é•¿æ•´å½¢åˆ°å­—ç¬¦ä¸²
 static inline void StringFromULong(std::string &out, unsigned long x, int base = 10) {
 	char text[24];
 	iultoa(x, text, base);
 	out = text;
 }
 
-// 64Î»ÕûĞÎµ½×Ö·û´®
+// 64ä½æ•´å½¢åˆ°å­—ç¬¦ä¸²
 static inline void StringFromInt64(std::string &out, IINT64 x, int base = 10) {
 	char text[24];
 	illtoa(x, text, base);
 	out = text;
 }
 
-// ÎŞ·ûºÅ64Î»ÕûĞÎµ½×Ö·û´®
+// æ— ç¬¦å·64ä½æ•´å½¢åˆ°å­—ç¬¦ä¸²
 static inline void StringFromUInt64(std::string &out, IUINT64 x, int base = 10) {
 	char text[24];
 	iulltoa(x, text, base);
 	out = text;
 }
 
-// ÕûÊıµ½×Ö·û´®
+// æ•´æ•°åˆ°å­—ç¬¦ä¸²
 static inline void StringFromInt(std::string &out, int x, int base = 10) {
 	StringFromLong(out, (long)x, base);
 }
 
-// ÎŞ·ûºÅÕûÊıµ½×Ö·û´®
+// æ— ç¬¦å·æ•´æ•°åˆ°å­—ç¬¦ä¸²
 static inline void StringFromUInt(std::string &out, int x, int base = 10) {
 	StringFromULong(out, (unsigned long)x, base);
 }

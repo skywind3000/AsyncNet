@@ -350,7 +350,7 @@ IINT64 iposix_path_getsize(const char *path)
 // Posix Path
 //---------------------------------------------------------------------
 
-// ÊÇ·ñÊÇ¾ø¶ÔÂ·¾¶£¬Èç¹ûÊÇµÄ»°·µ»Ø1£¬·ñÔò·µ»Ø0
+// æ˜¯å¦æ˜¯ç»å¯¹è·¯å¾„ï¼Œå¦‚æœæ˜¯çš„è¯è¿”å›1ï¼Œå¦åˆ™è¿”å›0
 int iposix_path_isabs(const char *path)
 {
 	if (path == NULL) return 0;
@@ -643,7 +643,7 @@ char *iposix_path_join(const char *p1, const char *p2, char *path, int len)
 }
 
 
-// ¾ø¶ÔÂ·¾¶
+// ç»å¯¹è·¯å¾„
 char *iposix_path_abspath_u(const char *srcpath, char *path, int maxsize)
 {
 	char *base;
@@ -666,7 +666,7 @@ char *iposix_path_abspath_w(const char *srcpath, char *path, int maxsize)
 #endif
 
 
-// ¾ø¶ÔÂ·¾¶
+// ç»å¯¹è·¯å¾„
 char *iposix_path_abspath(const char *srcpath, char *path, int maxsize)
 {
 #ifdef _WIN32
@@ -676,7 +676,7 @@ char *iposix_path_abspath(const char *srcpath, char *path, int maxsize)
 #endif
 }
 
-// Â·¾¶·Ö¸î£º´ÓÓÒÏò×óÕÒµ½µÚÒ»¸ö"/"·Ö³ÉÁ½¸ö×Ö·û´®
+// è·¯å¾„åˆ†å‰²ï¼šä»å³å‘å·¦æ‰¾åˆ°ç¬¬ä¸€ä¸ª"/"åˆ†æˆä¸¤ä¸ªå­—ç¬¦ä¸²
 int iposix_path_split(const char *path, char *p1, int l1, char *p2, int l2)
 {
 	int length, i, k;
@@ -721,7 +721,7 @@ int iposix_path_split(const char *path, char *p1, int l1, char *p2, int l2)
 }
 
 
-// À©Õ¹·Ö¸î£º·Ö¸îÎÄ¼şÖ÷ÃûÓëÀ©Õ¹Ãû
+// æ‰©å±•åˆ†å‰²ï¼šåˆ†å‰²æ–‡ä»¶ä¸»åä¸æ‰©å±•å
 int iposix_path_splitext(const char *path, char *p1, int l1, 
 	char *p2, int l2)
 {
@@ -804,7 +804,7 @@ int iposix_path_exepath(char *ptr, int size)
 	return retval;
 }
 
-// È¡µÃ½ø³Ì¿ÉÖ´ĞĞÎÄ¼şµÄÄ¿Â¼
+// å–å¾—è¿›ç¨‹å¯æ‰§è¡Œæ–‡ä»¶çš„ç›®å½•
 int iposix_path_execwd(char *ptr, int size)
 {
 	char *buffer;
@@ -834,7 +834,7 @@ int iposix_path_execwd(char *ptr, int size)
 }
 
 
-// µİ¹é´´½¨Â·¾¶£ºÖ±½Ó´Ó ilogÒÆÖ²¹ıÀ´
+// é€’å½’åˆ›å»ºè·¯å¾„ï¼šç›´æ¥ä» ilogç§»æ¤è¿‡æ¥
 int iposix_path_mkdir(const char *path, int mode)
 {
 	int i, len;
@@ -870,7 +870,7 @@ int iposix_path_mkdir(const char *path, int mode)
 }
 
 
-// ¾«¼ò°æÈ¡µÃ¿ÉÖ´ĞĞÂ·¾¶
+// ç²¾ç®€ç‰ˆå–å¾—å¯æ‰§è¡Œè·¯å¾„
 const char *iposix_get_exepath(void)
 {
 	static int inited = 0;
@@ -904,7 +904,7 @@ const char *iposix_get_exepath(void)
 	return ptr;
 }
 
-// ¾«¼ò°æÈ¡µÃ¿ÉÖ´ĞĞÄ¿Â¼
+// ç²¾ç®€ç‰ˆå–å¾—å¯æ‰§è¡Œç›®å½•
 const char *iposix_get_execwd(void)
 {
 	static int inited = 0;
@@ -924,14 +924,14 @@ const char *iposix_get_execwd(void)
 #pragma warning(disable:4996)
 #endif
 
-// ÎÄ¼şÂ·¾¶¸ñÊ½»¯£º
-// out   - Êä³öÂ·¾¶£¬³¤¶È²»Ğ¡ÓÚ IPOSIX_MAXPATH
-// base  - ¸ùÂ·¾¶
-// ...   - ºóĞøµÄÏà¶ÔÂ·¾¶
-// ·µ»Ø  - out
-// ¼ÙÉè¿ÉÖ´ĞĞÂ·¾¶Î»ÓÚ /home/abc/work£¬ÄÇÃ´£º
+// æ–‡ä»¶è·¯å¾„æ ¼å¼åŒ–ï¼š
+// out   - è¾“å‡ºè·¯å¾„ï¼Œé•¿åº¦ä¸å°äº IPOSIX_MAXPATH
+// base  - æ ¹è·¯å¾„
+// ...   - åç»­çš„ç›¸å¯¹è·¯å¾„
+// è¿”å›  - out
+// å‡è®¾å¯æ‰§è¡Œè·¯å¾„ä½äº /home/abc/workï¼Œé‚£ä¹ˆï¼š
 // iposix_path_format(out, iposix_get_execwd(), "images/%s", "abc.jpg")
-// ½á¹û¾ÍÊÇ /home/abc/work/images/abc.jpg
+// ç»“æœå°±æ˜¯ /home/abc/work/images/abc.jpg
 char *iposix_path_format(char *out, const char *root, const char *fmt, ...)
 {
 	char buffer[IPOSIX_MAXBUFF];

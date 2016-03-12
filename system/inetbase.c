@@ -1676,8 +1676,8 @@ struct IPOLL_DRIVER
 /* current poll device */
 struct IPOLL_DRIVER IPOLLDRV;	
 
-#define PSTRUCT void					/* 定义基本结构体 */
-#define PDESC(pd) ((PSTRUCT*)(pd))		/* 定义结构体转换 */
+#define PSTRUCT void					/* basic struct */
+#define PDESC(pd) ((PSTRUCT*)(pd))		/* type conversion */
 
 /* poll file descriptor */
 struct IPOLLFD	

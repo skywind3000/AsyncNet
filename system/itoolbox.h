@@ -1,6 +1,6 @@
 //=====================================================================
 //
-// itoolbox.h - ¹¤¾ßº¯Êı´ó¼¯ºÏ
+// itoolbox.h - å·¥å…·å‡½æ•°å¤§é›†åˆ
 //
 // NOTE:
 // for more information, please see the readme file.
@@ -20,10 +20,10 @@ extern "C" {
 #endif
 
 //=====================================================================
-// ¿ØÖÆÌ¨¹¤¾ß¼¯
+// æ§åˆ¶å°å·¥å…·é›†
 //=====================================================================
 
-// Ç°¾°ÑÕÉ«¶¨Òå
+// å‰æ™¯é¢œè‰²å®šä¹‰
 #define CTEXT_BLACK			0
 #define CTEXT_RED			1
 #define CTEXT_GREEN			2
@@ -41,7 +41,7 @@ extern "C" {
 #define CTEXT_BOLD_CYAN		14
 #define CTEXT_BOLD_WHITE	15
 
-// ±³¾°ÑÕÉ«¶¨Òå
+// èƒŒæ™¯é¢œè‰²å®šä¹‰
 #define CBG_BLACK			0
 #define CBG_RED				(1 << 4)
 #define CBG_GREEN			(2 << 4)
@@ -52,19 +52,19 @@ extern "C" {
 #define CBG_WHITE			(7 << 4)
 
 
-// ÉèÖÃÑÕÉ«£ºµÍ4Î»ÊÇÎÄ×ÖÑÕÉ«£¬¸ß4Î»ÊÇ±³¾°ÑÕÉ«
-// ¾ßÌå±àÂë¿ÉÒÔËÑË÷ ansi color»òÕß 
+// è®¾ç½®é¢œè‰²ï¼šä½4ä½æ˜¯æ–‡å­—é¢œè‰²ï¼Œé«˜4ä½æ˜¯èƒŒæ™¯é¢œè‰²
+// å…·ä½“ç¼–ç å¯ä»¥æœç´¢ ansi coloræˆ–è€… 
 // http://en.wikipedia.org/wiki/ANSI_escape_code
 void console_set_color(int color);
 
 
-// ÉèÖÃ¹â±êÎ»ÖÃ×óÉÏ½ÇÊÇ£¬ĞĞÓëÁĞ¶¼ÊÇ´Ó1¿ªÊ¼¼ÆÊıµÄ
+// è®¾ç½®å…‰æ ‡ä½ç½®å·¦ä¸Šè§’æ˜¯ï¼Œè¡Œä¸åˆ—éƒ½æ˜¯ä»1å¼€å§‹è®¡æ•°çš„
 void console_cursor(int row, int col);
 
-// »Ö¸´ÆÁÄ»ÑÕÉ«
+// æ¢å¤å±å¹•é¢œè‰²
 void console_reset(void);
 
-// ÇåÆÁ
+// æ¸…å±
 void console_clear(int color);
 
 
@@ -161,45 +161,6 @@ int icsv_writer_push_int64(iCsvWriter *writer, IINT64 x, int radix);
 int icsv_writer_push_uint64(iCsvWriter *writer, IUINT64 x, int radix);
 int icsv_writer_push_float(iCsvWriter *writer, float x);
 int icsv_writer_push_double(iCsvWriter *writer, double x);
-
-
-//=====================================================================
-// Protocol Reader
-//=====================================================================
-struct CAsyncReader;
-typedef struct CAsyncReader CAsyncReader;
-
-CAsyncReader *async_reader_new(imemnode_t *fnode);
-
-void async_reader_delete(CAsyncReader *reader);
-
-
-#define ISTREAM_READ_BYTE		0
-#define ISTREAM_READ_LINE		1
-#define ISTREAM_READ_BLOCK		2
-
-void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
-
-long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
-
-void async_reader_feed(CAsyncReader *reader, const void *data, long len);
-
-
-
-//=====================================================================
-// Redis Reader
-//=====================================================================
-struct CRedisReader;
-typedef struct CRedisReader CRedisReader;
-
-CRedisReader *redis_reader_new(imemnode_t *fnode);
-
-void redis_reader_delete(CRedisReader *rr);
-
-
-long redis_reader_read(CRedisReader *rr, int *mode, void *data, long maxsize);
-
-void redis_reader_feed(CRedisReader *rr, const void *data, long len);
 
 
 #ifdef __cplusplus
