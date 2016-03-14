@@ -6,7 +6,7 @@
 //   /_/  |_/____/\__, /_/ /_/\___/  /_/ |_/\___/\__/  
 //               /____/                                
 //
-// AsyncNet.h - AsyncNet 网络接口
+// AsyncNet.h - AsyncNet 缃戠粶鎺ュ彛
 //
 // NOTE:
 // for more information, please see the readme file.
@@ -374,7 +374,7 @@ ANETAPI int asn_sock_keepalive(AsyncSock *sock, int keepcnt, int idle, int intvl
 
 
 //=====================================================================
-// C++接口
+// C++鎺ュ彛
 //=====================================================================
 #ifdef __cplusplus
 

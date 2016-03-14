@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #======================================================================
 #
-# AsyncNet.py - QuickNet ½Ó¿Ú
+# AsyncNet.py - QuickNet æ¥å£
 #
 # NOTE:
 # for more information, please see the readme file.
@@ -20,7 +20,7 @@ c_intptr = c_size_t
 #----------------------------------------------------------------------
 # loading module
 #----------------------------------------------------------------------
-_HOME = os.environ.get('CHOME', os.path.abspath('.'))	# CANNON Ä¿Â¼
+_HOME = os.environ.get('CHOME', os.path.abspath('.'))	# CANNON ç›®å½•
 _HOME = os.path.abspath(_HOME)
 
 def _loadlib (fn):
@@ -327,53 +327,54 @@ _asn_sock_keepalive.restype = c_int
 
 
 #----------------------------------------------------------------------
-# Òì²½¿ò¼Ü£º
-# ¹ÜÀíÁ¬½øÀ´ÒÔ¼°Á¬³öÈ¥µÄÌ×½Ó×Ö²¢ÇÒ¿ÉÒÔ¹ÜÀí¶à¸ölistenµÄÌ×½Ó×Ö£¬ÒÔhid
-# ¹ÜÀí£¬Èç¹ûÒªĞÂ½¨Á¢Ò»¸ö¼àÌıÌ×½Ó×Ö£¬Ôòµ÷ÓÃ new_listen(ip, port, head)
-# Ôò»á·µ»Ø¼àÌıÌ×½Ó×ÖµÄhid£¬½ô½Ó×ÅÊÕµ½¼àÌıÌ×½Ó×ÖµÄ NEWÏûÏ¢¡£È»ºóÈç¹û
-# ¸Ã¼àÌı¶Ë¿ÚÉÏÓĞÆäËûÁ¬½ÓÁ¬Èë£¬Ôò»áÊÕµ½ÆäËûÁ¬½ÓµÄ NEWÏûÏ¢¡£
-# Èç¹ûÒª½¨Á¢Ò»¸öÁ¬³öÈ¥µÄÁ¬½Ó£¬Ôòµ÷ÓÃ new_connect(ip, port, head)£¬·µ»Ø
-# ¸ÃÁ¬½ÓµÄ hid£¬²¢ÇÒ½ô½Ó×ÅÊÕµ½ NEWÏûÏ¢£¬Èç¹ûÁ¬½Ó³É¹¦»á½øÒ»²½ÓĞ ESTAB
-# ÏûÏ¢£¬·ñÔò£¬½«»áÊÕµ½ LEAVEÏûÏ¢¡£
+# å¼‚æ­¥æ¡†æ¶ï¼š
+# ç®¡ç†è¿è¿›æ¥ä»¥åŠè¿å‡ºå»çš„å¥—æ¥å­—å¹¶ä¸”å¯ä»¥ç®¡ç†å¤šä¸ªlistençš„å¥—æ¥å­—ï¼Œä»¥hid
+# ç®¡ç†ï¼Œå¦‚æœè¦æ–°å»ºç«‹ä¸€ä¸ªç›‘å¬å¥—æ¥å­—ï¼Œåˆ™è°ƒç”¨ new_listen(ip, port, head)
+# åˆ™ä¼šè¿”å›ç›‘å¬å¥—æ¥å­—çš„hidï¼Œç´§æ¥ç€æ”¶åˆ°ç›‘å¬å¥—æ¥å­—çš„ NEWæ¶ˆæ¯ã€‚ç„¶åå¦‚æœ
+# è¯¥ç›‘å¬ç«¯å£ä¸Šæœ‰å…¶ä»–è¿æ¥è¿å…¥ï¼Œåˆ™ä¼šæ”¶åˆ°å…¶ä»–è¿æ¥çš„ NEWæ¶ˆæ¯ã€‚
+# å¦‚æœè¦å»ºç«‹ä¸€ä¸ªè¿å‡ºå»çš„è¿æ¥ï¼Œåˆ™è°ƒç”¨ new_connect(ip, port, head)ï¼Œè¿”å›
+# è¯¥è¿æ¥çš„ hidï¼Œå¹¶ä¸”ç´§æ¥ç€æ”¶åˆ° NEWæ¶ˆæ¯ï¼Œå¦‚æœè¿æ¥æˆåŠŸä¼šè¿›ä¸€æ­¥æœ‰ ESTAB
+# æ¶ˆæ¯ï¼Œå¦åˆ™ï¼Œå°†ä¼šæ”¶åˆ° LEAVEæ¶ˆæ¯ã€‚
 #----------------------------------------------------------------------
 
-ASYNC_EVT_NEW   = 0		# ĞÂÁ¬½Ó£ºwp=hid, lp=-1(Á¬³ö),0(¼àÌı),>0(Á¬Èë)
-ASYNC_EVT_LEAVE = 1		# Á¬½Ó¶Ï¿ª£ºwp=hid, lp=tag Ö÷¶¯±»¶¯¶Ï¿ª¶¼»áÊÕµ½
-ASYNC_EVT_ESTAB = 2		# Á¬½Ó½¨Á¢£ºwp=hid, lp=tag ½öÓÃÓÚÁ¬³öÈ¥µÄÁ¬½Ó
-ASYNC_EVT_DATA  = 3		# ÊÕµ½Êı¾İ£ºwp=hid, lp=tag
-ASYNC_EVT_PROGRESS = 4	# ´ı·¢ËÍÊı¾İÒÑ¾­È«²¿·¢ËÍÍê³É£ºwp=hid, lp=tag
-ASYNC_EVT_PUSH = 5      # ÓÉ post·¢ËÍ¹ıÀ´µÄÏûÏ¢
+ASYNC_EVT_NEW   = 0		# æ–°è¿æ¥ï¼šwp=hid, lp=-1(è¿å‡º),0(ç›‘å¬),>0(è¿å…¥)
+ASYNC_EVT_LEAVE = 1		# è¿æ¥æ–­å¼€ï¼šwp=hid, lp=tag ä¸»åŠ¨è¢«åŠ¨æ–­å¼€éƒ½ä¼šæ”¶åˆ°
+ASYNC_EVT_ESTAB = 2		# è¿æ¥å»ºç«‹ï¼šwp=hid, lp=tag ä»…ç”¨äºè¿å‡ºå»çš„è¿æ¥
+ASYNC_EVT_DATA  = 3		# æ”¶åˆ°æ•°æ®ï¼šwp=hid, lp=tag
+ASYNC_EVT_PROGRESS = 4	# å¾…å‘é€æ•°æ®å·²ç»å…¨éƒ¨å‘é€å®Œæˆï¼šwp=hid, lp=tag
+ASYNC_EVT_PUSH = 5      # ç”± postå‘é€è¿‡æ¥çš„æ¶ˆæ¯
 
-ASYNC_MODE_IN		= 1	# ÀàĞÍ£º¶ÔÄÚÁ¬½Ó
-ASYNC_MODE_OUT		= 2	# ÀàĞÍ£º¶ÔÍâÁ¬½Ó
-ASYNC_MODE_LISTEN4	= 3	# ÀàĞÍ£ºIPv4¼àÌıÕß
-ASYNC_MODE_LISTEN6	= 4	# ÀàĞÍ£ºIPv6¼àÌıÕß
+ASYNC_MODE_IN		= 1	# ç±»å‹ï¼šå¯¹å†…è¿æ¥
+ASYNC_MODE_OUT		= 2	# ç±»å‹ï¼šå¯¹å¤–è¿æ¥
+ASYNC_MODE_LISTEN4	= 3	# ç±»å‹ï¼šIPv4ç›‘å¬è€…
+ASYNC_MODE_LISTEN6	= 4	# ç±»å‹ï¼šIPv6ç›‘å¬è€…
 
-HEADER_WORDLSB		= 0		# Í·²¿£ºÁ½×Ö½Ú little-endian
-HEADER_WORDMSB		= 1		# Í·²¿£ºÁ½×Ö½Ú big-endian
-HEADER_DWORDLSB		= 2		# Í·²¿£ºËÄ×Ö½Ú little-endian
-HEADER_DWORDMSB		= 3		# Í·²¿£ºËÄ×Ö½Ú big-endian
-HEADER_BYTELSB		= 4		# Í·²¿£ºµ¥×Ö½Ú little-endian
-HEADER_BYTEMSB		= 5		# Í·²¿£ºµ¥×Ö½Ú big-endian
-HEADER_EWORDLSB		= 6		# Í·²¿£ºÁ½×Ö½Ú£¨²»°üº¬×ÔÉí£© little-endian
-HEADER_EWORDMSB		= 7		# Í·²¿£ºÁ½×Ö½Ú£¨²»°üº¬×ÔÉí£© big-endian
-HEADER_EDWORDLSB	= 8		# Í·²¿£ºËÄ×Ö½Ú£¨²»°üº¬×ÔÉí£© little-endian
-HEADER_EDWORDMSB	= 9		# Í·²¿£ºËÄ×Ö½Ú£¨²»°üº¬×ÔÉí£© big-endian
-HEADER_EBYTELSB		= 10	# Í·²¿£ºµ¥×Ö½Ú£¨²»°üº¬×ÔÉí£© little-endian
-HEADER_EBYTEMSB		= 11	# Í·²¿£ºµ¥×Ö½Ú£¨²»°üº¬×ÔÉí£© little-endian
-HEADER_DWORDMASK	= 12	# Í·²¿£ºËÄ×Ö½Ú£¨°üº¬×ÔÉí£¬´øÑÚÂë£© little-endian
-HEADER_RAWDATA		= 13	# Í·²¿£ºÔ­Ê¼Êı¾İÁ÷£¬ÎŞÍ·²¿±êÖ¾
-HEADER_LINESPLIT	= 14	# Í·²¿£ºÎŞÍ·²¿µ«ÊÇ°´'\n'ÇĞ¸îµÄÏûÏ¢
+HEADER_WORDLSB		= 0		# å¤´éƒ¨ï¼šä¸¤å­—èŠ‚ little-endian
+HEADER_WORDMSB		= 1		# å¤´éƒ¨ï¼šä¸¤å­—èŠ‚ big-endian
+HEADER_DWORDLSB		= 2		# å¤´éƒ¨ï¼šå››å­—èŠ‚ little-endian
+HEADER_DWORDMSB		= 3		# å¤´éƒ¨ï¼šå››å­—èŠ‚ big-endian
+HEADER_BYTELSB		= 4		# å¤´éƒ¨ï¼šå•å­—èŠ‚ little-endian
+HEADER_BYTEMSB		= 5		# å¤´éƒ¨ï¼šå•å­—èŠ‚ big-endian
+HEADER_EWORDLSB		= 6		# å¤´éƒ¨ï¼šä¸¤å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ little-endian
+HEADER_EWORDMSB		= 7		# å¤´éƒ¨ï¼šä¸¤å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ big-endian
+HEADER_EDWORDLSB	= 8		# å¤´éƒ¨ï¼šå››å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ little-endian
+HEADER_EDWORDMSB	= 9		# å¤´éƒ¨ï¼šå››å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ big-endian
+HEADER_EBYTELSB		= 10	# å¤´éƒ¨ï¼šå•å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ little-endian
+HEADER_EBYTEMSB		= 11	# å¤´éƒ¨ï¼šå•å­—èŠ‚ï¼ˆä¸åŒ…å«è‡ªèº«ï¼‰ little-endian
+HEADER_DWORDMASK	= 12	# å¤´éƒ¨ï¼šå››å­—èŠ‚ï¼ˆåŒ…å«è‡ªèº«ï¼Œå¸¦æ©ç ï¼‰ little-endian
+HEADER_RAWDATA		= 13	# å¤´éƒ¨ï¼šåŸå§‹æ•°æ®æµï¼Œæ— å¤´éƒ¨æ ‡å¿—
+HEADER_LINESPLIT	= 14	# å¤´éƒ¨ï¼šæ— å¤´éƒ¨ä½†æ˜¯æŒ‰'\n'åˆ‡å‰²çš„æ¶ˆæ¯
 
 
 class AsyncCore (object):
 
 	def __init__ (self):
 		self.obj = _asn_core_new()
-		_asn_core_limit(self.obj, -1, 0x200000)
+		_asn_core_limit(self.obj, 0x200000, 0x200000)
 		self.__options = {
 			'NODELAY' : 1, 'REUSEADDR': 2, 'KEEPALIVE':3, 'SYSSNDBUF':4,
-			'SYSRCVBUF': 5, 'LIMITED': 6, 'MAXSIZE': 7, 'PROGRESS': 8 }
+			'SYSRCVBUF': 5, 'LIMITED': 6, 'MAXSIZE': 7, 'PROGRESS': 8,
+			'SENSITIVE': 12 }
 		self.buffer = ctypes.create_string_buffer('\000' * 0x200000)
 		self.wparam = ctypes.c_long()
 		self.lparam = ctypes.c_long()
@@ -397,8 +398,8 @@ class AsyncCore (object):
 			self.obj = 0
 		return 0
 	
-	# µÈ´ıÊÂ¼ş£¬secondsÎªµÈ´ıµÄÊ±¼ä£¬0±íÊ¾²»µÈ´ı
-	# Ò»°ãÒªÏÈµ÷ÓÃ wait£¬È»ºó³ÖĞøµ÷ÓÃ readÈ¡µÃÏûÏ¢£¬Ö±µ½Ã»ÓĞÏûÏ¢ÁË
+	# ç­‰å¾…äº‹ä»¶ï¼Œsecondsä¸ºç­‰å¾…çš„æ—¶é—´ï¼Œ0è¡¨ç¤ºä¸ç­‰å¾…
+	# ä¸€èˆ¬è¦å…ˆè°ƒç”¨ waitï¼Œç„¶åæŒç»­è°ƒç”¨ readå–å¾—æ¶ˆæ¯ï¼Œç›´åˆ°æ²¡æœ‰æ¶ˆæ¯äº†
 	def wait (self, seconds = 0):
 		if self.obj:
 			if CFFI_ENABLE:
@@ -408,7 +409,7 @@ class AsyncCore (object):
 			return True
 		return False
 	
-	# »½ĞÑ wait
+	# å”¤é†’ wait
 	def notify (self):
 		if self.obj:
 			if CFFI_ENABLE:
@@ -418,10 +419,10 @@ class AsyncCore (object):
 			return True
 		return False
 	
-	# ¶ÁÈ¡ÏûÏ¢£¬·µ»Ø£º(event, wparam, lparam, data)
-	# Èç¹ûÃ»ÓĞÏûÏ¢£¬·µ»Ø (None, None, None, None)
-	# eventµÄÖµÎª£ºASYNC_EVT_NEW/LEAVE/ESTAB/DATAµÈ
-	# ÆÕÍ¨ÓÃ·¨£ºÑ­»·µ÷ÓÃ£¬Ã»ÓĞÏûÏ¢¿É¶ÁÊ±£¬µ÷ÓÃÒ»´ÎwaitÈ¥
+	# è¯»å–æ¶ˆæ¯ï¼Œè¿”å›ï¼š(event, wparam, lparam, data)
+	# å¦‚æœæ²¡æœ‰æ¶ˆæ¯ï¼Œè¿”å› (None, None, None, None)
+	# eventçš„å€¼ä¸ºï¼šASYNC_EVT_NEW/LEAVE/ESTAB/DATAç­‰
+	# æ™®é€šç”¨æ³•ï¼šå¾ªç¯è°ƒç”¨ï¼Œæ²¡æœ‰æ¶ˆæ¯å¯è¯»æ—¶ï¼Œè°ƒç”¨ä¸€æ¬¡waitå»
 	def read (self):
 		if not self.obj:
 			return (None, None, None, None)
@@ -443,39 +444,39 @@ class AsyncCore (object):
 		data = ffi.buffer(buffer, hr)[:]
 		return event[0], wparam[0], lparam[0], data
 
-	#ÔÚÓĞÁ¬½ÓÁ¬½øÀ´Ö®ºó£¬Í¨¹ıdataµÃµ½¶Ô¶ËµÄĞÅÏ¢
+	#åœ¨æœ‰è¿æ¥è¿è¿›æ¥ä¹‹åï¼Œé€šè¿‡dataå¾—åˆ°å¯¹ç«¯çš„ä¿¡æ¯
 	def	parse_remote(self,data):
 		head = ord(data[0])
 		port = ord(data[2])*256+ord(data[3])
 		ip = '.'.join([ str(ord(n)) for n in data[4:8] ])
 		return head,port,ip
 
-	# ÏòÄ³Á¬½Ó·¢ËÍÊı¾İ£¬hidÎªÁ¬½Ó±êÊ¶
+	# å‘æŸè¿æ¥å‘é€æ•°æ®ï¼Œhidä¸ºè¿æ¥æ ‡è¯†
 	def send (self, hid, data, mask = 0):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_send_mask(self.obj, hid, data, len(data), mask)
 
-	# cffi ¼ÓËÙ
+	# cffi åŠ é€Ÿ
 	def __cffi_send (self, hid, data, mask = 0):
 		if not self.obj:
 			return -1000
 		return _cffi_asn_core_send_mask(self.obj, hid, data, len(data), mask)
 
-	# ¹Ø±ÕÁ¬½Ó£¬Ö»ÒªÁ¬½Ó¶Ï¿ª²»¹ÜÖ÷¶¯¶Ï¿ª»¹ÊÇ±»close½Ó¿Ú¶Ï¿ª£¬¶¼»áÊÕµ½ leave
+	# å…³é—­è¿æ¥ï¼Œåªè¦è¿æ¥æ–­å¼€ä¸ç®¡ä¸»åŠ¨æ–­å¼€è¿˜æ˜¯è¢«closeæ¥å£æ–­å¼€ï¼Œéƒ½ä¼šæ”¶åˆ° leave
 	def close (self, hid, code = 1000):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_close(self.obj, hid, code)
 	
-	# ½¨Á¢Ò»¸öĞÂµÄ¶ÔÍâÁ¬½Ó£¬·µ»Ø hid£¬´íÎó·µ»Ø <0
+	# å»ºç«‹ä¸€ä¸ªæ–°çš„å¯¹å¤–è¿æ¥ï¼Œè¿”å› hidï¼Œé”™è¯¯è¿”å› <0
 	def new_connect (self, ip, port, head = 0):
 		if not self.obj:
 			self.obj = _asn_core_new()
 			_asn_core_limit(self.obj, -1, 0x200000)
 		return _asn_core_new_connect(self.obj, ip, port, head)
 	
-	# ½¨Á¢Ò»¸öĞÂµÄ¼àÌıÁ¬½Ó£¬·µ»Ø hid£¬´íÎó·µ»Ø <0, reuseÎªÊÇ·ñÆôÓÃ REUSEADDR
+	# å»ºç«‹ä¸€ä¸ªæ–°çš„ç›‘å¬è¿æ¥ï¼Œè¿”å› hidï¼Œé”™è¯¯è¿”å› <0, reuseä¸ºæ˜¯å¦å¯ç”¨ REUSEADDR
 	def new_listen (self, ip, port, head = 0, reuse = False):
 		if not self.obj:
 			self.obj = _asn_core_new()
@@ -485,48 +486,48 @@ class AsyncCore (object):
 		if reuse: head |= 0x200
 		return _asn_core_new_listen(self.obj, ip, port, head)
 
-	# Íâ²¿½ÓÊÕÒ»¸öÌ×½Ó×Ö£¬¼ÓÈëAsyncCoreÄÚ²¿£¬·µ»Øhid£¬´ËºóÄÚ²¿È«È¨¸ºÔğ¶Ï¿ªµÈ
+	# å¤–éƒ¨æ¥æ”¶ä¸€ä¸ªå¥—æ¥å­—ï¼ŒåŠ å…¥AsyncCoreå†…éƒ¨ï¼Œè¿”å›hidï¼Œæ­¤åå†…éƒ¨å…¨æƒè´Ÿè´£æ–­å¼€ç­‰
 	def new_assign (self, fd, head = 0, check_estab = True):
 		if not self.obj:
 			self.obj = _asn_core_new()
 			_asn_core_limit(self.obj, -1, 0x200000)
 		return _asn_core_new_assign(fd, head, check_estab and 1 or 0)
 	
-	# ´æÈëÒ»Ìõ ASYNC_EVT_PUSH ÈÃ read¿ÉÒÔÊÕµ½£¬²¢»½ĞÑ waitµÄµÈ´ı£¬
+	# å­˜å…¥ä¸€æ¡ ASYNC_EVT_PUSH è®© readå¯ä»¥æ”¶åˆ°ï¼Œå¹¶å”¤é†’ waitçš„ç­‰å¾…ï¼Œ
 	def post (self, wparam, lparam, data):
 		if not self.obj:
 			self.obj = _asn_core_new()
 		return _asn_core_post(self.obj, wparam, lparam, data, len(data))
 	
-	# È¡µÃÁ¬½ÓÀàĞÍ£ºASYNC_MODE_IN/OUT/LISTEN4/LISTEN6
+	# å–å¾—è¿æ¥ç±»å‹ï¼šASYNC_MODE_IN/OUT/LISTEN4/LISTEN6
 	def get_mode (self, hid):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_get_mode(self.obj, hid)
 	
-	# È¡µÃ tag
+	# å–å¾— tag
 	def get_tag (self, hid):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_get_tag(self.obj, hid)
 	
-	# ÉèÖÃ tag
+	# è®¾ç½® tag
 	def set_tag (self, hid, tag):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		_asn_core_set_tag(self.obj, hid, tag)
 	
-	# È¡µÃÄ³Á¬½ÓµÄ´ı·¢ËÍ»º´æ(Ó¦ÓÃ²ã)ÖĞµÄ´ı·¢ËÍÊı¾İ´óĞ¡
-	# ÓÃÀ´ÅĞ¶ÏÄ³Á¬½ÓÊı¾İÊÇ²»ÊÇ·¢²»³öÈ¥»ıÀÛÌ«¶àÁË(ÍøÂçÓµÈû»òÕßÔ¶·½²»½ÓÊÕ)
+	# å–å¾—æŸè¿æ¥çš„å¾…å‘é€ç¼“å­˜(åº”ç”¨å±‚)ä¸­çš„å¾…å‘é€æ•°æ®å¤§å°
+	# ç”¨æ¥åˆ¤æ–­æŸè¿æ¥æ•°æ®æ˜¯ä¸æ˜¯å‘ä¸å‡ºå»ç§¯ç´¯å¤ªå¤šäº†(ç½‘ç»œæ‹¥å¡æˆ–è€…è¿œæ–¹ä¸æ¥æ”¶)
 	def remain (self, hid):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		return _asn_core_remain(self.obj, hid)
 	
-	# ÉèÖÃ»º´æ¿ØÖÆ²ÎÊı£¬limitedÊÇ´ø·¢ËÍ»º´æ(remain)³¬¹ı¶àÉÙ¾Í¶Ï¿ª¸ÃÁ¬½Ó£¬
-	# Èç¹ûÔ¶¶Ë²»½ÓÊÕ£¬»òÕßÍøÂçÓµÈû£¬ÕâÀïÓÖÒ»Ö±¸øËü·¢ËÍÊı¾İ£¬ÔòremainÔ½À´Ô½´ó
-	# ³¬¹ı¸ÃÖµºó£¬ÏµÍ³¾ÍÒªÖ÷¶¯Ìßµô¸ÃÁ¬½Ó£¬ÈÏÎªËüÉ¥Ê§´¦ÀíÄÜÁ¦ÁË¡£
-	# maxsizeÊÇµ¥¸öÊı¾İ°üµÄ×î´ó´óĞ¡£¬Ä¬ÈÏÊÇ2MB¡£³¬¹ı¸Ã´óĞ¡ÈÏÎª·Ç·¨¡£
+	# è®¾ç½®ç¼“å­˜æ§åˆ¶å‚æ•°ï¼Œlimitedæ˜¯å¸¦å‘é€ç¼“å­˜(remain)è¶…è¿‡å¤šå°‘å°±æ–­å¼€è¯¥è¿æ¥ï¼Œ
+	# å¦‚æœè¿œç«¯ä¸æ¥æ”¶ï¼Œæˆ–è€…ç½‘ç»œæ‹¥å¡ï¼Œè¿™é‡Œåˆä¸€ç›´ç»™å®ƒå‘é€æ•°æ®ï¼Œåˆ™remainè¶Šæ¥è¶Šå¤§
+	# è¶…è¿‡è¯¥å€¼åï¼Œç³»ç»Ÿå°±è¦ä¸»åŠ¨è¸¢æ‰è¯¥è¿æ¥ï¼Œè®¤ä¸ºå®ƒä¸§å¤±å¤„ç†èƒ½åŠ›äº†ã€‚
+	# maxsizeæ˜¯å•ä¸ªæ•°æ®åŒ…çš„æœ€å¤§å¤§å°ï¼Œé»˜è®¤æ˜¯2MBã€‚è¶…è¿‡è¯¥å¤§å°è®¤ä¸ºéæ³•ã€‚
 	def limit (self, limited, maxsize):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
@@ -535,25 +536,25 @@ class AsyncCore (object):
 			self.buffer = ctypes.create_string_buffer('0' * maxsize)
 		return 0
 	
-	# È¡µÃµÚÒ»¸öÁ¬½Ó±êÊ¶
+	# å–å¾—ç¬¬ä¸€ä¸ªè¿æ¥æ ‡è¯†
 	def node_head (self):
 		if not self.obj:
 			return -1
 		return _asn_core_node_head(self.obj)
 	
-	# È¡µÃÏÂÒ»¸öÁ¬½Ó±êÊ¶
+	# å–å¾—ä¸‹ä¸€ä¸ªè¿æ¥æ ‡è¯†
 	def node_next (self, hid):
 		if not self.obj:
 			return -1
 		return _asn_core_node_next(self.obj, hid)
 
-	# È¡µÃÉÏÒ»¸öÁ¬½Ó±êÊ¶
+	# å–å¾—ä¸Šä¸€ä¸ªè¿æ¥æ ‡è¯†
 	def node_prev (self, hid):
 		if not self.obj:
 			return -1
 		return _asn_core_node_prev(self.obj, hid)
 	
-	# ÅäÖÃÁ¬½Ó£ºoptÈ¡Öµ¼û __init__ÀïÃæµÄ self.__options
+	# é…ç½®è¿æ¥ï¼šoptå–å€¼è§ __init__é‡Œé¢çš„ self.__options
 	def option (self, hid, opt, value):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
@@ -561,25 +562,25 @@ class AsyncCore (object):
 			opt = self.__options.get(opt.upper(), opt)
 		_asn_core_option(self.obj, hid, opt, value)
 	
-	# ÉèÖÃ¼ÓÃÜÃÜÔ¿£º·¢ËÍ·½Ïò
+	# è®¾ç½®åŠ å¯†å¯†é’¥ï¼šå‘é€æ–¹å‘
 	def rc4_set_skey (self, hid, key):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		_asn_core_rc4_set_skey(self.obj, hid, key, len(key))
 
-	# ÉèÖÃ¼ÓÃÜÃÜÔ¿£º½ÓÊÕ·½Ïò
+	# è®¾ç½®åŠ å¯†å¯†é’¥ï¼šæ¥æ”¶æ–¹å‘
 	def rc4_set_rkey (self, hid, key):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		_asn_core_rc4_set_rkey(self.obj, hid, key, len(key))
 
-	# Ôö¼Ó³¬Ê±½Ó¿Ú
+	# å¢åŠ è¶…æ—¶æ¥å£
 	def timeout (self, seconds):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
 		_asn_core_timeout(self.obj, seconds)
 	
-	# È¡µÃ½ü¶ËµØÖ·
+	# å–å¾—è¿‘ç«¯åœ°å€
 	def sockname (self, hid):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
@@ -597,7 +598,7 @@ class AsyncCore (object):
 			return None
 		return (hr[0], port)
 	
-	# È¡µÃÔ¶¶ËµØÖ·
+	# å–å¾—è¿œç«¯åœ°å€
 	def peername (self, hid):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
@@ -615,7 +616,7 @@ class AsyncCore (object):
 			return None
 		return (hr[0], port)
 	
-	# ÊÇ·ñ½ûÖ¹½ÓÊÕÄ³ÈËÏûÏ¢
+	# æ˜¯å¦ç¦æ­¢æ¥æ”¶æŸäººæ¶ˆæ¯
 	def disable (self, hid, value):
 		if not self.obj:
 			raise Exception('no create AsyncCore obj')
@@ -623,7 +624,7 @@ class AsyncCore (object):
 
 
 #----------------------------------------------------------------------
-# ·Ç×èÈû TCP
+# éé˜»å¡ TCP
 #----------------------------------------------------------------------
 class AsyncSock (object):
 
@@ -715,14 +716,14 @@ class AsyncSock (object):
 
 
 #----------------------------------------------------------------------
-# ÊÕÎ²´¦Àí
+# æ”¶å°¾å¤„ç†
 #----------------------------------------------------------------------
 
 
 #----------------------------------------------------------------------
-# Òì²½ÏûÏ¢£º
-# Ê¹ÓÃ AsyncCore½øĞĞÄÚ²¿Á¬½Ó¹ÜÀí£¬¶ÔÍâÌá¹©Á¬½ÓÍ¸Ã÷µÄÏûÏ¢Í¶µİ»úÖÆ¡£
-# Ö»ĞèÒª¹ØĞÄ sid(server id)¼´¿É£¬²»±Ø¹ØĞÄÈÎºÎÁ¬½ÓµÄ½¨Á¢£¬Î¬»¤£¬±£³Ö
+# å¼‚æ­¥æ¶ˆæ¯ï¼š
+# ä½¿ç”¨ AsyncCoreè¿›è¡Œå†…éƒ¨è¿æ¥ç®¡ç†ï¼Œå¯¹å¤–æä¾›è¿æ¥é€æ˜çš„æ¶ˆæ¯æŠ•é€’æœºåˆ¶ã€‚
+# åªéœ€è¦å…³å¿ƒ sid(server id)å³å¯ï¼Œä¸å¿…å…³å¿ƒä»»ä½•è¿æ¥çš„å»ºç«‹ï¼Œç»´æŠ¤ï¼Œä¿æŒ
 #----------------------------------------------------------------------
 ASYNC_NOTIFY_EVT_DATA			= 1
 ASYNC_NOTIFY_EVT_NEW_IN			= 2
@@ -763,7 +764,7 @@ class AsyncNotify (object):
 			self.obj = 0
 		return 0
 	
-	# µÈ´ı²¢´¦ÀíÏûÏ¢
+	# ç­‰å¾…å¹¶å¤„ç†æ¶ˆæ¯
 	def wait (self, seconds = 0):
 		if self.obj:
 			if CFFI_ENABLE:
@@ -773,7 +774,7 @@ class AsyncNotify (object):
 			return True
 		return False
 	
-	# »½ĞÑµÈ´ı
+	# å”¤é†’ç­‰å¾…
 	def wake (self):
 		if self.obj:
 			if CFFI_ENABLE:
@@ -783,10 +784,10 @@ class AsyncNotify (object):
 			return True
 		return False
 	
-	# ¶ÁÈ¡ÏûÏ¢£¬·µ»Ø£º(event, wparam, lparam, data)
-	# Èç¹ûÃ»ÓĞÏûÏ¢£¬·µ»Ø (None, None, None, None)
-	# eventµÄÖµÎª£ºASYNC_NOTIFY_EVT_DATA/NEW_IN/NEW_OUT/ERROR µÈ
-	# ÆÕÍ¨ÓÃ·¨£ºÑ­»·µ÷ÓÃ£¬Ã»ÓĞÏûÏ¢¿É¶ÁÊ±£¬µ÷ÓÃÒ»´ÎwaitÈ¥
+	# è¯»å–æ¶ˆæ¯ï¼Œè¿”å›ï¼š(event, wparam, lparam, data)
+	# å¦‚æœæ²¡æœ‰æ¶ˆæ¯ï¼Œè¿”å› (None, None, None, None)
+	# eventçš„å€¼ä¸ºï¼šASYNC_NOTIFY_EVT_DATA/NEW_IN/NEW_OUT/ERROR ç­‰
+	# æ™®é€šç”¨æ³•ï¼šå¾ªç¯è°ƒç”¨ï¼Œæ²¡æœ‰æ¶ˆæ¯å¯è¯»æ—¶ï¼Œè°ƒç”¨ä¸€æ¬¡waitå»
 	def read (self):
 		if not self.obj:
 			return (None, None, None, None)
@@ -808,77 +809,77 @@ class AsyncNotify (object):
 		data = ffi.buffer(buffer, hr)[:]
 		return event[0], wparam[0], lparam[0], data
 	
-	# ĞÂ½¨¼àÌı²¢·µ»Ø¼àÌı listen_id
+	# æ–°å»ºç›‘å¬å¹¶è¿”å›ç›‘å¬ listen_id
 	def listen (self, ip, port, reuseaddr = False):
 		if not self.obj:
 			return -1000
 		return _asn_notify_listen(self.obj, ip, port, reuseaddr and 1 or 0)
 	
-	# ¹Ø±Õ¼àÌı
+	# å…³é—­ç›‘å¬
 	def remove (self, listen_id):
 		if not self.obj:
 			return -1000
 		return _asn_notify_remove(self.obj, listen_id)
 	
-	# È¡µÃ¶Ë¿Ú
+	# å–å¾—ç«¯å£
 	def get_port (self, listen_id):
 		if not self.obj:
 			return -1000
 		return _asn_notify_get_port(self.obj, listen_id)
 	
-	# ¸Ä±ä×ÔÉíµÄ sid£¬±ÈÈç¹¹ÔìÊ±¿ÉÒÔÉèÖÃ0£¬ºóÆÚÓĞĞèÒªÔÙ¸ü¸Ä
+	# æ”¹å˜è‡ªèº«çš„ sidï¼Œæ¯”å¦‚æ„é€ æ—¶å¯ä»¥è®¾ç½®0ï¼ŒåæœŸæœ‰éœ€è¦å†æ›´æ”¹
 	def change (self, newsid):
 		if not self.obj:
 			return -1000
 		_asn_notify_change(self.obj, newsid)
 
-	# ÏòÄ³Ì¨ server·¢ËÍÊı¾İ
+	# å‘æŸå° serverå‘é€æ•°æ®
 	def send (self, sid, cmd, data):
 		if not self.obj:
 			return -1000
 		return _asn_notify_send(self.obj, sid, cmd, data, len(data))
 	
-	# cffi ¼ÓËÙ
+	# cffi åŠ é€Ÿ
 	def __cffi_send (self, sid, cmd, data):
 		if not self.obj:
 			return -1000
 		return _cffi_asn_notify_send(self.obj, sid, cmd, data, len(data))
 
-	# ¹Ø±ÕÄ³Ì¨·şÎñÆ÷µÄÁ¬½Ó£¬mode=1Íâ²¿Á¬½øÀ´µÄÁ¬½Ó£¬mode=2Á¬³öÈ¥µÄÁ¬½Ó
+	# å…³é—­æŸå°æœåŠ¡å™¨çš„è¿æ¥ï¼Œmode=1å¤–éƒ¨è¿è¿›æ¥çš„è¿æ¥ï¼Œmode=2è¿å‡ºå»çš„è¿æ¥
 	def close (self, sid, mode, code):
 		if not self.obj:
 			return -1000
 		return _asn_notify_close(self.obj, sid, mode, code)
 	
-	# Çå¿Õ ip°×Ãûµ¥
+	# æ¸…ç©º ipç™½åå•
 	def allow_clear (self):
 		if not self.obj:
 			return False
 		_asn_notify_allow_clear(self.obj)
 		return True
 	
-	# Ìí¼Ó ip°×Ãûµ¥
+	# æ·»åŠ  ipç™½åå•
 	def allow_add (self, ip = '127.0.0.1'):
 		if not self.obj:
 			return False
 		_asn_notify_allow_add(self.obj, ip)
 		return True
 	
-	# É¾³ı ip°×Ãûµ¥
+	# åˆ é™¤ ipç™½åå•
 	def allow_del (self, ip = '127.0.0.1'):
 		if not self.obj:
 			return False
 		_asn_notify_allow_del(self.obj, ip)
 		return True
 	
-	# ÊÇ·ñÔÊĞí ip°×Ãûµ¥
+	# æ˜¯å¦å…è®¸ ipç™½åå•
 	def allow_enable (self, enable = True):
 		if not self.obj:
 			return False
 		_asn_notify_allow_enable(self.obj, enable and 1 or 0)
 		return True
 	
-	# Ò»´ÎĞÔÉèÖÃ°×Ãûµ¥
+	# ä¸€æ¬¡æ€§è®¾ç½®ç™½åå•
 	def allow (self, allowip = []):
 		if not self.obj:
 			return False
@@ -891,35 +892,35 @@ class AsyncNotify (object):
 		self.allow_enable(True)
 		return True
 			
-	# Ôö¼ÓÒ»Ì¨·şÎñÆ÷£ºsid->(ip, port)
+	# å¢åŠ ä¸€å°æœåŠ¡å™¨ï¼šsid->(ip, port)
 	def sid_add (self, sid, ip, port):
 		if not self.obj:
 			return False
 		_asn_notify_sid_add(self.obj, sid, ip, port)
 		return True
 	
-	# É¾³ıÒ»Ì¨·şÎñÆ÷
+	# åˆ é™¤ä¸€å°æœåŠ¡å™¨
 	def sid_del (self, sid):
 		if not self.obj:
 			return False
 		_asn_notify_sid_del(self.obj, sid)
 		return True
 	
-	# Çå¿ÕsidÁĞ±í
+	# æ¸…ç©ºsidåˆ—è¡¨
 	def sid_clear (self):
 		if not self.obj:
 			return False
 		_asn_notify_sid_clear(self.obj)
 		return True
 	
-	# ÉèÖÃÑéÖ¤Ç©Ãû
+	# è®¾ç½®éªŒè¯ç­¾å
 	def login_token (self, text):
 		if not self.obj:
 			return False
 		_asn_notify_token(self.obj, text, len(text))
 		return True
 
-	# ÅäÖÃÁ¬½Ó£ºoptÈ¡Öµ¼û __init__ÀïÃæµÄ self.__options
+	# é…ç½®è¿æ¥ï¼šoptå–å€¼è§ __init__é‡Œé¢çš„ self.__options
 	def option (self, opt, value):
 		if not self.obj:
 			raise Exception('no create AsyncNotify obj')
@@ -927,10 +928,10 @@ class AsyncNotify (object):
 			opt = self.__options.get(opt.upper(), opt)
 		return _asn_notify_option(self.obj, opt, value)
 	
-	# ÉèÖÃÈÕÖ¾£º
-	# prefixÎªÎÄ¼şÃû×Ö·û´®Ç°×º£¬NoneÊ±¹Ø±ÕÎÄ¼şÊä³ö
-	# stdoutÎªTrueÊ±»áÊä³öµ½±ê×¼Êä³ö
-	# colorÎªÑÕÉ«
+	# è®¾ç½®æ—¥å¿—ï¼š
+	# prefixä¸ºæ–‡ä»¶åå­—ç¬¦ä¸²å‰ç¼€ï¼ŒNoneæ—¶å…³é—­æ–‡ä»¶è¾“å‡º
+	# stdoutä¸ºTrueæ—¶ä¼šè¾“å‡ºåˆ°æ ‡å‡†è¾“å‡º
+	# colorä¸ºé¢œè‰²
 	def trace (self, prefix, stdout = False, color = -1):
 		if not self.obj:
 			return False
@@ -942,15 +943,15 @@ class AsyncNotify (object):
 # demo of AsyncCore
 #----------------------------------------------------------------------
 def test_async_core():
-	# ´´½¨Ò»¸ö AsyncCore
+	# åˆ›å»ºä¸€ä¸ª AsyncCore
 	core = AsyncCore()
-	# ´´½¨Ò»¸öĞÂµÄ¼àÌı hid£¬Í·²¿Ä£Ê½ HEADER_WORDLSB
+	# åˆ›å»ºä¸€ä¸ªæ–°çš„ç›‘å¬ hidï¼Œå¤´éƒ¨æ¨¡å¼ HEADER_WORDLSB
 	hid_listen = core.new_listen('127.0.0.1', 8001, HEADER_WORDLSB)
 	if hid_listen < 0:
 		print 'can not listen on port 8001'
 		return -1
 	print 'listen on localhost:8001 hid=%xh'%hid_listen
-	# ´´½¨Ò»¸öĞÂµÄÁ¬½Ó hid
+	# åˆ›å»ºä¸€ä¸ªæ–°çš„è¿æ¥ hid
 	hid_connect = core.new_connect('127.0.0.1', 8001, HEADER_WORDLSB)
 	if hid_connect < 0:
 		print 'can not connect to localhost:8001'
@@ -961,34 +962,34 @@ def test_async_core():
 	hid_accept = -1
 	index = 0
 	while True:
-		# µÈ´ıÏûÏ¢
+		# ç­‰å¾…æ¶ˆæ¯
 		core.wait(0.1)
-		# ´¦Àíµ±Ç°ËùÓĞÏûÏ¢
+		# å¤„ç†å½“å‰æ‰€æœ‰æ¶ˆæ¯
 		while True:
 			event, hid, tag, data = core.read()
-			if event == None: # Ã»ÏûÏ¢¾Í·µ»Ø
+			if event == None: # æ²¡æ¶ˆæ¯å°±è¿”å›
 				break
-			# ĞÂ½¨ hid¶¼»á²úÉú£¬²»ÂÛÊÇ½ÓÊÕĞÂÁ¬½Ó£¬»¹ÊÇµ÷ÓÃ new_listen / new_connect
+			# æ–°å»º hidéƒ½ä¼šäº§ç”Ÿï¼Œä¸è®ºæ˜¯æ¥æ”¶æ–°è¿æ¥ï¼Œè¿˜æ˜¯è°ƒç”¨ new_listen / new_connect
 			if event == ASYNC_EVT_NEW:
 				print time.strftime('[%Y-%m-%d %H:%M:%S]'), 'new hid=%xh'%hid
 				if core.get_mode(hid) == ASYNC_MODE_IN:
-					hid_accept = hid	# hid_listenÕâ¸ö hid½ÓÊÕµ½Ò»¸öĞÂµÄ hid
+					hid_accept = hid	# hid_listenè¿™ä¸ª hidæ¥æ”¶åˆ°ä¸€ä¸ªæ–°çš„ hid
 					print time.strftime('[%Y-%m-%d %H:%M:%S]'), 'accept hid=%xh'%hid
-			# Ïú»Ù hid¶¼»á²úÉú£¬²»ÂÛÊÇÍâ²¿¶ÏÏß£¬³¬Ê±£¬»òÕß±¾µØ AsyncCore.close(hid)
+			# é”€æ¯ hidéƒ½ä¼šäº§ç”Ÿï¼Œä¸è®ºæ˜¯å¤–éƒ¨æ–­çº¿ï¼Œè¶…æ—¶ï¼Œæˆ–è€…æœ¬åœ° AsyncCore.close(hid)
 			elif event == ASYNC_EVT_LEAVE:
 				print time.strftime('[%Y-%m-%d %H:%M:%S]'), 'leave hid=%xh'%hid
-			# Á¬½Ó½¨Á¢£¬Ö»ÓĞ new_connect³öÈ¥µÄÁ´½Ó³É¹¦ºó»áÊÕµ½
+			# è¿æ¥å»ºç«‹ï¼Œåªæœ‰ new_connectå‡ºå»çš„é“¾æ¥æˆåŠŸåä¼šæ”¶åˆ°
 			elif event == ASYNC_EVT_ESTAB:
 				if hid == hid_connect:
 					established = True
 				print time.strftime('[%Y-%m-%d %H:%M:%S]'), 'estab hid=%xh'%hid
-			# ÊÕµ½Êı¾İ
+			# æ”¶åˆ°æ•°æ®
 			elif event == ASYNC_EVT_DATA:
 				if hid == hid_accept:			# accepted hid
 					core.send(hid, data)		# echo back
 				elif hid == hid_connect:
 					print time.strftime('[%Y-%m-%d %H:%M:%S]'), 'recv', data
-		# ¶¨Ê±·¢ËÍÊı¾İ
+		# å®šæ—¶å‘é€æ•°æ®
 		if established:
 			current = time.time()
 			if current > timeslap:
@@ -1002,23 +1003,23 @@ def test_async_core():
 # demo of AsyncNotify
 #----------------------------------------------------------------------
 def test_async_notify():
-	n1 = AsyncNotify(2001)			# ´´½¨Á½¸ö½Úµã
+	n1 = AsyncNotify(2001)			# åˆ›å»ºä¸¤ä¸ªèŠ‚ç‚¹
 	n2 = AsyncNotify(2002)
 	
-	n1.listen('127.0.0.1', 8001)	# ¼àÌı²»Í¬¶Ë¿Ú
+	n1.listen('127.0.0.1', 8001)	# ç›‘å¬ä¸åŒç«¯å£
 	n2.listen('127.0.0.1', 8002)
 
-	n1.login_token('1234')			# ÉèÖÃ»¥ÁªÑéÖ¤ÃÜÔ¿
+	n1.login_token('1234')			# è®¾ç½®äº’è”éªŒè¯å¯†é’¥
 	n2.login_token('1234')
 
-	n1.sid_add(2002, '127.0.0.1', 8002)		# »¥ÏàÌí¼Ó sid
+	n1.sid_add(2002, '127.0.0.1', 8002)		# äº’ç›¸æ·»åŠ  sid
 	n2.sid_add(2001, '127.0.0.1', 8001)
 
-	n1.send(2002, 1, 'hello')		# Ö±½ÓÏò n2·¢ËÍÊı¾İ
+	n1.send(2002, 1, 'hello')		# ç›´æ¥å‘ n2å‘é€æ•°æ®
 	n1.send(2002, 2, 'world !!')
 
-	n1.trace(None, True, -1)		# ÉèÖÃ²»Êä³öÈÕÖ¾µ½ÎÄ¼şµ«ÏÔÊ¾µ½ÆÁÄ»
-	n2.trace(None, True, 5)			# ÉèÖÃÈÕÖ¾¼°ÑÕÉ«
+	n1.trace(None, True, -1)		# è®¾ç½®ä¸è¾“å‡ºæ—¥å¿—åˆ°æ–‡ä»¶ä½†æ˜¾ç¤ºåˆ°å±å¹•
+	n2.trace(None, True, 5)			# è®¾ç½®æ—¥å¿—åŠé¢œè‰²
 	n1.option('logmask', 0xff)
 	n2.option('logmask', 0xff)
 
@@ -1030,19 +1031,19 @@ def test_async_notify():
 		time.sleep(0.001)
 		n1.wait(0)
 		n2.wait(0)
-		while 1:	# n1½ÓÊÕÊı¾İ²¢ÏÔÊ¾
+		while 1:	# n1æ¥æ”¶æ•°æ®å¹¶æ˜¾ç¤º
 			e, w, l, d = n1.read()
 			if e == None:
 				break
 			if e == ASYNC_NOTIFY_EVT_DATA:
 				print 'RECV cmd=%d data=%s'%(l, repr(d))
-		while 1:	# n2½ÓÊÕÊı¾İ²¢Ô­Ñù´«»ØÈ¥
+		while 1:	# n2æ¥æ”¶æ•°æ®å¹¶åŸæ ·ä¼ å›å»
 			e, w, l, d = n2.read()
 			if e == None:
 				break
 			if e == ASYNC_NOTIFY_EVT_DATA:
 				n2.send(w, l, d)
-		if time.time() > ts:	# Ã¿¸ôÒ»Ãë·¢ËÍÒ»ÌõÊı¾İµ½ n2
+		if time.time() > ts:	# æ¯éš”ä¸€ç§’å‘é€ä¸€æ¡æ•°æ®åˆ° n2
 			ts = time.time() + 1
 			n1.send(2002, 3, 'index:\x00 %d'%index)
 			index += 1

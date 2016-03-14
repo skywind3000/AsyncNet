@@ -6,7 +6,7 @@
 NAMESPACE_BEGIN(AsyncNet)
 
 //---------------------------------------------------------------------
-// ÈÕÖ¾Êä³ö
+// æ—¥å¿—è¾“å‡º
 //---------------------------------------------------------------------
 class Trace
 {
@@ -26,12 +26,12 @@ public:
 	void out(int mask, const char *fmt, ...);
 	void binary(int mask, const void *bin, int size);
 
-	// Èç¹û prefix == NULLÔò²»ÏòÎÄ¼şÊä³ö
+	// å¦‚æœ prefix == NULLåˆ™ä¸å‘æ–‡ä»¶è¾“å‡º
 	void open(const char *prefix, bool STDOUT = false);
 	void close();
 
-	// ÉèÖÃÑÕÉ«£¬Ö»ÓÃÓÚ¿ØÖÆÌ¨Êä³ö(openÊ± STDOUT=true)£¬¸ßËÄÎ»Îª±³¾°É«£¬µÍËÄÎ»ÎªÇ°¾°É«
-	// É«²Ê±àÂë¼û£ºhttp://en.wikipedia.org/wiki/ANSI_escape_code£¬·µ»ØÏÈÇ°ÑÕÉ«
+	// è®¾ç½®é¢œè‰²ï¼Œåªç”¨äºæ§åˆ¶å°è¾“å‡º(openæ—¶ STDOUT=true)ï¼Œé«˜å››ä½ä¸ºèƒŒæ™¯è‰²ï¼Œä½å››ä½ä¸ºå‰æ™¯è‰²
+	// è‰²å½©ç¼–ç è§ï¼šhttp://en.wikipedia.org/wiki/ANSI_escape_codeï¼Œè¿”å›å…ˆå‰é¢œè‰²
 	int color(int color = -1);
 
 	static Trace Global;

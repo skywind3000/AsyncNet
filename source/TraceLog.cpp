@@ -6,7 +6,7 @@
 NAMESPACE_BEGIN(AsyncNet)
 
 //---------------------------------------------------------------------
-// Logging£ºÈÕÖ¾Êä³ö
+// Loggingï¼šæ—¥å¿—è¾“å‡º
 //---------------------------------------------------------------------
 Trace Trace::Global;
 Trace Trace::Null;
@@ -177,8 +177,8 @@ void Trace::StaticOut(const char *text, void *user)
 }
 
 
-// ÉèÖÃÑÕÉ«£¬Ö»ÓÃÓÚ¿ØÖÆÌ¨Êä³ö(openÊ± STDOUT=true)£¬¸ßËÄÎ»Îª±³¾°É«£¬µÍËÄÎ»ÎªÇ°¾°É«
-// É«²Ê±àÂë¼û£ºhttp://en.wikipedia.org/wiki/ANSI_escape_code
+// è®¾ç½®é¢œè‰²ï¼Œåªç”¨äºæ§åˆ¶å°è¾“å‡º(openæ—¶ STDOUT=true)ï¼Œé«˜å››ä½ä¸ºèƒŒæ™¯è‰²ï¼Œä½å››ä½ä¸ºå‰æ™¯è‰²
+// è‰²å½©ç¼–ç è§ï¼šhttp://en.wikipedia.org/wiki/ANSI_escape_code
 int Trace::color(int color)
 {
 	int old = _color;

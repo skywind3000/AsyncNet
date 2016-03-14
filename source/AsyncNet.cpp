@@ -6,7 +6,7 @@
 //   /_/  |_/____/\__, /_/ /_/\___/  /_/ |_/\___/\__/  
 //               /____/                                
 //                                                              
-// AsyncNet.cpp - AsyncNet ÍøÂç½Ó¿Ú
+// AsyncNet.cpp - AsyncNet ç½‘ç»œæ¥å£
 //
 // NOTE:
 // for more information, please see the readme file.
@@ -22,12 +22,12 @@
 #include "../system/inetnot.h"
 
 //=====================================================================
-// ·şÎñ¶Ë½Ó¿Ú
+// æœåŠ¡ç«¯æ¥å£
 //=====================================================================
 
 
 //---------------------------------------------------------------------
-// TCP Òì²½ÊÂ¼ş¹ÜÀíÆ÷
+// TCP å¼‚æ­¥äº‹ä»¶ç®¡ç†å™¨
 //---------------------------------------------------------------------
 
 // new AsyncCore object
@@ -371,7 +371,7 @@ ANETAPI void asn_notify_trace(AsyncNotify *notify, const char *prefix, int STDOU
 
 
 //=====================================================================
-// TCP·Ç×èÈû½Ó¿Ú
+// TCPéé˜»å¡æ¥å£
 //=====================================================================
 ANETAPI AsyncSock* asn_sock_new(void) {
 	CAsyncSock *sock = (CAsyncSock*)malloc(sizeof(CAsyncSock));
@@ -477,14 +477,14 @@ ANETAPI int asn_sock_keepalive(AsyncSock *sock, int keepcnt, int idle, int intvl
 
 
 
-// system Ä¿Â¼´úÂë¼ÓÈë¹¤³Ì£º
+// system ç›®å½•ä»£ç åŠ å…¥å·¥ç¨‹ï¼š
 //! src: ../system/imembase.c, ../system/imemdata.c, ../system/inetbase.c, ../system/inetcode.c
 //! src: ../system/inetkcp.c, ../system/inetnot.c, ../system/iposix.c, ../system/itoolbox.c
 //! src: ../system/ineturl.c, ../system/isecure.c
 
 //! src: TraceLog.cpp
 
-// ±àÒëÑ¡Ïî
+// ç¼–è¯‘é€‰é¡¹
 //! flag: -g, -O3, -Wall
 //! mode: dll
 //! int: ../build/objs
