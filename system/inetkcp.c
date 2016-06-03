@@ -419,18 +419,17 @@ static void ikcp_parse_ack(ikcpcb *kcp, IUINT32 sn)
 			kcp->nsnd_buf--;
 			break;
 		}
+		if (_itimediff(sn, seg->sn) < 0) {
+			break;
+		}
 		else {
 			seg->fastack++;
-			if (seg->fastack >= IKCP_ACK_FAST) {
-		//		kcp->fastack++;
-			}
 		}
 	}
 }
 
 static void ikcp_parse_una(ikcpcb *kcp, IUINT32 una)
 {
-#if 1
 	struct IQUEUEHEAD *p, *next;
 	for (p = kcp->snd_buf.next; p != &kcp->snd_buf; p = next) {
 		IKCPSEG *seg = iqueue_entry(p, IKCPSEG, node);
@@ -443,7 +442,6 @@ static void ikcp_parse_una(ikcpcb *kcp, IUINT32 una)
 			break;
 		}
 	}
-#endif
 }
 
 
