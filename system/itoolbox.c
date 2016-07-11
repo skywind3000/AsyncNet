@@ -613,3 +613,42 @@ int icsv_writer_push_double(iCsvWriter *writer, double x)
 }
 
 
+//=====================================================================
+// 兼容接口实现
+//=====================================================================
+int inet_open_port(unsigned short port, unsigned long ip, int flag)
+{
+	struct sockaddr remote;
+	isockaddr_set(&remote, ip, port);
+	return isocket_udp_open(&remote, 0, (flag & 1)? 512 : 0);
+}
+
+int inet_tcp_estab(int fd)
+{
+	return isocket_tcp_estab(fd);
+}
+
+
+int inet_init(void)
+{
+	return isocket_init();
+}
+
+int inet_set_bufsize(int fd, long recvbuf, long sndbuf)
+{
+	return isocket_set_buffer(fd, recvbuf, sndbuf);
+}
+
+int inet_updateaddr(int resolvename)
+{
+	return isocket_update_address(resolvename);
+}
+
+int inet_sockpair(int fds[2])
+{
+	return isocket_pair(fds, 1);
+}
+
+
+
+

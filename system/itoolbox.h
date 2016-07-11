@@ -163,6 +163,18 @@ int icsv_writer_push_float(iCsvWriter *writer, float x);
 int icsv_writer_push_double(iCsvWriter *writer, double x);
 
 
+//=====================================================================
+// 兼容接口实现
+//=====================================================================
+int inet_open_port(unsigned short port, unsigned long ip, int flag);
+int inet_tcp_estab(int fd);
+int inet_init(void);
+int inet_set_bufsize(int fd, long recvbuf, long sndbuf);
+int inet_updateaddr(int resolvename);
+int inet_sockpair(int fds[2]);
+
+
+
 #ifdef __cplusplus
 }
 #endif
