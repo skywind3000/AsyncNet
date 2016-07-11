@@ -693,17 +693,19 @@ void ikmset(void *ikmalloc_func, void *ikfree_func);
 /*===================================================================*/
 
 /* start network */
-int inet_init(void);
+int isocket_init(void);
 
-/* open a binded udp socket */
-/* (flags & 1): noblock, (flags & 2): reuse */
-int inet_open_port(unsigned short port, unsigned long ip, int flags);
-
-/* set recv buf and send buf */
-int inet_set_bufsize(int sock, long recvbuf_size, long sendbuf_size);
+/* open a dgram */
+int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags);
 
 /* check tcp is established ?, returns 1/true, 0/false, -1/error */
-int inet_tcp_estab(int sock);
+int isocket_tcp_estab(int sock);
+
+/* set recv buf and send buf */
+int isocket_set_buffer(int sock, long recvbuf_size, long sendbuf_size);
+
+/* create socket pair */
+int isocket_pair(int fds[2], int cloexec);
 
 
 /*===================================================================*/

@@ -1061,6 +1061,12 @@ public:
 		return async_core_new_assign(_core, fd, header, check_estab? 1 : 0);
 	}
 
+	// 建立一个新的 UDP链接，监听已有地址
+	long new_dgram(const struct sockaddr *addr, int len, int mode = 0) {
+		return async_core_new_dgram(_core, addr, len, mode);
+	}
+	
+
 	// 取得连接类型：ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
 	long get_mode(long hid) const {
 		return async_core_get_mode(_core, hid);
@@ -1665,7 +1671,7 @@ protected:
 
 static inline bool NetworkInit()
 {
-	return (inet_init() == 0)? true : false;
+	return (isocket_init() == 0)? true : false;
 }
 
 

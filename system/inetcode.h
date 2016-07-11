@@ -24,8 +24,8 @@ extern "C" {
 /*===================================================================*/
 /* Network Information                                               */
 /*===================================================================*/
-#define IMAX_HOSTNAME	256
-#define IMAX_ADDRESS	64
+#define IMAX_HOSTNAME     256
+#define IMAX_ADDRESS      64
 
 /* host name */
 extern char ihostname[];
@@ -43,10 +43,8 @@ extern char *ihost_names[];
 extern int ihost_addr_num;	
 
 /* refresh address list */
-int inet_updateaddr(int resolvname);
+int isocket_update_address(int resolvname);
 
-/* create socketpair */
-int inet_socketpair(int fds[2]);
 
 
 /*===================================================================*/
@@ -101,9 +99,9 @@ struct CAsyncSock
 #define ITMH_LINESPLIT		14		/* header: '\n' split */
 #endif
 
-#define ASYNC_SOCK_STATE_CLOSED			0
-#define ASYNC_SOCK_STATE_CONNECTING		1
-#define ASYNC_SOCK_STATE_ESTAB			2
+#define ASYNC_SOCK_STATE_CLOSED         0
+#define ASYNC_SOCK_STATE_CONNECTING     1
+#define ASYNC_SOCK_STATE_ESTAB          2
 
 typedef struct CAsyncSock CAsyncSock;
 
@@ -194,18 +192,20 @@ int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
 struct CAsyncCore;
 typedef struct CAsyncCore CAsyncCore;
 
-#define ASYNC_CORE_EVT_NEW		0	/* new: (hid, tag)   */
-#define ASYNC_CORE_EVT_LEAVE	1	/* leave: (hid, tag) */
-#define ASYNC_CORE_EVT_ESTAB	2	/* estab: (hid, tag) */
-#define ASYNC_CORE_EVT_DATA		3	/* data: (hid, tag)  */
-#define ASYNC_CORE_EVT_PROGRESS	4	/* output progress: (hid, tag) */
-#define ASYNC_CORE_EVT_PUSH		5	/* msg from async_core_push */
+#define ASYNC_CORE_EVT_NEW       0   /* new: (hid, tag)   */
+#define ASYNC_CORE_EVT_LEAVE     1   /* leave: (hid, tag) */
+#define ASYNC_CORE_EVT_ESTAB     2   /* estab: (hid, tag) */
+#define ASYNC_CORE_EVT_DATA      3   /* data: (hid, tag)  */
+#define ASYNC_CORE_EVT_PROGRESS  4   /* output progress: (hid, tag) */
+#define ASYNC_CORE_EVT_PUSH      5   /* msg from async_core_push */
+#define ASYNC_CORE_EVT_DGRAM     6   /* raw fd event: (hid, tag) */
 
-#define ASYNC_CORE_NODE_IN			1		/* accepted node */
-#define ASYNC_CORE_NODE_OUT			2		/* connected out node */
-#define ASYNC_CORE_NODE_LISTEN4		3		/* ipv4 listener */
-#define ASYNC_CORE_NODE_LISTEN6		4		/* ipv6 listener */
-#define ASYNC_CORE_NODE_ASSIGN		5		/* assigned fd ipv4 */
+#define ASYNC_CORE_NODE_IN          1       /* accepted node */
+#define ASYNC_CORE_NODE_OUT         2       /* connected out node */
+#define ASYNC_CORE_NODE_LISTEN4     3       /* ipv4 listener */
+#define ASYNC_CORE_NODE_LISTEN6     4       /* ipv6 listener */
+#define ASYNC_CORE_NODE_ASSIGN      5       /* assigned fd ipv4 */
+#define ASYNC_CORE_NODE_DGRAM       6       /* raw dgram fd */
 
 /* Remote IP Validator: returns 1 to accept it, 0 to reject */
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
@@ -263,6 +263,10 @@ long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr,
 /* new assign to a existing socket, returns hid */
 long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab);
 
+/* new dgram fd: mask=0:none, 1:read, 2:write, 3:r+w */
+long async_core_new_dgram(CAsyncCore *core, const struct sockaddr *addr,
+	int addrlen, int mode);
+
 
 /* queue an ASYNC_CORE_EVT_PUSH event and wake async_core_wait up */
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
@@ -297,25 +301,29 @@ long async_core_node_next(const CAsyncCore *core, long hid);
 long async_core_node_prev(const CAsyncCore *core, long hid);
 
 
-#define ASYNC_CORE_OPTION_NODELAY		1
-#define ASYNC_CORE_OPTION_REUSEADDR		2
-#define ASYNC_CORE_OPTION_KEEPALIVE		3
-#define ASYNC_CORE_OPTION_SYSSNDBUF		4
-#define ASYNC_CORE_OPTION_SYSRCVBUF		5
-#define ASYNC_CORE_OPTION_LIMITED		6
-#define ASYNC_CORE_OPTION_MAXSIZE		7
-#define ASYNC_CORE_OPTION_PROGRESS		8
-#define ASYNC_CORE_OPTION_GETFD			9
-#define ASYNC_CORE_OPTION_REUSEPORT		10
-#define ASYNC_CORE_OPTION_UNIXREUSE		11
-#define ASYNC_CORE_OPTION_SENSITIVE		12
+#define ASYNC_CORE_OPTION_NODELAY       1
+#define ASYNC_CORE_OPTION_REUSEADDR     2
+#define ASYNC_CORE_OPTION_KEEPALIVE     3
+#define ASYNC_CORE_OPTION_SYSSNDBUF     4
+#define ASYNC_CORE_OPTION_SYSRCVBUF     5
+#define ASYNC_CORE_OPTION_LIMITED       6
+#define ASYNC_CORE_OPTION_MAXSIZE       7
+#define ASYNC_CORE_OPTION_PROGRESS      8
+#define ASYNC_CORE_OPTION_GETFD         9
+#define ASYNC_CORE_OPTION_REUSEPORT     10
+#define ASYNC_CORE_OPTION_UNIXREUSE     11
+#define ASYNC_CORE_OPTION_SENSITIVE     12
+#define ASYNC_CORE_OPTION_MASKSET       13
+#define ASYNC_CORE_OPTION_MASKGET       14
+#define ASYNC_CORE_OPTION_MASKADD       15
+#define ASYNC_CORE_OPTION_MASKDEL       16
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 
-#define ASYNC_CORE_STATUS_STATE		0
-#define ASYNC_CORE_STATUS_IPV6		1
-#define ASYNC_CORE_STATUS_ESTAB		2
+#define ASYNC_CORE_STATUS_STATE     0
+#define ASYNC_CORE_STATUS_IPV6      1
+#define ASYNC_CORE_STATUS_ESTAB     2
 
 /* get connection socket status */
 long async_core_status(CAsyncCore *core, long hid, int opt);

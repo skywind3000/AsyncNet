@@ -1482,7 +1482,7 @@ void ikmset(void *ikmalloc_fn_ptr, void *ikfree_fn_ptr)
 /*===================================================================*/
 
 /* init network */
-int inet_init(void)
+int isocket_init(void)
 {
 	int retval = 0;
 
@@ -1520,30 +1520,54 @@ int inet_init(void)
 }
 
 
-/* open udp port */
-int inet_open_port(unsigned short port, unsigned long ip, int flags)
+/* open a dgram */
+int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 {
-	struct sockaddr addr;
-	static int inited = 0;
-	int sock;
+	int fd = -1;
 
-	if (inited == 0) {
-		inet_init();
-		inited = 1;
+	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
+	#ifdef AF_INET6
+		fd = socket(AF_INET6, SOCK_DGRAM, 0);
+	#endif
+	#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+		if (fd >= 0) {
+			unsigned long enable = 1;
+			isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+				(const char*)&enable, sizeof(enable));
+		}
+	#endif
+	}	else {
+		fd = socket(AF_INET, SOCK_DGRAM, 0);
 	}
 
-	sock = (int)socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock < 0) return -1;
+	if (fd < 0) return -1;
 
-	memset(&addr, 0, sizeof(addr));
-	isockaddr_set(&addr, ip, port);
-
-	if ((flags & 2) != 0) {
-		ienable(sock, ISOCK_REUSEADDR);
+	if (flags & 0x80) {
+		if (flags & ISOCK_REUSEADDR) {
+			ienable(fd, ISOCK_REUSEADDR);		
+		}	else {
+			idisable(fd, ISOCK_REUSEADDR);
+		}
+		if (flags & ISOCK_REUSEPORT) {
+			ienable(fd, ISOCK_REUSEPORT);
+		}	else {
+			idisable(fd, ISOCK_REUSEPORT);
+		}
+		if (flags & ISOCK_UNIXREUSE) {
+			ienable(fd, ISOCK_UNIXREUSE);
+		}	else {
+			idisable(fd, ISOCK_UNIXREUSE);
+		}
+	}	else {
+		ienable(fd, ISOCK_UNIXREUSE);
 	}
 
-	if (bind(sock, &addr, sizeof(addr)) != 0) {
-		iclose(sock);
+	if ((flags & 0x100) == 0) {
+		ienable(fd, ISOCK_CLOEXEC);
+	}
+
+	if (ibind(fd, addr, addrlen) != 0) {
+		iclose(fd);
 		return -2;
 	}
 
@@ -1556,7 +1580,7 @@ int inet_open_port(unsigned short port, unsigned long ip, int flags)
 		/* disable  new behavior using
 		   IOCTL: SIO_UDP_CONNRESET */
 
-		status = WSAIoctl(sock, _SIO_UDP_CONNRESET_,
+		status = WSAIoctl(fd, _SIO_UDP_CONNRESET_,
 					&bNewBehavior, sizeof(bNewBehavior),  
 					NULL, 0, &dwBytesReturned, 
 					NULL, NULL);
@@ -1566,25 +1590,26 @@ int inet_open_port(unsigned short port, unsigned long ip, int flags)
 			if (err == WSAEWOULDBLOCK) {
 				/* nothing to doreturn(FALSE); */
 			} else {
-				printf("WSAIoctl(SIO_UDP_CONNRESET) Error: %d\n", (int)err);
-				iclose(sock);
+				const char *text = "WSAIoctl(SIO_UDP_CONNRESET) Error\n";
+				fwrite(text, 1, strlen(text), stderr);
+				fflush(stderr);
+				iclose(fd);
 				return -3;
 			}
 		}
 	}
 #endif
 
-	if ((flags & 1) != 0) {
-		ienable(sock, ISOCK_NOBLOCK);
+	if ((flags & 512) == 0) {
+		ienable(fd, ISOCK_NOBLOCK);
 	}
 
-	ienable(sock, ISOCK_CLOEXEC);
-
-	return sock;
+	return fd;
 }
 
+
 /* set recv buf and send buf */
-int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
+int isocket_set_buffer(int sock, long rcvbuf_size, long sndbuf_size)
 {
 	long len = sizeof(long);
 	int retval;
@@ -1602,7 +1627,7 @@ int inet_set_bufsize(int sock, long rcvbuf_size, long sndbuf_size)
 }
 
 /* check tcp is established ?, returns 1/true, 0/false, -1/error */
-int inet_tcp_estab(int sock)
+int isocket_tcp_estab(int sock)
 {
 	int event;
 	if (sock < 0) return -1;
@@ -1619,6 +1644,84 @@ int inet_tcp_estab(int sock)
 	}
 	return 0;
 }
+
+
+/* socketpair */
+static int isocket_pair_imp(int fds[2], int mode)
+{
+	struct sockaddr_in addr1 = { 0 };
+	struct sockaddr_in addr2;
+	int sock[2] = { -1, -1 };
+	int listener;
+
+	if ((listener = socket(AF_INET, SOCK_STREAM, 0)) < 0) 
+		return -1;
+	
+	addr1.sin_family = AF_INET;
+	addr1.sin_port = 0;
+
+#ifdef INADDR_LOOPBACK
+	addr1.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+#else
+	addr1.sin_addr.s_addr = htonl(0x7f000001);
+#endif
+
+	if (ibind(listener, (struct sockaddr*)&addr1, 0))
+		goto failed;
+
+	if (isockname(listener, (struct sockaddr*)&addr1, NULL))
+		goto failed;
+	
+	if (listen(listener, 1))
+		goto failed;
+
+	if ((sock[0] = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+		goto failed;
+
+	if (iconnect(sock[0], (struct sockaddr*)&addr1, 0))
+		goto failed;
+
+	if ((sock[1] = accept(listener, 0, 0)) < 0)
+		goto failed;
+
+	if (ipeername(sock[0], (struct sockaddr*)&addr1, NULL))
+		goto failed;
+
+	if (isockname(sock[1], (struct sockaddr*)&addr2, NULL))
+		goto failed;
+
+	if (addr1.sin_addr.s_addr != addr2.sin_addr.s_addr ||
+		addr1.sin_port != addr2.sin_port)
+		goto failed;
+
+	iclose(listener);
+
+	if (mode & 1) {
+		ienable(sock[0], ISOCK_CLOEXEC);
+		ienable(sock[1], ISOCK_CLOEXEC);
+	}
+
+	fds[0] = sock[0];
+	fds[1] = sock[1];
+
+	return 0;
+
+failed:
+	iclose(listener);
+	if (sock[0] >= 0) iclose(sock[0]);
+	if (sock[1] >= 0) iclose(sock[1]);
+	return -1;
+}
+
+
+int isocket_pair(int fds[2], int mode)
+{
+	if (isocket_pair_imp(fds, mode) == 0) return 0;
+	if (isocket_pair_imp(fds, mode) == 0) return 0;
+	if (isocket_pair_imp(fds, mode) == 0) return 0;
+	return -1;
+}
+
 
 
 /*===================================================================*/
