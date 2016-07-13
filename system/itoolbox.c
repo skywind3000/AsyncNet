@@ -620,7 +620,7 @@ int inet_open_port(unsigned short port, unsigned long ip, int flag)
 {
 	struct sockaddr remote;
 	isockaddr_set(&remote, ip, port);
-	return isocket_udp_open(&remote, 0, (flag & 1)? 512 : 0);
+	return isocket_udp_open(&remote, 0, (flag & 1)? 0 : 512);
 }
 
 int inet_tcp_estab(int fd)
