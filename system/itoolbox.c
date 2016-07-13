@@ -92,6 +92,43 @@ void console_clear(int color)
 
 
 
+#ifndef IPOSIX_STACK_BUFFER_SIZE
+#define IPOSIX_STACK_BUFFER_SIZE	1024
+#endif
+
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
+
+/* load line: returns -1 for end of file, 0 for success */
+int iposix_file_read_line(FILE *fp, ivalue_t *str)
+{
+	const int bufsize = IPOSIX_STACK_BUFFER_SIZE;
+	int size, eof = 0;
+	char buffer[IPOSIX_STACK_BUFFER_SIZE];
+
+	it_sresize(str, 0);
+	for (size = 0, eof = 0; ; ) {
+		int ch = fgetc(fp);
+		if (ch < 0) {
+			eof = 1;
+			break;
+		}
+		buffer[size++] = (unsigned char)ch;
+		if (size >= bufsize) {
+			it_strcatc(str, buffer, size);
+			size = 0;
+		}
+		if (ch == '\n') break;
+	}
+	if (size > 0) {
+		it_strcatc(str, buffer, size);
+	}
+	if (eof && it_size(str) == 0) return -1;
+	it_strstripc(str, "\r\n");
+	return 0;
+}
+
+#endif
+
 
 //=====================================================================
 // CSV Reader/Writer
