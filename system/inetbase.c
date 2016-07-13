@@ -1,6 +1,7 @@
 /**********************************************************************
  *
  * inetbase.c - basic interface of socket operation & system calls
+ * by skywind3000 (at) gmail.com, 2016
  *
  * for more information, please see the readme file.
  *

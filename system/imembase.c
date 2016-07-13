@@ -1,6 +1,7 @@
 /**********************************************************************
  *
  * imembase.c - basic interface of memory operation
+ * by skywind3000 (at) gmail.com, 2006-2016
  *
  * - application layer slab allocator implementation
  * - unit interval time cost: almost speed up 500% - 1200% vs malloc
@@ -1969,6 +1970,7 @@ void ikmem_core_free(void *ptr)
 	char *lptr = (char*)ptr;
 
 	if (ikmem_inited == 0) ikmem_once_init();
+	if (ptr == NULL) return;
 
 	if (*(void**)(lptr - sizeof(void*)) == NULL) {
 		lptr -= IKMEM_LARGE_HEAD;
@@ -2122,6 +2124,7 @@ void* ikmem_realloc(void *ptr, size_t size)
 
 void ikmem_free(void *ptr)
 {
+	if (ptr == NULL) return;
 #ifdef IKMEM_ENABLE_BOOT
 	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
 #endif
