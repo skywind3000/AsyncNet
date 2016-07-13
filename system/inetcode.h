@@ -186,6 +186,7 @@ int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
 	int keepintvl);
 
 
+
 /*===================================================================*/
 /* CAsyncCore                                                        */
 /*===================================================================*/
@@ -354,6 +355,7 @@ int async_core_peername(const CAsyncCore *core, long hid,
 long async_core_nfds(const CAsyncCore *core);
 
 
+
 /*===================================================================*/
 /* Thread Safe Queue                                                 */
 /*===================================================================*/
@@ -391,39 +393,6 @@ int queue_safe_peek_vec(iQueueSafe *q, void *vecptr[], int count,
 /* get size */
 iulong queue_safe_size(iQueueSafe *q);
 
-
-/*===================================================================*/
-/* System Utilities                                                  */
-/*===================================================================*/
-
-#ifndef IDISABLE_SHARED_LIBRARY
-
-/* LoadLibraryA */
-void *iposix_shared_open(const char *dllname);
-
-/* GetProcAddress */
-void *iposix_shared_get(void *shared, const char *name);
-
-/* FreeLibrary */
-void iposix_shared_close(void *shared);
-
-#endif
-
-#ifndef IDISABLE_FILE_SYSTEM_ACCESS
-
-/* load file content, use ikmem_free to dispose */
-void *iposix_file_load_content(const char *filename, ilong *size);
-
-/* load file content */
-int iposix_file_load_to_str(const char *filename, ivalue_t *str);
-
-/* load line: returns -1 for end of file, 0 for success */
-int iposix_file_read_line(FILE *fp, ivalue_t *str);
-
-/* cross os GetModuleFileName, returns size for success, -1 for error */
-int iposix_get_proc_pathname(char *ptr, int size);
-
-#endif
 
 
 /*-------------------------------------------------------------------*/
