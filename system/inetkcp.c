@@ -1,7 +1,8 @@
 //=====================================================================
 //
 // inetkcp.c - fast ARQ protocol implementation
-// by skywind3000 (at) gmail.com, 2009
+//
+// skywind3000 (at) gmail.com, 2009
 //
 // NOTE:
 // for more information, please see the readme file

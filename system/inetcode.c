@@ -1,7 +1,7 @@
 /**********************************************************************
  *
  * inetcode.c - core interface of socket operation
- * by skywind3000 (at) gmail.com, 2006-2016
+ * skywind3000 (at) gmail.com, 2006-2016
  *
  * for more information, please see the readme file
  *

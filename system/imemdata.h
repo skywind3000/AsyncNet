@@ -1,7 +1,7 @@
 /**********************************************************************
  *
  * imemdata.h - basic data structures and algorithms
- * by skywind3000 (at) gmail.com, 2006-2016
+ * skywind3000 (at) gmail.com, 2006-2016
  *
  * VALUE INTERFACE:
  * type independance value classes
