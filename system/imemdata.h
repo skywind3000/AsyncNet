@@ -1468,8 +1468,7 @@ static inline IUINT32 _ibound(IUINT32 lower, IUINT32 middle, IUINT32 upper) {
   return _imin(_imax(lower, middle), upper);
 }
 
-static inline long itimediff(IUINT32 later, IUINT32 earlier) 
-{
+static inline long itimediff(IUINT32 later, IUINT32 earlier) {
 	return ((IINT32)(later - earlier));
 }
 

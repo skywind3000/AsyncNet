@@ -866,6 +866,11 @@ public:
 		return dst;
 	}
 
+	// 复位
+	void reset(const unsigned char *key, int size) {
+		icrypt_rc4_init(_box, &x, &y, key, size);
+	}
+
 protected:
 	unsigned char *_box;
 	int x;
@@ -2208,10 +2213,44 @@ static inline void StringLower(std::string &s) {
 	}
 }
 
+static inline bool LoadContent(const char *filename, std::string &content) {
+	long size = 0;
+	void *text = iposix_file_load_content(filename, &size);
+	if (text == NULL) return false;
+	content.assign((const char*)text, size);
+	free(text);
+	return true;
+}
+
+static inline bool Base64Encode(const void *data, int len, std::string &b64) {
+	int nchars, result;
+	nchars = ((len + 2) / 3) * 4;
+	result = nchars + ((nchars - 1) / 76) + 1;
+	b64.resize(result + 1);
+	int hr = ibase64_encode(data, len, &b64[0]);
+	b64.resize(hr);
+	return true;
+}
+
+static inline bool Base64Decode(const char *b64, int len, std::string &data) {
+	int nbytes;
+	nbytes = ((len + 7) / 4) * 3;
+	data.resize(nbytes + 1);
+	int hr = ibase64_decode((const char*)b64, len, &data[0]);
+	data.resize((hr < 0)? 0 : hr);
+	return (hr < 0)? false : true;
+}
+
+
+
+
 
 NAMESPACE_END(System)
 
 
 #endif
+
+
+
 
 
