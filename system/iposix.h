@@ -354,6 +354,38 @@ char *iposix_path_format(char *out, const char *root, const char *fmt, ...);
 
 
 
+//---------------------------------------------------------------------
+// System Utilities
+//---------------------------------------------------------------------
+
+#ifndef IDISABLE_SHARED_LIBRARY
+
+/* LoadLibraryA */
+void *iposix_shared_open(const char *dllname);
+
+/* GetProcAddress */
+void *iposix_shared_get(void *shared, const char *name);
+
+/* FreeLibrary */
+void iposix_shared_close(void *shared);
+
+#endif
+
+#ifndef IDISABLE_FILE_SYSTEM_ACCESS
+
+/* load file content, use free to dispose */
+void *iposix_file_load_content(const char *filename, long *size);
+
+/* save file content */
+int iposix_file_save_content(const char *filename, const void *data, long size);
+
+/* cross os GetModuleFileName, returns size for success, -1 for error */
+int iposix_get_proc_pathname(char *ptr, int size);
+
+#endif
+
+
+
 #ifdef __cplusplus
 }
 #endif
@@ -363,4 +395,7 @@ char *iposix_path_format(char *out, const char *root, const char *fmt, ...);
 
 
 #endif
+
+
+
 

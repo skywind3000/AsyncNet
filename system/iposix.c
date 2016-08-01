@@ -943,5 +943,117 @@ char *iposix_path_format(char *out, const char *root, const char *fmt, ...)
 }
 
 
+
+/*-------------------------------------------------------------------*/
+/* System Utilities                                                  */
+/*-------------------------------------------------------------------*/
+#ifndef IDISABLE_SHARED_LIBRARY
+	#if defined(__unix)
+		#include <dlfcn.h>
+	#endif
 #endif
+
+void *iposix_shared_open(const char *dllname)
+{
+#ifndef IDISABLE_SHARED_LIBRARY
+	#ifdef __unix
+	return dlopen(dllname, RTLD_LAZY);
+	#else
+	return (void*)LoadLibraryA(dllname);
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+void *iposix_shared_get(void *shared, const char *name)
+{
+#ifndef IDISABLE_SHARED_LIBRARY
+	#ifdef __unix
+	return dlsym(shared, name);
+	#else
+	return (void*)GetProcAddress((HINSTANCE)shared, name);
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+void iposix_shared_close(void *shared)
+{
+#ifndef IDISABLE_SHARED_LIBRARY
+	#ifdef __unix
+	dlclose(shared);
+	#else
+	FreeLibrary((HINSTANCE)shared);
+	#endif
+#endif
+}
+
+/* load file content */
+void *iposix_file_load_content(const char *filename, long *size)
+{
+	size_t length, remain;
+	char *ptr, *out;
+	FILE *fp;
+
+	if ((fp = fopen(filename, "rb")) == NULL) {
+        if (size) size[0] = 0;
+        return NULL;
+    }
+    
+    fseek(fp, 0, SEEK_END);
+    length = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+	
+    // avoid zero-size file returns null
+	ptr = (char*)malloc(length + 8);
+
+	if (ptr == NULL) {
+		fclose(fp);
+		if (size) size[0] = 0;
+		return NULL;
+	}
+
+	for (remain = length, out = ptr; remain > 0; ) {
+		size_t ret = fread(out, 1, remain, fp);
+		if (ret == 0) break;
+        remain -= ret;
+        out += ret;
+	}
+
+	fclose(fp);
+	
+	if (size) size[0] = length;
+
+	return ptr;
+}
+
+
+/* save file content */
+int iposix_file_save_content(const char *filename, const void *data, long size)
+{
+	const char *ptr = (const char*)data;
+	FILE *fp;
+	long hr = 0;
+	if ((fp = fopen(filename, "wb")) == NULL) return -1;
+	for (; size > 0; ) {
+		long written = (long)fwrite(ptr, 1, size, fp);
+		if (written <= 0) {
+			hr = -2;
+			break;
+		}
+		size -= written;
+		ptr += written;
+	}
+	fclose(fp);
+	return 0;
+}
+
+
+
+#endif
+
+
+
 
