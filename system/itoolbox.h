@@ -174,6 +174,45 @@ int inet_updateaddr(int resolvename);
 int inet_sockpair(int fds[2]);
 
 
+//=====================================================================
+// Protocol Reader
+//=====================================================================
+struct CAsyncReader;
+typedef struct CAsyncReader CAsyncReader;
+
+CAsyncReader *async_reader_new(imemnode_t *fnode);
+
+void async_reader_delete(CAsyncReader *reader);
+
+
+#define ISTREAM_READ_BYTE		0
+#define ISTREAM_READ_LINE		1
+#define ISTREAM_READ_BLOCK		2
+
+void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
+
+long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
+
+void async_reader_feed(CAsyncReader *reader, const void *data, long len);
+
+
+
+//=====================================================================
+// Redis Reader
+//=====================================================================
+struct CRedisReader;
+typedef struct CRedisReader CRedisReader;
+
+CRedisReader *redis_reader_new(imemnode_t *fnode);
+
+void redis_reader_delete(CRedisReader *rr);
+
+
+long redis_reader_read(CRedisReader *rr, int *mode, void *data, long maxsize);
+
+void redis_reader_feed(CRedisReader *rr, const void *data, long len);
+
+
 
 #ifdef __cplusplus
 }
