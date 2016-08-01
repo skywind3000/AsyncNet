@@ -1035,7 +1035,7 @@ int iposix_file_save_content(const char *filename, const void *data, long size)
 {
 	const char *ptr = (const char*)data;
 	FILE *fp;
-	long hr = 0;
+	int hr = 0;
 	if ((fp = fopen(filename, "wb")) == NULL) return -1;
 	for (; size > 0; ) {
 		long written = (long)fwrite(ptr, 1, size, fp);
@@ -1047,7 +1047,7 @@ int iposix_file_save_content(const char *filename, const void *data, long size)
 		ptr += written;
 	}
 	fclose(fp);
-	return 0;
+	return hr;
 }
 
 
