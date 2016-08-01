@@ -2057,6 +2057,8 @@ int async_core_notify(CAsyncCore *core)
 		#ifdef __unix
 			#ifndef __AVM2__
 			hr = write(fd, &dummy, 1);
+			#else
+			dummy = dummy + 1;
 			#endif
 		#else
 			hr = send(fd, &dummy, 1, 0);
@@ -2065,7 +2067,6 @@ int async_core_notify(CAsyncCore *core)
 				core->xfd[ASYNC_CORE_PIPE_FLAG] = 1;
 				hr = 0;
 			}
-			dummy = dummy;
 		}
 	}	else {
 		hr = 1;
