@@ -452,9 +452,6 @@ static void ikcp_parse_ack(ikcpcb *kcp, IUINT32 sn)
 			kcp->nsnd_buf--;
 			break;
 		}
-		if (itimediff(sn, seg->sn) < 0) {
-			break;
-		}
 		else {
 			seg->fastack++;
 		}
