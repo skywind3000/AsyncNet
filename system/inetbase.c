@@ -1543,26 +1543,6 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 
 	if (fd < 0) return -1;
 
-	if (flags & 0x80) {
-		if (flags & ISOCK_REUSEADDR) {
-			ienable(fd, ISOCK_REUSEADDR);		
-		}	else {
-			idisable(fd, ISOCK_REUSEADDR);
-		}
-		if (flags & ISOCK_REUSEPORT) {
-			ienable(fd, ISOCK_REUSEPORT);
-		}	else {
-			idisable(fd, ISOCK_REUSEPORT);
-		}
-		if (flags & ISOCK_UNIXREUSE) {
-			ienable(fd, ISOCK_UNIXREUSE);
-		}	else {
-			idisable(fd, ISOCK_UNIXREUSE);
-		}
-	}	else {
-		ienable(fd, ISOCK_UNIXREUSE);
-	}
-
 	if ((flags & 0x100) == 0) {
 		ienable(fd, ISOCK_CLOEXEC);
 	}
@@ -1603,6 +1583,26 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 
 	if ((flags & 512) == 0) {
 		ienable(fd, ISOCK_NOBLOCK);
+	}
+
+	if (flags & 0x80) {
+		if (flags & ISOCK_REUSEADDR) {
+			ienable(fd, ISOCK_REUSEADDR);		
+		}	else {
+			idisable(fd, ISOCK_REUSEADDR);
+		}
+		if (flags & ISOCK_REUSEPORT) {
+			ienable(fd, ISOCK_REUSEPORT);
+		}	else {
+			idisable(fd, ISOCK_REUSEPORT);
+		}
+		if (flags & ISOCK_UNIXREUSE) {
+			ienable(fd, ISOCK_UNIXREUSE);
+		}	else {
+			idisable(fd, ISOCK_UNIXREUSE);
+		}
+	}	else {
+		ienable(fd, ISOCK_UNIXREUSE);
 	}
 
 	return fd;
