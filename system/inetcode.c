@@ -2202,9 +2202,9 @@ static int _async_core_option(CAsyncCore *core, long hid,
 		break;
 	case ASYNC_CORE_OPTION_KEEPALIVE:
 		if (value == 0) {
-			hr = ikeepalive(sock->fd, 5, 40, 1);
-		}	else {
 			hr = ikeepalive(sock->fd, -1, -1, -1);
+		}	else {
+			hr = ikeepalive(sock->fd, 5, 40, 1);
 		}
 		break;
 	case ASYNC_CORE_OPTION_SYSSNDBUF:
