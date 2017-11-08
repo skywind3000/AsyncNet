@@ -39,8 +39,8 @@ struct CAsyncConfig
 //---------------------------------------------------------------------
 struct CAsyncNode
 {
-	struct IQUEUEHEAD node_ping;
-	struct IQUEUEHEAD node_idle;
+	struct ILISTHEAD node_ping;
+	struct ILISTHEAD node_idle;
 	long hid;		// AsyncCore connection id
 	int mode;		// ASYNC_CORE_NODE_LISTEN4/LISTEN6/IN/OUT
 	int state;		// 0: unlogin 1: logined
@@ -57,8 +57,8 @@ struct CAsyncNode
 struct CAsyncNotify
 {
 	struct IMEMNODE *cache;		// cache for msg stream buffer
-	struct IQUEUEHEAD ping;		// ping queue
-	struct IQUEUEHEAD idle;		// idle queue
+	struct ILISTHEAD ping;		// ping queue
+	struct ILISTHEAD idle;		// idle queue
 	struct IVECTOR *vector;		// buffer for data
 	struct CAsyncNode *nodes;	// hid -> nodes look-up table
 	idict_t *sid2hid_in;		// sid -> hid look-up table
@@ -160,8 +160,8 @@ static CAsyncNode *async_notify_node_new(CAsyncNotify *notify, long hid)
 	node->state = 0;
 	node->sid = -1;
 	node->rtt = -1;
-	iqueue_init(&node->node_ping);
-	iqueue_init(&node->node_idle);
+	ilist_init(&node->node_ping);
+	ilist_init(&node->node_idle);
 	node->ts_ping = notify->seconds;
 	node->ts_idle = notify->seconds;
 	notify->count_node++;
@@ -176,11 +176,11 @@ static int async_notify_node_del(CAsyncNotify *notify, long hid)
 	node->hid = -1;
 	node->mode = -1;
 	node->sid = -1;
-	if (!iqueue_is_empty(&node->node_ping)) {
-		iqueue_del_init(&node->node_ping);
+	if (!ilist_is_empty(&node->node_ping)) {
+		ilist_del_init(&node->node_ping);
 	}
-	if (!iqueue_is_empty(&node->node_idle)) {
-		iqueue_del_init(&node->node_idle);
+	if (!ilist_is_empty(&node->node_idle)) {
+		ilist_del_init(&node->node_idle);
 	}
 	notify->count_node--;
 	return 0;
@@ -201,13 +201,13 @@ static void async_notify_node_active(CAsyncNotify *notify, long hid, int q)
 	if (node == NULL) return;
 	if (node->mode != ASYNC_CORE_NODE_OUT) return;
 	if (q == 0) {
-		iqueue_del(&node->node_ping);
-		iqueue_add_tail(&node->node_ping, &notify->ping);
+		ilist_del(&node->node_ping);
+		ilist_add_tail(&node->node_ping, &notify->ping);
 		node->ts_ping = notify->seconds;
 	}
 	else if (q == 1) {
-		iqueue_del(&node->node_idle);
-		iqueue_add_tail(&node->node_idle, &notify->idle);
+		ilist_del(&node->node_idle);
+		ilist_add_tail(&node->node_idle, &notify->idle);
 		node->ts_idle = notify->seconds;
 	}
 }
@@ -217,12 +217,12 @@ static CAsyncNode *async_notify_node_first(CAsyncNotify *notify, int q)
 {
 	CAsyncNode *node = NULL;
 	if (q == 0) {
-		if (iqueue_is_empty(&notify->ping)) return NULL;
-		node = iqueue_entry(notify->ping.next, CAsyncNode, node_ping);
+		if (ilist_is_empty(&notify->ping)) return NULL;
+		node = ilist_entry(notify->ping.next, CAsyncNode, node_ping);
 	}
 	else if (q == 1) {
-		if (iqueue_is_empty(&notify->idle)) return NULL;
-		node = iqueue_entry(notify->idle.next, CAsyncNode, node_idle);
+		if (ilist_is_empty(&notify->idle)) return NULL;
+		node = ilist_entry(notify->idle.next, CAsyncNode, node_idle);
 	}
 	else {
 		return NULL;
@@ -407,8 +407,8 @@ CAsyncNotify* async_notify_new(int serverid)
 	notify->nodes = (CAsyncNode*)ikmem_malloc(sizeof(CAsyncNode) * 0x10000);
 	notify->core = async_core_new(0);
 	
-	iqueue_init(&notify->ping);
-	iqueue_init(&notify->idle);
+	ilist_init(&notify->ping);
+	ilist_init(&notify->idle);
 	it_init(&notify->token, ITYPE_STR);
 
 	IMUTEX_INIT(&notify->lock);
@@ -1485,8 +1485,8 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 	node->state = ASYNC_NOTIFY_STATE_CONNECTING;
 
 	// queue into ping & idle
-	iqueue_add_tail(&node->node_ping, &notify->ping);
-	iqueue_add_tail(&node->node_idle, &notify->idle);
+	ilist_add_tail(&node->node_ping, &notify->ping);
+	ilist_add_tail(&node->node_idle, &notify->idle);
 	node->ts_idle = notify->seconds;
 	node->ts_ping = notify->seconds;
 

@@ -73,7 +73,7 @@ struct CAsyncSock
 	int rc4_send_y;					/* rc4 encryption variable */
 	int rc4_recv_x;					/* rc4 encryption variable */
 	int rc4_recv_y;					/* rc4 encryption variable */
-	struct IQUEUEHEAD node;			/* list node */
+	struct ILISTHEAD node;			/* list node */
 	struct IMSTREAM linemsg;		/* line buffer */
 	struct IMSTREAM sendmsg;		/* send buffer */
 	struct IMSTREAM recvmsg;		/* recv buffer */

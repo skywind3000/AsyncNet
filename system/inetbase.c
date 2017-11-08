@@ -1365,7 +1365,7 @@ int isockaddr_set_ip_text(struct sockaddr *a, const char *text)
 		struct hostent * he = gethostbyname(text);
 		if (he == NULL) return -1;
 		if (he->h_length != 4) return -2;
-		memcpy((char*)&(addr->sin_addr), he->h_addr, he->h_length);
+		memcpy((char*)&(addr->sin_addr), he->h_addr_list[0], he->h_length);
 		#else
 		WSAEVENT hEvent = WSACreateEvent();
 		XNDNS * pxndns = NULL;

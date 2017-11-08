@@ -18,40 +18,15 @@
 /* C99 Compatible                                                    */
 /*-------------------------------------------------------------------*/
 #if defined(linux) || defined(__linux) || defined(__linux__)
-#ifdef _POSIX_C_SOURCE
-#if _POSIX_C_SOURCE < 200112L
-#undef _POSIX_C_SOURCE
-#endif
-#endif
-
-#ifndef _POSIX_C_SOURCE
-#define _POSIX_C_SOURCE 200112L
-#endif
-
-#ifdef _GNU_SOURCE
-#undef _GNU_SOURCE
-#endif
-
-#ifdef _BSD_SOURCE
-#undef _BSD_SOURCE
-#endif
-
-#ifdef __BSD_VISIBLE
-#undef __BSD_VISIBLE
-#endif
-
-#ifdef _XOPEN_SOURCE
-#undef _XOPEN_SOURCE
-#endif
-
-#define _GNU_SOURCE 1
-#define _BSD_SOURCE 1
-#define __BSD_VISIBLE 1
-#define _XOPEN_SOURCE 600
 
 #ifndef __linux
 #define __linux 1
 #endif
+
+#define _GNU_SOURCE 1
+#define _BSD_SOURCE 1
+#define _SVID_SOURCE 1
+#define _DEFAULT_SOURCE 1
 
 #endif
 

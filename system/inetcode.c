@@ -145,7 +145,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->mask = 0;
 	asyncsock->error = 0;
 	asyncsock->flags = 0;
-	iqueue_init(&asyncsock->node);
+	ilist_init(&asyncsock->node);
 	ims_init(&asyncsock->linemsg, nodes, 0, 0);
 	ims_init(&asyncsock->sendmsg, nodes, 0, 0);
 	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
@@ -782,7 +782,7 @@ struct CAsyncCore
 	struct IMEMNODE *nodes;
 	struct IMEMNODE *cache;
 	struct IMSTREAM msgs;
-	struct IQUEUEHEAD head;
+	struct ILISTHEAD head;
 	struct IVECTOR *vector;
 	ipolld pfd;
 	long bufsize;
@@ -880,7 +880,7 @@ CAsyncCore* async_core_new(int flags)
 	}
 
 	ims_init(&core->msgs, core->cache, 0, 0);
-	iqueue_init(&core->head);
+	ilist_init(&core->head);
 
 	core->data = NULL;
 	core->msgcnt = 0;
@@ -960,8 +960,8 @@ void async_core_delete(CAsyncCore *core)
 		if (hid < 0) break;
 		async_core_node_delete(core, hid);
 	}
-	if (!iqueue_is_empty(&core->head)) {
-		assert(iqueue_is_empty(&core->head));
+	if (!ilist_is_empty(&core->head)) {
+		assert(ilist_is_empty(&core->head));
 		abort();
 	}
 	if (core->count != 0) {
@@ -982,7 +982,7 @@ void async_core_delete(CAsyncCore *core)
 	core->nodes = NULL;
 	core->cache = NULL;
 	core->data = NULL;
-	iqueue_init(&core->head);
+	ilist_init(&core->head);
 #ifdef __unix
 	#ifndef __AVM2__
 	if (core->xfd[0] >= 0) close(core->xfd[0]);
@@ -1041,7 +1041,7 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->limited = core->limited;
 	sock->flags = 0;
 	sock->error = 0;
-	iqueue_add_tail(&sock->node, &core->head);
+	ilist_add_tail(&sock->node, &core->head);
 
 	core->count++;
 
@@ -1091,9 +1091,9 @@ static long async_core_node_delete(CAsyncCore *core, long hid)
 {
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	if (sock == NULL) return -1;
-	if (!iqueue_is_empty(&sock->node)) {
-		iqueue_del(&sock->node);
-		iqueue_init(&sock->node);
+	if (!ilist_is_empty(&sock->node)) {
+		ilist_del(&sock->node);
+		ilist_init(&sock->node);
 	}
 	async_sock_destroy(sock);
 	imnode_del(core->nodes, hid & 0xffff);
@@ -1110,8 +1110,8 @@ static int async_core_node_active(CAsyncCore *core, long hid)
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	if (sock == NULL) return -1;
 	sock->time = core->current;
-	iqueue_del(&sock->node);
-	iqueue_add_tail(&sock->node, &core->head);
+	ilist_del(&sock->node);
+	ilist_add_tail(&sock->node, &core->head);
 	return 0;
 }
 
@@ -1623,9 +1623,9 @@ static long _async_core_new_listen(CAsyncCore *core,
 	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
 	sock->mode = ipv6? ASYNC_CORE_NODE_LISTEN6 : ASYNC_CORE_NODE_LISTEN4;
 
-	if (!iqueue_is_empty(&sock->node)) {
-		iqueue_del(&sock->node);
-		iqueue_init(&sock->node);
+	if (!ilist_is_empty(&sock->node)) {
+		ilist_del(&sock->node);
+		ilist_init(&sock->node);
 	}
 
 	sock->header = header & 0xff;
@@ -1695,9 +1695,9 @@ static long _async_core_new_dgram(CAsyncCore *core,
 		return -6;
 	}
 
-	if (!iqueue_is_empty(&sock->node)) {
-		iqueue_del(&sock->node);
-		iqueue_init(&sock->node);
+	if (!ilist_is_empty(&sock->node)) {
+		ilist_del(&sock->node);
+		ilist_init(&sock->node);
 	}
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
@@ -1925,9 +1925,9 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 	if (now != core->lastsec && core->timeout > 0) {
 		CAsyncSock *sock;
 		core->lastsec = now;
-		while (!iqueue_is_empty(&core->head)) {
+		while (!ilist_is_empty(&core->head)) {
 			IINT32 timeout;
-			sock = iqueue_entry(core->head.next, CAsyncSock, node);
+			sock = ilist_entry(core->head.next, CAsyncSock, node);
 			timeout = itimediff(core->current, sock->time + core->timeout);
 			if (timeout < 0) break;
 			async_core_event_close(core, sock, 2006);
