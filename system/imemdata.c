@@ -33,8 +33,8 @@ idict_t *idict_create(void)
 	dict = (idict_t*)ikmem_malloc(sizeof(idict_t));
 	if (dict == NULL) return NULL;
 
-	imnode_init(&dict->nodes, sizeof(struct IDICTENTRY), &ikmem_allocator);
-	iv_init(&dict->vect, &ikmem_allocator);
+	imnode_init(&dict->nodes, sizeof(struct IDICTENTRY), ikmem_allocator);
+	iv_init(&dict->vect, ikmem_allocator);
 
 	dict->shift = 6;
 	dict->length = (1 << dict->shift);
@@ -331,9 +331,9 @@ ilong idict_update(idict_t *dict, const ivalue_t *key, const ivalue_t *val)
 static inline idictentry_t *_idict_pick(const idict_t *dict, ilong pos)
 {
 	idictentry_t *entry;
-	imemnode_t *nodes;
+	ib_memnode *nodes;
 
-	nodes = (imemnode_t*)&dict->nodes;
+	nodes = (ib_memnode*)&dict->nodes;
 	if (pos < 0 || pos >= nodes->node_max) return NULL;
 	if (IMNODE_MODE(nodes, pos) == 0) return NULL;
 	entry = (idictentry_t*)IMNODE_DATA(nodes, pos);
@@ -878,7 +878,7 @@ struct IMSPAGE
 #define IMSPAGE_LRU_SIZE	2
 
 /* init memory stream */
-void ims_init(struct IMSTREAM *s, imemnode_t *fnode, ilong low, ilong high)
+void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high)
 {
 	ilong swap;
 	ilist_init(&s->head);

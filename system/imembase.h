@@ -421,14 +421,14 @@ typedef struct ILISTHEAD ilist_head;
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
 /*====================================================================*/
 
-typedef struct IVECTOR ivector_t;
-typedef struct IMEMNODE imemnode_t;
+typedef struct IVECTOR ib_vector;
+typedef struct IMEMNODE ib_memnode;
 
-ivector_t *iv_create(void);
-void iv_delete(ivector_t *vec);
+ib_vector *iv_create(void);
+void iv_delete(ib_vector *vec);
 
-imemnode_t *imnode_create(ilong nodesize, int grow_limit);
-void imnode_delete(imemnode_t *);
+ib_memnode *imnode_create(ilong nodesize, int grow_limit);
+void imnode_delete(ib_memnode *);
 
 
 /*--------------------------------------------------------------------*/

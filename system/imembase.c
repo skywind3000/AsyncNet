@@ -469,33 +469,33 @@ const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index)
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
 /*====================================================================*/
 
-ivector_t *iv_create(void)
+ib_vector *iv_create(void)
 {
-	ivector_t *vec;
-	vec = (ivector_t*)ikmem_malloc(sizeof(ivector_t));
+	ib_vector *vec;
+	vec = (ib_vector*)ikmem_malloc(sizeof(ib_vector));
 	if (vec == NULL) return NULL;
 	iv_init(vec, ikmem_allocator);
 	return vec;
 }
 
-void iv_delete(ivector_t *vec)
+void iv_delete(ib_vector *vec)
 {
 	assert(vec);
 	iv_destroy(vec);
 	ikmem_free(vec);
 }
 
-imemnode_t *imnode_create(ilong nodesize, int grow_limit)
+ib_memnode *imnode_create(ilong nodesize, int grow_limit)
 {
-	imemnode_t *mnode;
-	mnode = (imemnode_t*)ikmem_malloc(sizeof(imemnode_t));
+	ib_memnode *mnode;
+	mnode = (ib_memnode*)ikmem_malloc(sizeof(ib_memnode));
 	if (mnode == NULL) return NULL;
 	imnode_init(mnode, nodesize, ikmem_allocator);
 	mnode->grow_limit = grow_limit;
 	return mnode;
 }
 
-void imnode_delete(imemnode_t *mnode)
+void imnode_delete(ib_memnode *mnode)
 {
 	assert(mnode);
 	imnode_destroy(mnode);

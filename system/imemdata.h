@@ -1353,7 +1353,7 @@ struct IMSTREAM
 };
 
 /* init memory stream */
-void ims_init(struct IMSTREAM *s, imemnode_t *fnode, ilong low, ilong high);
+void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high);
 
 /* destroy memory stream */
 void ims_destroy(struct IMSTREAM *s);
@@ -1581,7 +1581,7 @@ ivalue_t *it_replace(const ivalue_t *src, ivalue_t *out,
  **********************************************************************/
 struct ISTRINGLIST
 {
-	ivector_t *vector;
+	ib_vector *vector;
 	ivalue_t **values;
 	ivalue_t none;
 	ilong count;
