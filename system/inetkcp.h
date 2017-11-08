@@ -61,7 +61,7 @@ struct IKCPCB
 	struct ILISTHEAD rcv_queue;
 	struct ILISTHEAD snd_buf;
 	struct ILISTHEAD rcv_buf;
-	ivector_t *acklist;
+	ib_vector *acklist;
 	IUINT32 ackcount;
 	void *user;
 	char *buffer;

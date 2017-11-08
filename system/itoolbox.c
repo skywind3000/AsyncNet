@@ -701,7 +701,7 @@ struct CAsyncReader
 };
 
 
-CAsyncReader *async_reader_new(imemnode_t *fnode)
+CAsyncReader *async_reader_new(ib_memnode *fnode)
 {
 	CAsyncReader *reader;
 	reader = (CAsyncReader*)ikmem_malloc(sizeof(CAsyncReader));
@@ -863,7 +863,7 @@ struct CRedisReader
 	ilong capacity;
 };
 
-CRedisReader *redis_reader_new(imemnode_t *fnode)
+CRedisReader *redis_reader_new(ib_memnode *fnode)
 {
 	CRedisReader *rr;
 	rr = (CRedisReader*)ikmem_malloc(sizeof(CRedisReader));
@@ -913,7 +913,7 @@ static long redis_reader_fetch(CRedisReader *rr)
 		long need = async_reader_read(rr->reader, NULL, rr->capacity);
 		rr->buffer = (char*)ikmem_realloc(rr->buffer, need);
 		assert(rr->buffer);
-		rr->capacity = ikmem_ptr_size(rr->buffer);
+		rr->capacity = need;
 		hr = async_reader_read(rr->reader, rr->buffer, rr->capacity);
 	}
 	if (hr == -1) {

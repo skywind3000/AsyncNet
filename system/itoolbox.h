@@ -180,7 +180,7 @@ int inet_sockpair(int fds[2]);
 struct CAsyncReader;
 typedef struct CAsyncReader CAsyncReader;
 
-CAsyncReader *async_reader_new(imemnode_t *fnode);
+CAsyncReader *async_reader_new(ib_memnode *fnode);
 
 void async_reader_delete(CAsyncReader *reader);
 
@@ -203,7 +203,7 @@ void async_reader_feed(CAsyncReader *reader, const void *data, long len);
 struct CRedisReader;
 typedef struct CRedisReader CRedisReader;
 
-CRedisReader *redis_reader_new(imemnode_t *fnode);
+CRedisReader *redis_reader_new(ib_memnode *fnode);
 
 void redis_reader_delete(CRedisReader *rr);
 
