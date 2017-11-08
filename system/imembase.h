@@ -3,18 +3,6 @@
  * imembase.h - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
- * - application layer slab allocator implementation
- * - unit interval time cost: almost speed up 500% - 1200% vs malloc
- * - optional page supplier: with the "GFP-Tree" algorithm
- * - memory recycle: automatic give memory back to os to avoid wasting
- * - platform independence
- *
- * for the basic information about slab algorithm, please see:
- *   The Slab Allocator: An Object Caching Kernel 
- *   Memory Allocator (Jeff Bonwick, Sun Microsystems, 1994)
- * with the URL below:
- *   http://citeseer.ist.psu.edu/bonwick94slab.html
- *
  **********************************************************************/
 
 #ifndef __IMEMBASE_H__
@@ -27,6 +15,120 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+
+
+/**********************************************************************
+ * 32BIT INTEGER DEFINITION 
+ **********************************************************************/
+#ifndef __INTEGER_32_BITS__
+#define __INTEGER_32_BITS__
+#if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
+	typedef __UINT32_TYPE__ ISTDUINT32;
+	typedef __INT32_TYPE__ ISTDINT32;
+#elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)
+	typedef __UINT_FAST32_TYPE__ ISTDUINT32;
+	typedef __INT_FAST32_TYPE__ ISTDINT32;
+#elif defined(_WIN64) || defined(WIN64) || defined(__amd64__) || \
+	defined(__x86_64) || defined(__x86_64__) || defined(_M_IA64) || \
+	defined(_M_AMD64)
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#elif defined(_WIN32) || defined(WIN32) || defined(__i386__) || \
+	defined(__i386) || defined(_M_X86)
+	typedef unsigned long ISTDUINT32;
+	typedef long ISTDINT32;
+#elif defined(__MACOS__)
+	typedef UInt32 ISTDUINT32;
+	typedef SInt32 ISTDINT32;
+#elif defined(__APPLE__) && defined(__MACH__)
+	#include <sys/types.h>
+	typedef u_int32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#elif defined(__BEOS__)
+	#include <sys/inttypes.h>
+	typedef u_int32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#elif (defined(_MSC_VER) || defined(__BORLANDC__)) && (!defined(__MSDOS__))
+	typedef unsigned __int32 ISTDUINT32;
+	typedef __int32 ISTDINT32;
+#elif defined(__GNUC__) && (__GNUC__ > 3)
+	#include <stdint.h>
+	typedef uint32_t ISTDUINT32;
+	typedef int32_t ISTDINT32;
+#else 
+#include <limits.h>
+#if UINT_MAX == 0xFFFFU
+	typedef unsigned long ISTDUINT32; 
+	typedef long ISTDINT32;
+#else
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#endif
+#endif
+#endif
+
+
+/**********************************************************************
+ * Global Macros
+ **********************************************************************/
+#ifndef __IINT8_DEFINED
+#define __IINT8_DEFINED
+typedef char IINT8;
+#endif
+
+#ifndef __IUINT8_DEFINED
+#define __IUINT8_DEFINED
+typedef unsigned char IUINT8;
+#endif
+
+#ifndef __IUINT16_DEFINED
+#define __IUINT16_DEFINED
+typedef unsigned short IUINT16;
+#endif
+
+#ifndef __IINT16_DEFINED
+#define __IINT16_DEFINED
+typedef short IINT16;
+#endif
+
+#ifndef __IINT32_DEFINED
+#define __IINT32_DEFINED
+typedef ISTDINT32 IINT32;
+#endif
+
+#ifndef __IUINT32_DEFINED
+#define __IUINT32_DEFINED
+typedef ISTDUINT32 IUINT32;
+#endif
+
+
+/*--------------------------------------------------------------------*/
+/* INLINE                                                             */
+/*--------------------------------------------------------------------*/
+#ifndef INLINE
+#if defined(__GNUC__)
+
+#if (__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 1))
+#define INLINE         __inline__ __attribute__((always_inline))
+#else
+#define INLINE         __inline__
+#endif
+
+#elif (defined(_MSC_VER) || defined(__BORLANDC__) || defined(__WATCOMC__))
+#define INLINE __inline
+#else
+#define INLINE 
+#endif
+#endif
+
+#if (!defined(__cplusplus)) && (!defined(inline))
+#define inline INLINE
+#endif
+
+/* you can change this by config.h or predefined macro */
+#ifndef ASSERTION
+#define ASSERTION(x) ((void)0)
+#endif
 
 
 /*====================================================================*/
@@ -50,12 +152,23 @@ struct IALLOCATOR
 {
     void *(*alloc)(struct IALLOCATOR *, size_t);
     void (*free)(struct IALLOCATOR *, void *);
+	void *(*realloc)(struct IALLOCATOR *, void *, size_t);
     void *udata;
-    ilong reserved;
 };
 
 void* internal_malloc(struct IALLOCATOR *allocator, size_t size);
 void internal_free(struct IALLOCATOR *allocator, void *ptr);
+void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size);
+
+
+/*====================================================================*/
+/* IKMEM INTERFACE                                                    */
+/*====================================================================*/
+extern struct IALLOCATOR *ikmem_allocator;
+
+void* ikmem_malloc(size_t size);
+void* ikmem_realloc(void *ptr, size_t size);
+void ikmem_free(void *ptr);
 
 
 /*====================================================================*/
@@ -65,7 +178,7 @@ struct IVECTOR
 {
 	unsigned char *data;       
 	size_t size;      
-	size_t block;       
+	size_t capacity;       
 	struct IALLOCATOR *allocator;
 };
 
@@ -82,11 +195,25 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size);
 #define iv_size(v) ((v)->size)
 #define iv_data(v) ((v)->data)
 
-#define iv_index(v, type, index) (((type*)iv_data(v))[index])
+#define iv_entry(v, type) ((type*)iv_data(v))
 
-#define IMROUNDSHIFT	3
-#define IMROUNDSIZE		(((size_t)1) << IMROUNDSHIFT)
-#define IMROUNDUP(s)	(((s) + IMROUNDSIZE - 1) & ~(IMROUNDSIZE - 1))
+#define iv_obj_index(v, type, index) (iv_entry(v, type)[index])
+#define iv_obj_push(v, type, objptr) iv_push(v, objptr, sizeof(type))
+#define iv_obj_pop(v, type, objptr) iv_pop(v, objptr, sizeof(type))
+#define iv_obj_size(v, type) (((v)->size) / sizeof(type))
+#define iv_obj_capacity(v, type) (((v)->capacity) / sizeof(type))
+#define iv_obj_resize(v, type, count) iv_resize(v, (count) * sizeof(type))
+#define iv_obj_reserve(v, type, count) iv_reserve(v, (count) * sizeof(type))
+
+#define iv_obj_insert(v, type, pos, objptr) \
+	iv_insert(v, (pos) * sizeof(type), objptr, sizeof(type))
+
+#define iv_obj_erase(v, type, pos, count) \
+	iv_erase(v, (pos) * sizeof(type), (count) * sizeof(type))
+
+
+#define IROUND_SIZE(b)    (((size_t)1) << (b))
+#define IROUND_UP(s, n)   (((s) + (n) - 1) & ~(((size_t)(n)) - 1))
 
 
 /*====================================================================*/
@@ -144,26 +271,26 @@ const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index);
 
 
 /*====================================================================*/
-/* QUEUE DEFINITION                                                   */
+/* LIST DEFINITION                                                   */
 /*====================================================================*/
-#ifndef __IQUEUE_DEF__
-#define __IQUEUE_DEF__
+#ifndef __ILIST_DEF__
+#define __ILIST_DEF__
 
-struct IQUEUEHEAD {
-	struct IQUEUEHEAD *next, *prev;
+struct ILISTHEAD {
+	struct ILISTHEAD *next, *prev;
 };
 
-typedef struct IQUEUEHEAD iqueue_head;
+typedef struct ILISTHEAD ilist_head;
 
 
 /*--------------------------------------------------------------------*/
-/* queue init                                                         */
+/* list init                                                         */
 /*--------------------------------------------------------------------*/
-#define IQUEUE_HEAD_INIT(name) { &(name), &(name) }
-#define IQUEUE_HEAD(name) \
-	struct IQUEUEHEAD name = IQUEUE_HEAD_INIT(name)
+#define ILIST_HEAD_INIT(name) { &(name), &(name) }
+#define ILIST_HEAD(name) \
+	struct ILISTHEAD name = ILIST_HEAD_INIT(name)
 
-#define IQUEUE_INIT(ptr) ( \
+#define ILIST_INIT(ptr) ( \
 	(ptr)->next = (ptr), (ptr)->prev = (ptr))
 
 #define IOFFSETOF(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
@@ -171,63 +298,63 @@ typedef struct IQUEUEHEAD iqueue_head;
 #define ICONTAINEROF(ptr, type, member) ( \
 		(type*)( ((char*)((type*)ptr)) - IOFFSETOF(type, member)) )
 
-#define IQUEUE_ENTRY(ptr, type, member) ICONTAINEROF(ptr, type, member)
+#define ILIST_ENTRY(ptr, type, member) ICONTAINEROF(ptr, type, member)
 
 
 /*--------------------------------------------------------------------*/
-/* queue operation                                                    */
+/* list operation                                                    */
 /*--------------------------------------------------------------------*/
-#define IQUEUE_ADD(node, head) ( \
+#define ILIST_ADD(node, head) ( \
 	(node)->prev = (head), (node)->next = (head)->next, \
 	(head)->next->prev = (node), (head)->next = (node))
 
-#define IQUEUE_ADD_TAIL(node, head) ( \
+#define ILIST_ADD_TAIL(node, head) ( \
 	(node)->prev = (head)->prev, (node)->next = (head), \
 	(head)->prev->next = (node), (head)->prev = (node))
 
-#define IQUEUE_DEL_BETWEEN(p, n) ((n)->prev = (p), (p)->next = (n))
+#define ILIST_DEL_BETWEEN(p, n) ((n)->prev = (p), (p)->next = (n))
 
-#define IQUEUE_DEL(entry) (\
+#define ILIST_DEL(entry) (\
 	(entry)->next->prev = (entry)->prev, \
 	(entry)->prev->next = (entry)->next, \
 	(entry)->next = 0, (entry)->prev = 0)
 
-#define IQUEUE_DEL_INIT(entry) do { \
-	IQUEUE_DEL(entry); IQUEUE_INIT(entry); } while (0)
+#define ILIST_DEL_INIT(entry) do { \
+	ILIST_DEL(entry); ILIST_INIT(entry); } while (0)
 
-#define IQUEUE_IS_EMPTY(entry) ((entry) == (entry)->next)
+#define ILIST_IS_EMPTY(entry) ((entry) == (entry)->next)
 
-#define iqueue_init		IQUEUE_INIT
-#define iqueue_entry	IQUEUE_ENTRY
-#define iqueue_add		IQUEUE_ADD
-#define iqueue_add_tail	IQUEUE_ADD_TAIL
-#define iqueue_del		IQUEUE_DEL
-#define iqueue_del_init	IQUEUE_DEL_INIT
-#define iqueue_is_empty IQUEUE_IS_EMPTY
+#define ilist_init		ILIST_INIT
+#define ilist_entry		ILIST_ENTRY
+#define ilist_add		ILIST_ADD
+#define ilist_add_tail	ILIST_ADD_TAIL
+#define ilist_del		ILIST_DEL
+#define ilist_del_init	ILIST_DEL_INIT
+#define ilist_is_empty	ILIST_IS_EMPTY
 
-#define IQUEUE_FOREACH(iterator, head, TYPE, MEMBER) \
-	for ((iterator) = iqueue_entry((head)->next, TYPE, MEMBER); \
+#define ILIST_FOREACH(iterator, head, TYPE, MEMBER) \
+	for ((iterator) = ilist_entry((head)->next, TYPE, MEMBER); \
 		&((iterator)->MEMBER) != (head); \
-		(iterator) = iqueue_entry((iterator)->MEMBER.next, TYPE, MEMBER))
+		(iterator) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER))
 
-#define iqueue_foreach(iterator, head, TYPE, MEMBER) \
-	IQUEUE_FOREACH(iterator, head, TYPE, MEMBER)
+#define ilist_foreach(iterator, head, TYPE, MEMBER) \
+	ILIST_FOREACH(iterator, head, TYPE, MEMBER)
 
-#define iqueue_foreach_entry(pos, head) \
+#define ilist_foreach_entry(pos, head) \
 	for( (pos) = (head)->next; (pos) != (head) ; (pos) = (pos)->next )
 	
 
-#define __iqueue_splice(list, head) do {	\
-		iqueue_head *first = (list)->next, *last = (list)->prev; \
-		iqueue_head *at = (head)->next; \
+#define __ilist_splice(list, head) do {	\
+		ilist_head *first = (list)->next, *last = (list)->prev; \
+		ilist_head *at = (head)->next; \
 		(first)->prev = (head), (head)->next = (first);		\
 		(last)->next = (at), (at)->prev = (last); }	while (0)
 
-#define iqueue_splice(list, head) do { \
-	if (!iqueue_is_empty(list)) __iqueue_splice(list, head); } while (0)
+#define ilist_splice(list, head) do { \
+	if (!ilist_is_empty(list)) __ilist_splice(list, head); } while (0)
 
-#define iqueue_splice_init(list, head) do {	\
-	iqueue_splice(list, head);	iqueue_init(list); } while (0)
+#define ilist_splice_init(list, head) do {	\
+	ilist_splice(list, head);	ilist_init(list); } while (0)
 
 
 #ifdef _MSC_VER
@@ -238,29 +365,6 @@ typedef struct IQUEUEHEAD iqueue_head;
 
 #endif
 
-
-/*====================================================================*/
-/* IMEMSLAB                                                           */
-/*====================================================================*/
-struct IMEMSLAB
-{
-	struct IQUEUEHEAD queue;
-	size_t coloroff;
-	void*membase;
-	ilong memsize;
-	ilong inuse;
-	void*bufctl;
-	void*extra;
-};
-
-typedef struct IMEMSLAB imemslab_t;
-
-#define IMEMSLAB_ISFULL(s) ((s)->bufctl == 0)
-#define IMEMSLAB_ISEMPTY(s) ((s)->inuse == 0)
-
-#ifdef __cplusplus
-}
-#endif
 
 /*====================================================================*/
 /* IMUTEX - mutex interfaces                                          */
@@ -312,167 +416,10 @@ typedef struct IMEMSLAB imemslab_t;
 #endif
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef IMUTEX_TYPE imutex_t;
-extern int imutex_disable;
-
-void imutex_init(imutex_t *mutex);
-void imutex_destroy(imutex_t *mutex);
-void imutex_lock(imutex_t *mutex);
-void imutex_unlock(imutex_t *mutex);
-
-
-/*====================================================================*/
-/* IMEMGFP (mem_get_free_pages) - a page-supplyer class               */
-/*====================================================================*/
-struct IMEMGFP
-{
-	size_t page_size;
-	ilong refcnt;
-	void*(*alloc_page)(struct IMEMGFP *gfp);
-	void (*free_page)(struct IMEMGFP *gfp, void *ptr);
-	void *extra;
-	size_t pages_inuse;
-	size_t pages_new;
-	size_t pages_del;
-};
-
-#define IDEFAULT_PAGE_SHIFT 16
-
-typedef struct IMEMGFP imemgfp_t;
-
-
-/*====================================================================*/
-/* IMEMLRU                                                            */
-/*====================================================================*/
-#ifndef IMCACHE_ARRAYLIMIT
-#define IMCACHE_ARRAYLIMIT 128
-#endif
-
-#ifndef IMCACHE_NODECOUNT_SHIFT
-#define IMCACHE_NODECOUNT_SHIFT 0
-#endif
-
-#define IMCACHE_NODECOUNT (1 << (IMCACHE_NODECOUNT_SHIFT))
-
-#ifndef IMCACHE_NAMESIZE
-#define IMCACHE_NAMESIZE 32
-#endif
-
-#ifndef IMCACHE_LRU_SHIFT
-#define IMCACHE_LRU_SHIFT	3
-#endif
-
-#define IMCACHE_LRU_COUNT	(1 << IMCACHE_LRU_SHIFT)
-
-struct IMEMLRU
-{
-	int avial;
-	int limit;
-	int batchcount;
-	imutex_t lock;
-	void *entry[IMCACHE_ARRAYLIMIT];
-};
-
-typedef struct IMEMLRU imemlru_t;
-
-
-/*====================================================================*/
-/* IMEMCACHE                                                          */
-/*====================================================================*/
-struct IMEMCACHE
-{
-	size_t obj_size;
-	size_t unit_size;
-	size_t page_size;
-	size_t count_partial;
-	size_t count_full;
-	size_t count_free;
-	size_t free_objects;
-	size_t free_limit;
-	size_t color_next;
-	size_t color_limit;
-
-	iqueue_head queue;
-	imutex_t list_lock;
-
-	iqueue_head slabs_partial;
-	iqueue_head slabs_full;
-	iqueue_head slabs_free;
-
-	imemlru_t array[IMCACHE_LRU_COUNT];
-	imemgfp_t *gfp;		
-	imemgfp_t page_supply;
-
-	size_t batchcount;
-	size_t limit;
-	size_t num;	
-	ilong flags;
-	ilong user;
-	int index;
-	void*extra;
-
-	char name[IMCACHE_NAMESIZE + 1];
-	size_t pages_hiwater;
-	size_t pages_inuse;
-	size_t pages_new;
-	size_t pages_del;
-};
-
-typedef struct IMEMCACHE imemcache_t;
-
-
-/*====================================================================*/
-/* IKMEMHOOK                                                          */
-/*====================================================================*/
-struct IKMEMHOOK
-{
-	void* (*kmem_malloc_fn)(size_t size);
-	void (*kmem_free_fn)(void *ptr);
-	void* (*kmem_realloc_fn)(void *ptr, size_t size);
-	size_t (*kmem_ptr_size_fn)(const void *ptr);
-	void (*kmem_shrink_fn)(void);
-};
-
-typedef struct IKMEMHOOK ikmemhook_t;
-
-
-/*====================================================================*/
-/* IKMEM INTERFACE                                                    */
-/*====================================================================*/
-void ikmem_init(int page_shift, int pg_malloc, size_t *sz);
-void ikmem_destroy(void);
-
-void* ikmem_malloc(size_t size);
-void* ikmem_realloc(void *ptr, size_t size);
-void ikmem_free(void *ptr);
-void ikmem_shrink(void);
-
-imemcache_t *ikmem_create(const char *name, size_t size);
-void ikmem_delete(imemcache_t *cache);
-void *ikmem_cache_alloc(imemcache_t *cache);
-void ikmem_cache_free(imemcache_t *cache, void *ptr);
-
-size_t ikmem_ptr_size(const void *ptr);
-void ikmem_option(size_t watermark);
-imemcache_t *ikmem_get(const char *name);
-imemcache_t *ikmem_vector(int id);
-
-ilong ikmem_page_info(ilong *pg_inuse, ilong *pg_new, ilong *pg_del);
-ilong ikmem_cache_info(int id, int *inuse, int *cnew, int *cdel, int *cfree);
-ilong ikmem_waste_info(ilong *kmem_inuse, ilong *total_mem);
-
-int ikmem_hook_install(const ikmemhook_t *hook);
-const ikmemhook_t *ikmem_hook_get(int id);
-
 
 /*====================================================================*/
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
 /*====================================================================*/
-extern struct IALLOCATOR ikmem_allocator;
 
 typedef struct IVECTOR ivector_t;
 typedef struct IMEMNODE imemnode_t;
@@ -482,6 +429,185 @@ void iv_delete(ivector_t *vec);
 
 imemnode_t *imnode_create(ilong nodesize, int grow_limit);
 void imnode_delete(imemnode_t *);
+
+
+/*--------------------------------------------------------------------*/
+/* Collection - Array                                                 */
+/*--------------------------------------------------------------------*/
+
+struct ic_array;
+typedef struct ic_array ic_array;
+
+ic_array *ic_array_new(void (*destroy_func)(void*));
+void ic_array_delete(ic_array *array);
+void ic_array_reserve(ic_array *array, size_t new_size);
+size_t ic_array_size(const ic_array *array);
+void** ic_array_ptr(ic_array *array);
+void* ic_array_index(ic_array *array, size_t index);
+const void* ic_array_const_index(const ic_array *array, size_t index);
+void ic_array_push(ic_array *array, void *item);
+void ic_array_push_left(ic_array *array, void *item);
+void ic_array_replace(ic_array *array, size_t index, void *item);
+void* ic_array_pop(ic_array *array);
+void* ic_array_pop_left(ic_array *array);
+void ic_array_remove(ic_array *array, size_t index);
+void ic_array_insert_before(ic_array *array, size_t index, void *item);
+void* ic_array_pop_at(ic_array *array, size_t index);
+void ic_array_for_each(ic_array *array, void (*iterator)(void *item));
+
+void ic_array_sort(ic_array *array, 
+		int (*compare)(const void*, const void*));
+
+ilong ic_array_search(const ic_array *array, 
+		int (*compare)(const void*, const void*),
+		const void *item, 
+		ilong start_pos);
+
+ilong ic_array_bsearch(const ic_array *array,
+		int (*compare)(const void*, const void*),
+		const void *item);
+
+
+/*====================================================================*/
+/* ib_node - binary search tree (can be used in rbtree & avl)         */
+/* use array for left/right child pointers to reduce cpu branches     */
+/* color won't be packed into pointers (can work without alignment)   */
+/*====================================================================*/
+struct ib_node
+{
+	struct ib_node *child[2];   /* 0 for left, 1 for right, reduce branch */
+	struct ib_node *parent;     /* pointing to node itself for empty node */
+	unsigned int color;         /* can also be used as balance / height */
+};
+
+struct ib_root
+{
+	struct ib_node *node;		/* root node */
+};
+
+
+/*--------------------------------------------------------------------*/
+/* macros                                                             */
+/*--------------------------------------------------------------------*/
+#define IB_LEFT    0        /* left child index */
+#define IB_RIGHT   1        /* right child index */
+
+#define IB_RED     0
+#define IB_BLACK   1
+
+#define IB_OFFSET(TYPE, MEMBER)    ((size_t) &((TYPE *)0)->MEMBER)
+
+#define IB_NODE2DATA(n, o)    ((void *)((size_t)(n) - (o)))
+#define IB_DATA2NODE(d, o)    ((struct ib_node*)((size_t)(d) + (o)))
+
+#define IB_ENTRY(ptr, type, member) \
+	IB_NODE2DATA(ptr, IB_OFFSET(type, member))
+
+#define ib_node_init(node) do { ((node)->parent) = (node); } while (0)
+#define ib_node_empty(node) ((node)->parent == (node))
+
+
+/*--------------------------------------------------------------------*/
+/* rbtree - node manipulation                                         */
+/*--------------------------------------------------------------------*/
+struct ib_node *ib_node_first(struct ib_root *root);
+struct ib_node *ib_node_last(struct ib_root *root);
+struct ib_node *ib_node_next(struct ib_node *node);
+struct ib_node *ib_node_prev(struct ib_node *node);
+
+void ib_node_insert_color(struct ib_node *node, struct ib_root *root);
+void ib_node_erase(struct ib_node *node, struct ib_root *root);
+
+void ib_node_replace(struct ib_node *victim, struct ib_node *newnode,
+		struct ib_root *root);
+
+static inline void ib_node_link(struct ib_node *node, struct ib_node *parent,
+		struct ib_node **ib_link) {
+	node->parent = parent;
+	node->color = IB_RED;
+	node->child[0] = node->child[1] = NULL;
+	ib_link[0] = node;
+}
+
+
+/*--------------------------------------------------------------------*/
+/* rbtree - node templates                                            */
+/*--------------------------------------------------------------------*/
+#define ib_node_find(root, what, compare_fn, result_node, result_index) do {\
+		struct ib_node *__n = (root)->node; \
+		(result_node) = NULL; \
+		(result_index) = 0; \
+		while (__n) { \
+			int __hr = (compare_fn)(what, __n); \
+			(result_node) = __n; \
+			if (__hr == 0) { (result_index) = -1; break; } \
+			else if (__hr < 0) { __n = __n->child[0]; (result_index) = 0; } \
+			else { __n = __n->child[1]; (result_index) = 1; } \
+		} \
+	}   while (0)
+
+
+#define ib_node_add(root, newnode, compare_fn, duplicate_node) do { \
+		struct ib_node **__link = &((root)->node); \
+		struct ib_node *__parent = NULL; \
+		struct ib_node *__duplicate = NULL; \
+		int __hr = 1; \
+		while (__link[0]) { \
+			__parent = __link[0]; \
+			__hr = (compare_fn)(newnode, __parent); \
+			if (__hr == 0) { __duplicate = __parent; break; } \
+			else { __link = &(__parent->child[(__hr < 0)? 0 : 1]); } \
+		} \
+		(duplicate_node) = __duplicate; \
+		if (__duplicate == NULL) { \
+			ib_node_link(newnode, __parent, __link); \
+			ib_node_insert_color(newnode, root); \
+		} \
+	}   while (0)
+
+
+
+/*--------------------------------------------------------------------*/
+/* rbtree - friendly interface                                        */
+/*--------------------------------------------------------------------*/
+struct ib_tree
+{
+	struct ib_root root;		/* rbtree root */
+	size_t offset;				/* node offset in user data structure */
+	size_t size;                /* size of user data structure */
+	size_t count;				/* node count */
+	/* returns 0 for equal, -1 for n1 < n2, 1 for n1 > n2 */
+	int (*compare)(const void *n1, const void *n2);
+};
+
+
+/* initialize rbtree, use IB_OFFSET(type, member) for "offset"
+ * eg:
+ *     ib_tree_init(&mytree, mystruct_compare,
+ *          sizeof(struct mystruct_t), 
+ *          IB_OFFSET(struct mystruct_t, node));
+ */
+void ib_tree_init(struct ib_tree *tree,
+		int (*compare)(const void*, const void*), size_t size, size_t offset);
+
+void *ib_tree_first(struct ib_tree *tree);
+void *ib_tree_last(struct ib_tree *tree);
+void *ib_tree_next(struct ib_tree *tree, void *data);
+void *ib_tree_prev(struct ib_tree *tree, void *data);
+
+/* require a temporary user structure (data) which contains the key */
+void *ib_tree_find(struct ib_tree *tree, const void *data);
+void *ib_tree_nearest(struct ib_tree *tree, const void *data);
+
+/* returns NULL for success, otherwise returns conflict node with same key */
+void *ib_tree_add(struct ib_tree *tree, void *data);
+
+void ib_tree_remove(struct ib_tree *tree, void *data);
+void ib_tree_replace(struct ib_tree *tree, void *victim, void *newdata);
+
+void ib_tree_clear(struct ib_tree *tree, void (*destroy)(void *data));
+
+
 
 
 #ifdef __cplusplus

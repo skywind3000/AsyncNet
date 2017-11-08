@@ -49,7 +49,7 @@ idict_t *idict_create(void)
 
 	dict->table = (struct IDICTBUCKET*)dict->vect.data;
 	for (i = 0; i < dict->length; i++) {
-		iqueue_init(&dict->table[i].head);
+		ilist_init(&dict->table[i].head);
 		dict->table[i].count = 0;
 	}
 
@@ -70,7 +70,7 @@ void idict_delete(idict_t *dict)
 	index = imnode_head(&dict->nodes);
 	for (; index >= 0; ) {
 		entry = (struct IDICTENTRY*)IMNODE_DATA(&dict->nodes, index);
-		iqueue_del(&entry->queue);
+		ilist_del(&entry->queue);
 		it_destroy(&entry->key);
 		it_destroy(&entry->val);
 		index = imnode_next(&dict->nodes, index);
@@ -85,7 +85,7 @@ static inline idictentry_t *_idict_search(idict_t *dict, const ivalue_t *key)
 {
 	idictentry_t *recent, *entry;
 	struct IDICTBUCKET *bucket;
-	iqueue_head *head, *p;
+	ilist_head *head, *p;
 	iulong hash1;
 	iulong hash2;
 
@@ -104,7 +104,7 @@ static inline idictentry_t *_idict_search(idict_t *dict, const ivalue_t *key)
 	head = &bucket->head;
 
 	for (p = head->next; p != head; p = p->next) {
-		entry = iqueue_entry(p, idictentry_t, queue);
+		entry = ilist_entry(p, idictentry_t, queue);
 		if (entry->key.hash != hash1) continue;
 		if (it_cmp(&entry->key, key) == 0) {
 			dict->lru[hash2] = entry;
@@ -172,7 +172,7 @@ static inline int _idict_resize(idict_t *dict, int newshift)
 	dict->table = (struct IDICTBUCKET*)dict->vect.data;
 
 	for (i = 0; i < (ilong)newsize; i++) {
-		iqueue_init(&dict->table[i].head);
+		ilist_init(&dict->table[i].head);
 		dict->table[i].count = 0;
 	}
 
@@ -188,8 +188,8 @@ static inline int _idict_resize(idict_t *dict, int newshift)
 		hash = entry->key.hash;
 		bucket = &table[hash & mask];
 		bucket->count++;
-		iqueue_init(&entry->queue);
-		iqueue_add_tail(&entry->queue, &bucket->head);
+		ilist_init(&entry->queue);
+		ilist_add_tail(&entry->queue, &bucket->head);
 	}
 
 	return 0;
@@ -201,7 +201,7 @@ static inline ilong _idict_update(idict_t *dict, const ivalue_t *key,
 {
 	idictentry_t *recent, *entry;
 	struct IDICTBUCKET *bucket;
-	iqueue_head *head, *p;
+	ilist_head *head, *p;
 	iulong hash1;
 	iulong hash2;
 	ilong pos;
@@ -226,7 +226,7 @@ static inline ilong _idict_update(idict_t *dict, const ivalue_t *key,
 
 	/* check bucket queue */
 	for (p = head->next; p != head; p = p->next) {
-		entry = iqueue_entry(p, idictentry_t, queue);
+		entry = ilist_entry(p, idictentry_t, queue);
 		if (entry->key.hash != hash1) continue;
 		if (it_cmp(&entry->key, key) == 0) {
 			dict->lru[hash2] = entry;
@@ -254,7 +254,7 @@ static inline ilong _idict_update(idict_t *dict, const ivalue_t *key,
 	entry->sid = ++dict->inc;
 
 	/* add to bucket queue */
-	iqueue_add_tail(&entry->queue, &bucket->head);
+	ilist_add_tail(&entry->queue, &bucket->head);
 	dict->lru[hash2] = entry;
 
 	bucket->count++;
@@ -285,7 +285,7 @@ static inline int _idict_del(idict_t *dict, idictentry_t *entry)
 	hash2 = _idict_lruhash(hash1);
 
 	bucket = &dict->table[hash1 & dict->mask];
-	iqueue_del(&entry->queue);
+	ilist_del(&entry->queue);
 
 	dict->lru[hash2] = NULL;
 
@@ -869,7 +869,7 @@ ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2,
  **********************************************************************/
 struct IMSPAGE
 {
-	struct IQUEUEHEAD head;
+	struct ILISTHEAD head;
 	iulong size;
 	iulong index;
 	IUINT8 data[2];
@@ -881,8 +881,8 @@ struct IMSPAGE
 void ims_init(struct IMSTREAM *s, imemnode_t *fnode, ilong low, ilong high)
 {
 	ilong swap;
-	iqueue_init(&s->head);
-	iqueue_init(&s->lru);
+	ilist_init(&s->head);
+	ilist_init(&s->lru);
 	s->fixed_pages = fnode;
 	s->pos_read = 0;
 	s->pos_write = 0;
@@ -919,12 +919,11 @@ static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 	}	else {
 		page = (struct IMSPAGE*)ikmem_malloc(newsize);
 		if (page == NULL) return NULL;
-		newsize = ikmem_ptr_size(page);
 		page->index = (iulong)0xfffffffful;
 		page->size = newsize - sizeof(struct IMSPAGE);
 	}
 
-	iqueue_init(&page->head);
+	ilist_init(&page->head);
 
 	return page;
 }
@@ -947,15 +946,15 @@ void ims_destroy(struct IMSTREAM *s)
 	struct IMSPAGE *current;
 	assert(s);
 
-	for (; iqueue_is_empty(&s->head) == 0; ) {
-		current = iqueue_entry(s->head.next, struct IMSPAGE, head);
-		iqueue_del(&current->head);
+	for (; ilist_is_empty(&s->head) == 0; ) {
+		current = ilist_entry(s->head.next, struct IMSPAGE, head);
+		ilist_del(&current->head);
 		ims_page_del(s, current);
 	}
 
-	for (; iqueue_is_empty(&s->lru) == 0; ) {
-		current = iqueue_entry(s->lru.next, struct IMSPAGE, head);
-		iqueue_del(&current->head);
+	for (; ilist_is_empty(&s->lru) == 0; ) {
+		current = ilist_entry(s->lru.next, struct IMSPAGE, head);
+		ilist_del(&current->head);
 		ims_page_del(s, current);
 	}
 
@@ -973,7 +972,7 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 	if (s->lrusize == 0) {
 		for (i = 0; i < IMSPAGE_LRU_SIZE; i++) {
 			page = ims_page_new(s);
-			iqueue_add_tail(&page->head, &s->lru);
+			ilist_add_tail(&page->head, &s->lru);
 			s->lrusize++;
 		}
 	}
@@ -981,8 +980,8 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 	assert(s->lru.next != &s->lru);
 	assert(s->lrusize > 0);
 
-	page = iqueue_entry(s->lru.next, struct IMSPAGE, head);
-	iqueue_del(&page->head);
+	page = ilist_entry(s->lru.next, struct IMSPAGE, head);
+	ilist_del(&page->head);
 	s->lrusize--;
 
 	return page;
@@ -991,11 +990,11 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 /* give page back to lru cache */
 static void ims_page_cache_release(struct IMSTREAM *s, struct IMSPAGE *page)
 {
-	iqueue_add_tail(&page->head, &s->lru);
+	ilist_add_tail(&page->head, &s->lru);
 	s->lrusize++;
 	for (; s->lrusize > (IMSPAGE_LRU_SIZE << 1); ) {
-		page = iqueue_entry(s->lru.next, struct IMSPAGE, head);
-		iqueue_del(&page->head);
+		page = ilist_entry(s->lru.next, struct IMSPAGE, head);
+		ilist_del(&page->head);
 		s->lrusize--;
 		ims_page_del(s, page);
 	}
@@ -1020,17 +1019,17 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 	lptr = (IUINT8*)ptr;
 
 	for (total = 0; size > 0; size -= towrite, total += towrite) {
-		if (iqueue_is_empty(&s->head)) {
+		if (ilist_is_empty(&s->head)) {
 			current = NULL;
 			canwrite = 0;
 		}	else {
-			current = iqueue_entry(s->head.prev, struct IMSPAGE, head);
+			current = ilist_entry(s->head.prev, struct IMSPAGE, head);
 			canwrite = current->size - s->pos_write;
 		}
 		if (canwrite == 0) {
 			current = ims_page_cache_get(s);
 			assert(current);
-			iqueue_add_tail(&current->head, &s->head);
+			ilist_add_tail(&current->head, &s->head);
 			s->pos_write = 0;
 			canwrite = current->size;
 		}
@@ -1048,7 +1047,7 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 {
 	ilong total, canread, toread, posread;
-	struct IQUEUEHEAD *head;
+	struct ILISTHEAD *head;
 	struct IMSPAGE *current;
 	IUINT8 *lptr;
 
@@ -1061,7 +1060,7 @@ ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 
 	for (total = 0; size > 0; size -= toread, total += toread) {
 		if (head == &s->head) break;
-		current = iqueue_entry(head, struct IMSPAGE, head);
+		current = ilist_entry(head, struct IMSPAGE, head);
 		head = head->next;
 		if (head == &s->head) canread = s->pos_write - posread;
 		else canread = current->size - posread;
@@ -1075,9 +1074,9 @@ ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 		if (posread >= (ilong)current->size) {
 			posread = 0;
 			if (nodrop == 0) {
-				iqueue_del(&current->head);
+				ilist_del(&current->head);
 				ims_page_cache_release(s, current);
-				if (iqueue_is_empty(&s->head)) {
+				if (ilist_is_empty(&s->head)) {
 					s->pos_write = 0;
 				}
 			}
@@ -1126,7 +1125,7 @@ ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 		if (pointer) pointer[0] = NULL;
 		return 0;
 	}
-	current = iqueue_entry(s->head.next, struct IMSPAGE, head);
+	current = ilist_entry(s->head.next, struct IMSPAGE, head);
 	if (pointer) pointer[0] = current->data + s->pos_read;
 
 	if (current->head.next != &s->head) 

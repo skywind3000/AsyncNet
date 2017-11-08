@@ -3,18 +3,6 @@
  * imembase.c - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
- * - application layer slab allocator implementation
- * - unit interval time cost: almost speed up 500% - 1200% vs malloc
- * - optional page supplier: with the "GFP-Tree" algorithm
- * - memory recycle: automatic give memory back to os to avoid wasting
- * - platform independence
- *
- * for the basic information about slab algorithm, please see:
- *   The Slab Allocator: An Object Caching Kernel 
- *   Memory Allocator (Jeff Bonwick, Sun Microsystems, 1994)
- * with the URL below:
- *   http://citeseer.ist.psu.edu/bonwick94slab.html
- *
  **********************************************************************/
 
 #include "imembase.h"
@@ -43,6 +31,7 @@
 /*====================================================================*/
 void *(*__ihook_malloc)(size_t size) = NULL;
 void (*__ihook_free)(void *) = NULL;
+void *(*__ihook_realloc)(void *, size_t size) = NULL;
 
 
 void* internal_malloc(struct IALLOCATOR *allocator, size_t size)
@@ -69,6 +58,42 @@ void internal_free(struct IALLOCATOR *allocator, void *ptr)
 	free(ptr);
 }
 
+void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size)
+{
+	if (allocator != NULL) {
+		return allocator->realloc(allocator, ptr, size);
+	}
+	if (__ihook_realloc != NULL) {
+		return __ihook_realloc(ptr, size);
+	}
+	return realloc(ptr, size);
+}
+
+
+/*====================================================================*/
+/* IKMEM INTERFACE                                                    */
+/*====================================================================*/
+#ifndef IKMEM_ALLOCATOR
+#define IKMEM_ALLOCATOR NULL
+#endif
+
+struct IALLOCATOR *ikmem_allocator = IKMEM_ALLOCATOR;
+
+
+void* ikmem_malloc(size_t size)
+{
+	return internal_malloc(ikmem_allocator, size);
+}
+
+void* ikmem_realloc(void *ptr, size_t size)
+{
+	return internal_realloc(ikmem_allocator, ptr, size);
+}
+
+void ikmem_free(void *ptr)
+{
+	internal_free(ikmem_allocator, ptr);
+}
 
 
 /*====================================================================*/
@@ -79,7 +104,7 @@ void iv_init(struct IVECTOR *v, struct IALLOCATOR *allocator)
 	if (v == 0) return;
 	v->data = 0;
 	v->size = 0;
-	v->block = 0;
+	v->capacity = 0;
 	v->allocator = allocator;
 }
 
@@ -91,58 +116,64 @@ void iv_destroy(struct IVECTOR *v)
 	}
 	v->data = NULL;
 	v->size = 0;
-	v->block = 0;
+	v->capacity = 0;
+}
+
+int iv_truncate(struct IVECTOR *v, size_t newcap)
+{
+	if (newcap == v->capacity)
+		return 0;
+	if (newcap == 0) {
+		if (v->capacity > 0) {
+			internal_free(v->allocator, v->data);
+		}
+		v->data = NULL;
+		v->capacity = 0;
+		v->size = 0;
+	}
+	else {
+		unsigned char *ptr = (unsigned char*)
+			internal_malloc(v->allocator, newcap);
+		if (ptr == NULL) {
+			return -1;
+		}
+		if (v->data) {
+			size_t minsize = (v->size <= newcap)? v->size : newcap;
+			if (minsize > 0 && v->data) {
+				memcpy(ptr, v->data, minsize);
+			}
+			internal_free(v->allocator, v->data);
+		}
+		v->data = ptr;
+		v->capacity = newcap;
+		if (v->size > v->capacity) {
+			v->size = v->capacity;
+		}
+	}
+	return 0;
 }
 
 int iv_resize(struct IVECTOR *v, size_t newsize)
 {
-	unsigned char*lptr;
-	size_t block, min;
-	size_t nblock;
-
-	if (v == NULL) return -1;
-	if (newsize >= v->size && newsize <= v->block) { 
-		v->size = newsize; 
-		return 0; 
-	}
-
-	if (newsize == 0) {
-		if (v->block > 0) {
-			internal_free(v->allocator, v->data);
-			v->block = 0;
-			v->size = 0;
-			v->data = NULL;
+	if (newsize > v->capacity) {
+		size_t capacity = v->capacity * 2;
+		if (capacity < newsize) {
+			capacity = sizeof(char*);
+			while (capacity < newsize) {
+				capacity = capacity * 2;
+			}
 		}
-		return 0;
+		if (iv_truncate(v, capacity) != 0) {
+			return -1;
+		}
 	}
-
-	for (nblock = sizeof(char*); nblock < newsize; ) nblock <<= 1;
-	block = nblock;
-
-	if (block == v->block) { 
-		v->size = newsize; 
-		return 0; 
-	}
-
-	if (v->block == 0 || v->data == NULL) {
-		v->data = (unsigned char*)internal_malloc(v->allocator, block);
-		if (v->data == NULL) return -1;
-		v->size = newsize;
-		v->block = block;
-	}    else {
-		lptr = (unsigned char*)internal_malloc(v->allocator, block);
-		if (lptr == NULL) return -1;
-
-		min = (v->size <= newsize)? v->size : newsize;
-		memcpy(lptr, v->data, (size_t)min);
-		internal_free(v->allocator, v->data);
-
-		v->data = lptr;
-		v->size = newsize;
-		v->block = block;
-	}
-
+	v->size = newsize;
 	return 0;
+}
+
+int iv_reserve(struct IVECTOR *v, size_t size)
+{
+	return iv_truncate(v, (size >= v->size)? size : v->size);
 }
 
 int iv_push(struct IVECTOR *v, const void *data, size_t size)
@@ -195,7 +226,6 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size)
 void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 {
 	struct IMEMNODE *mnode = mn;
-	size_t newsize, shift;
 
 	assert(mnode != NULL);
 	mnode->allocator = ac;
@@ -207,13 +237,9 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 	iv_init(&mnode->vmem, ac);
 	iv_init(&mnode->vmode, ac);
 
-	for (shift = 1; (((size_t)1) << shift) < (size_t)nodesize; ) shift++;
+	nodesize = IROUND_UP(nodesize, 8);
 
-	newsize = (nodesize < (ilong)IMROUNDSIZE)? (ilong)IMROUNDSIZE : nodesize;
-	newsize = IMROUNDUP(newsize);
-
-	mnode->node_size = newsize;
-	mnode->node_shift = (ilong)shift;
+	mnode->node_size = nodesize;
 	mnode->node_free = 0;
 	mnode->node_used = 0;
 	mnode->node_max = 0;
@@ -293,19 +319,19 @@ static int imnode_mem_add(struct IMEMNODE*mnode, ilong node_count, void**mem)
 	char *mptr;
 
 	if (mnode->mem_count >= mnode->mem_max) {
-		newsize = (mnode->mem_max <= 0)? IMROUNDSIZE : mnode->mem_max * 2;
+		newsize = (mnode->mem_max <= 0)? 16 : mnode->mem_max * 2;
 		if (iv_resize(&mnode->vmem, newsize * sizeof(void*))) 
 			return -1;
 		mnode->mem_max = newsize;
 		mnode->mmem = (char**)((void*)mnode->vmem.data);
 	}
-	newsize = node_count * mnode->node_size + IMROUNDSIZE;
+	newsize = node_count * mnode->node_size + 16;
 	mptr = (char*)internal_malloc(mnode->allocator, newsize);
 	if (mptr == NULL) return -2;
 
 	mnode->mmem[mnode->mem_count++] = mptr;
 	mnode->total_mem += newsize;
-	mptr = (char*)IMROUNDUP(((size_t)mptr));
+	mptr = (char*)IROUND_UP(((size_t)mptr), 16);
 
 	if (mem) *mem = mptr;
 
@@ -321,10 +347,11 @@ static long imnode_grow(struct IMEMNODE *mnode)
 	void *mptr;
 	char *p;
 
-	count = (mnode->node_max <= 0)? IMROUNDSIZE : mnode->node_max;
+	count = (mnode->node_max <= 0)? 8 : mnode->node_max;
 	if (mnode->grow_limit > 0) {
 		if (count > mnode->grow_limit) count = mnode->grow_limit;
 	}
+	if (count > 4096) count = 4096;
 	size_endup = size_start + count;
 
 	retval = imnode_node_resize(mnode, size_endup);
@@ -390,7 +417,7 @@ void imnode_del(struct IMEMNODE *mnode, ilong index)
 
 	assert(mnode);
 	assert((index >= 0) && (index < mnode->node_max));
-	assert(IMNODE_MODE(mnode, index));
+	assert(IMNODE_MODE(mnode, index) != 0);
 
 	next = IMNODE_NEXT(mnode, index);
 	prev = IMNODE_PREV(mnode, index);
@@ -437,2005 +464,17 @@ const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index)
 
 
 
-/*====================================================================*/
-/* IMEMSLAB                                                           */
-/*====================================================================*/
-#define IMEM_NEXT_PTR(p)  (((void**)(p))[0])
-
-/* init slab structure with given memory block and coloroff */
-static ilong imslab_init(imemslab_t *slab, void *membase, 
-	size_t memsize, ilong obj_size, size_t coloroff)
-{
-	char *start = ((char*)membase) + coloroff;
-	char *endup = ((char*)membase) + memsize - obj_size;
-	ilong retval = 0;
-	char *tail;
-
-	assert(slab && membase);
-	assert((size_t)obj_size >= sizeof(void*));
-
-	iqueue_init(&slab->queue);
-	slab->membase = membase;
-	slab->memsize = memsize;
-	slab->coloroff = coloroff;
-	slab->inuse = 0;
-	slab->extra = NULL;
-	slab->bufctl = NULL;
-
-	for (tail = NULL; start <= endup; start += obj_size) {
-		IMEM_NEXT_PTR(start) = NULL;
-		if (tail == NULL) slab->bufctl = start;
-		else IMEM_NEXT_PTR(tail) = start;
-		tail = start;
-		retval++;
-	}
-
-	return retval;
-}
-
-
-/* alloc data from slab */ 
-static void *imslab_alloc(imemslab_t *slab)
-{
-	void *ptr;
-
-	if (slab->bufctl == 0) return 0;
-	ptr = slab->bufctl;
-	slab->bufctl = IMEM_NEXT_PTR(slab->bufctl);
-	slab->inuse++;
-
-	return ptr;
-}
-
-
-/* free data into slab */
-static void imslab_free(imemslab_t *slab, void *ptr)
-{
-	char *start = ((char*)slab->membase) + slab->coloroff;
-	char *endup = ((char*)slab->membase) + slab->memsize;
-	char *p = (char*)ptr;
-
-	assert(slab->inuse > 0);
-	assert(p >= start && p < endup);
-
-	if (p >= start && p < endup) {
-		IMEM_NEXT_PTR(p) = slab->bufctl;
-		slab->bufctl = p;
-	}
-
-	slab->inuse--;
-}
-
-
-
-/*====================================================================*/
-/* IMUTEX - mutex interfaces                                          */
-/*====================================================================*/
-int imutex_disable = 0;
-
-void imutex_init(imutex_t *mutex)
-{
-	#ifdef IMUTEX_INIT
-	IMUTEX_INIT(mutex);
-	#endif
-}
-
-void imutex_destroy(imutex_t *mutex)
-{
-	#ifdef IMUTEX_DESTROY
-	IMUTEX_DESTROY(mutex);
-	#endif
-}
-
-void imutex_lock(imutex_t *mutex)
-{
-	#ifdef IMUTEX_LOCK
-	if (imutex_disable == 0)
-		IMUTEX_LOCK(mutex);
-	#endif
-}
-
-void imutex_unlock(imutex_t *mutex)
-{
-	#ifdef IMUTEX_UNLOCK
-	if (imutex_disable == 0)
-		IMUTEX_UNLOCK(mutex);
-	#endif
-}
-
-
-/*====================================================================*/
-/* IMEMGFP (mem_get_free_pages) - a page-supplyer class               */
-/*====================================================================*/
-static struct IMEMNODE imem_page_cache;
-static imemgfp_t imem_gfp_default;
-static imutex_t imem_gfp_lock;
-static size_t imem_page_size;
-static size_t imem_page_shift;
-static int imem_gfp_malloc = 0;
-static int imem_gfp_inited = 0;
-
-
-static void* imem_gfp_alloc(imemgfp_t *gfp)
-{
-	ilong index;
-	char *lptr;
-
-	if (gfp != NULL && gfp != &imem_gfp_default) 
-		return gfp->alloc_page(gfp);
-
-	if (imem_gfp_malloc) {
-		lptr = (char*)internal_malloc(0, imem_page_size);
-		if (lptr == NULL) {
-			return NULL;
-		}
-	}	else {
-		assert(imem_gfp_inited);
-		
-		imutex_lock(&imem_gfp_lock);
-		index = imnode_new(&imem_page_cache);
-		assert(index >= 0);
-
-		if (index < 0) {
-			imutex_unlock(&imem_gfp_lock);
-			return NULL;
-		}
-
-		lptr = (char*)IMNODE_DATA(&imem_page_cache, index);
-		imutex_unlock(&imem_gfp_lock);
-
-		*(ilong*)lptr = index;
-		lptr += IMROUNDUP(sizeof(ilong));
-	}
-
-	imem_gfp_default.pages_new++;
-	imem_gfp_default.pages_inuse++;
-
-	return lptr;
-}
-
-static void imem_gfp_free(imemgfp_t *gfp, void *ptr)
-{
-	ilong index;
-	char *lptr;
-	int invalidptr;
-	
-	if (gfp != NULL && gfp != &imem_gfp_default) {
-		gfp->free_page(gfp, ptr);
-		return;
-	}
-
-	if (imem_gfp_malloc) {
-		internal_free(0, ptr);
-
-	}	else {
-		lptr = (char*)ptr - IMROUNDUP(sizeof(ilong));
-		index = *(ilong*)lptr;
-
-		invalidptr = (index < 0 || index >= imem_page_cache.node_max);
-		assert( !invalidptr );
-
-		if (invalidptr) return;
-
-		imutex_lock(&imem_gfp_lock);
-
-		if ((char*)IMNODE_DATA(&imem_page_cache, index) != lptr ||
-			IMNODE_MODE(&imem_page_cache, index) == 0)
-			invalidptr = 1;
-
-		assert( !invalidptr );
-		if (invalidptr) {
-			imutex_unlock(&imem_gfp_lock);
-			return;
-		}
-		
-		imnode_del(&imem_page_cache, index);
-		imutex_unlock(&imem_gfp_lock);
-	}
-
-	imem_gfp_default.pages_del++;
-	imem_gfp_default.pages_inuse--;
-}
-
-static void imem_gfp_init(int page_shift, int use_malloc)
-{
-	size_t require_size;
-
-	if (imem_gfp_inited != 0) 
-		return;
-
-	if (page_shift <= 0) 
-		page_shift = IDEFAULT_PAGE_SHIFT;
-
-	imem_page_shift = (size_t)page_shift;
-	imem_page_size = (((size_t)1) << page_shift) + 
-		IMROUNDUP(sizeof(void*)) * 16;
-
-	require_size = imem_page_size + IMROUNDUP(sizeof(void*));
-	imnode_init(&imem_page_cache, require_size, 0);
-
-	imem_page_cache.grow_limit = 8;
-
-	imutex_init(&imem_gfp_lock);
-
-	imem_gfp_default.page_size = imem_page_size;
-	imem_gfp_default.alloc_page = imem_gfp_alloc;
-	imem_gfp_default.free_page = imem_gfp_free;
-	imem_gfp_default.refcnt = 0;
-	imem_gfp_default.extra = NULL;
-	imem_gfp_default.pages_new = 0;
-	imem_gfp_default.pages_del = 0;
-	imem_gfp_default.pages_inuse = 0;
-
-	imem_gfp_malloc = use_malloc;
-
-	imem_gfp_inited = 1;
-}
-
-static void imem_gfp_destroy(void)
-{
-	if (imem_gfp_inited == 0)
-		return;
-
-	imutex_lock(&imem_gfp_lock);
-	imnode_destroy(&imem_page_cache);
-	imutex_unlock(&imem_gfp_lock);
-
-	imutex_destroy(&imem_gfp_lock);
-	imem_gfp_inited = 0;
-}
-
-
-
-/*====================================================================*/
-/* SLAB SET                                                           */
-/*====================================================================*/
-static struct IMEMNODE imslab_cache;
-static imutex_t imslab_lock;
-static int imslab_inited = 0;
-
-static void imslab_set_init(void)
-{
-	size_t size;
-	if (imslab_inited != 0) 
-		return;
-	imutex_init(&imslab_lock);
-	size = sizeof(imemslab_t) + IMROUNDUP(sizeof(void*));
-	imnode_init(&imslab_cache, size, 0);
-	imslab_inited = 1;
-}
-
-static void imslab_set_destroy(void)
-{
-	if (imslab_inited == 0)
-		return;
-
-	imutex_lock(&imslab_lock);
-	imnode_destroy(&imslab_cache);
-	imutex_unlock(&imslab_lock);
-
-	imutex_destroy(&imslab_lock);
-	imslab_inited = 0;
-}
-
-static imemslab_t *imslab_set_new(void)
-{
-	ilong index;
-	char *lptr;
-
-	assert(imslab_inited != 0);
-
-	imutex_lock(&imslab_lock);
-	index = imnode_new(&imslab_cache);
-	
-	assert(index >= 0);
-	if (index < 0) {
-		imutex_unlock(&imslab_lock);
-		return NULL;
-	}
-
-	lptr = (char*)IMNODE_DATA(&imslab_cache, index);
-	imutex_unlock(&imslab_lock);
-
-	*(ilong*)lptr = index;
-	lptr += IMROUNDUP(sizeof(ilong));
-
-	return (imemslab_t*)lptr;
-}
-
-static void imslab_set_delete(imemslab_t *slab)
-{
-	char *lptr = (char*)slab;
-	ilong index;
-	int invalidptr;
-
-	lptr -= IMROUNDUP(sizeof(ilong));
-	index = *(ilong*)lptr;
-
-	invalidptr = (index < 0 || index >= imem_page_cache.node_max);
-	assert( !invalidptr );
-
-	if (invalidptr) return;
-
-	imutex_lock(&imslab_lock);
-	
-	if ((char*)IMNODE_DATA(&imslab_cache, index) != lptr ||
-		IMNODE_MODE(&imslab_cache, index) == 0)
-		invalidptr = 1;
-
-	assert( !invalidptr );
-	if (invalidptr) {
-		imutex_unlock(&imslab_lock);
-		return;
-	}
-
-	imnode_del(&imslab_cache, index);
-	imutex_unlock(&imslab_lock);
-}
-
-
-/*====================================================================*/
-/* IMEMCACHE                                                          */
-/*====================================================================*/
-#define IMCACHE_FLAG_OFFSLAB	1
-#define IMCACHE_FLAG_NODRAIN	2
-#define IMCACHE_FLAG_NOLOCK		4
-#define IMCACHE_FLAG_SYSTEM		8
-#define IMCACHE_FLAG_ONQUEUE	16
-
-#define IMCACHE_OFFSLAB(mlist) ((mlist)->flags & IMCACHE_FLAG_OFFSLAB)
-#define IMCACHE_NODRAIN(mlist) ((mlist)->flags & IMCACHE_FLAG_NODRAIN)
-#define IMCACHE_NOLOCK(mlist)  ((mlist)->flags & IMCACHE_FLAG_NOLOCK)
-#define IMCACHE_SYSTEM(mlist)  ((mlist)->flags & IMCACHE_FLAG_SYSTEM)
-#define IMCACHE_ONQUEUE(mlist) ((mlist)->flags & IMCACHE_FLAG_ONQUEUE)
-
-
-static void imemcache_calculate(imemcache_t *cache)
-{
-	size_t obj_num;
-	size_t unit_size;
-	size_t size;
-	size_t color;
-	int mustonslab = 0;
-
-	unit_size = cache->unit_size;
-
-	if (unit_size > IMROUNDUP(sizeof(imemslab_t))) {
-		obj_num = cache->page_size / unit_size;
-		size = cache->page_size - obj_num * unit_size;
-		if (size >= IMROUNDUP(sizeof(imemslab_t) + IMROUNDSIZE))
-			mustonslab = 1;
-	}
-
-	if (unit_size >= (cache->page_size >> 3) && mustonslab == 0) 
-		cache->flags |= IMCACHE_FLAG_OFFSLAB;
-
-	if (unit_size >= 1024) cache->limit = 32;
-	else if (unit_size >= 256) cache->limit = 48;
-	else if (unit_size >= 128) cache->limit = 64;
-	else if (unit_size >= 64) cache->limit = 96;
-	else cache->limit = 128;
-
-	cache->batchcount = (cache->limit + 1) >> 1;
-
-	if (IMCACHE_OFFSLAB(cache)) {
-		obj_num = cache->page_size / unit_size;
-		color = cache->page_size - obj_num * unit_size;
-	}	else {
-		obj_num = (cache->page_size - IMROUNDUP(sizeof(imemslab_t)) -
-			IMROUNDSIZE) / unit_size;
-		color = (cache->page_size - obj_num * unit_size) - 
-			IMROUNDUP(sizeof(imemslab_t)) - IMROUNDSIZE;
-	}
-	color = color > unit_size ? unit_size : color;
-	cache->num = obj_num;
-	cache->color_limit = color;
-}
-
-static void imemcache_init_list(imemcache_t *cache, imemgfp_t *gfp,
-	size_t obj_size)
-{
-	size_t limit;
-	int i;
-
-	assert(imslab_inited && imem_gfp_inited && cache);
-	assert(obj_size >= sizeof(void*));
-
-	cache->gfp = gfp;
-
-	if (gfp == NULL) gfp = &imem_gfp_default;
-	iqueue_init(&cache->slabs_free);
-	iqueue_init(&cache->slabs_partial);
-	iqueue_init(&cache->slabs_full);
-
-	cache->page_size = gfp->page_size;
-	cache->obj_size = obj_size;
-	cache->unit_size = IMROUNDUP(cache->obj_size + sizeof(void*));
-	cache->flags = 0;
-	cache->num = 0;
-	cache->count_free = 0;
-	cache->count_partial = 0;
-	cache->count_full = 0;
-	cache->free_objects = 0;
-	cache->free_limit = 0;
-	cache->color_limit = 0;
-	cache->color_next = 0;
-	cache->extra = NULL;
-
-	imutex_init(&cache->list_lock);
-
-	imemcache_calculate(cache);
-
-	limit = cache->batchcount + cache->num;
-	cache->free_limit = limit;
-	limit = (limit >= IMCACHE_ARRAYLIMIT)? IMCACHE_ARRAYLIMIT : limit;
-
-	for (i = 0; i < (int)IMCACHE_LRU_COUNT; i++) {
-		cache->array[i].avial = 0;
-		cache->array[i].batchcount = (int)(limit >> 1);
-		cache->array[i].limit = (int)limit;
-		imutex_init(&cache->array[i].lock);
-	}
-
-	iqueue_init(&cache->queue);
-
-	cache->pages_new = 0;
-	cache->pages_del = 0;
-	cache->pages_hiwater = 0;
-	cache->pages_inuse = 0;
-}
-
-static imemslab_t *imemcache_slab_create(imemcache_t *cache, ilong *num)
-{
-	imemslab_t *slab;
-	size_t coloroff;
-	size_t obj_size;
-	ilong count;
-	char *page;
-
-	obj_size = cache->unit_size;
-	page = (char*)imem_gfp_alloc(cache->gfp);
-
-	if (page == NULL) {
-		return NULL;
-	}
-
-	coloroff = cache->color_next;
-	if (IMCACHE_OFFSLAB(cache)) {
-		slab = imslab_set_new();
-		if (slab == NULL) {
-			imem_gfp_free(cache->gfp, page);
-			return NULL;
-		}
-	}	else {
-		coloroff = IMROUNDUP((size_t)(page + coloroff));
-		coloroff -= (size_t)page;
-		slab = (imemslab_t*)(page + coloroff);
-		coloroff += sizeof(imemslab_t);
-	}
-
-	assert(IMROUNDUP((size_t)slab) == (size_t)slab);
-
-	count = imslab_init(slab, page, cache->page_size, obj_size, coloroff);
-
-	cache->color_next += IMROUNDSIZE;
-
-	if (cache->color_next >= cache->color_limit)
-		cache->color_next = 0;
-
-	slab->extra = cache;
-	cache->pages_new++;
-	cache->pages_inuse++;
-
-	if (num) *num = count;
-
-	return slab;
-}
-
-static void imemcache_slab_delete(imemcache_t *cache, imemslab_t *slab)
-{
-	imem_gfp_free(cache->gfp, slab->membase);
-	cache->pages_del++;
-	cache->pages_inuse--;
-	if (IMCACHE_OFFSLAB(cache)) {
-		imslab_set_delete(slab);
-	}
-}
-
-static ilong imemcache_drain_list(imemcache_t *cache, int id, ilong tofree)
-{
-	imemslab_t *slab;
-	iqueue_head *head, *p;
-	ilong free_count = 0;
-
-	if (id == 0) head = &cache->slabs_free;
-	else if (id == 1) head = &cache->slabs_full;
-	else if (id == 2) head = &cache->slabs_partial;
-	else return -1;
-
-	while (!iqueue_is_empty(head)) {
-		if (tofree >= 0 && free_count >= tofree) break;
-		if (IMCACHE_NOLOCK(cache) == 0)
-			imutex_lock(&cache->list_lock);
-		p = head->prev;
-		if (p == head) {
-			if (IMCACHE_NOLOCK(cache) == 0)
-				imutex_unlock(&cache->list_lock);
-			break;
-		}
-		slab = iqueue_entry(p, imemslab_t, queue);
-		iqueue_del(p);
-		if (IMCACHE_NOLOCK(cache) == 0)
-			imutex_unlock(&cache->list_lock);
-		if (id == 0) {
-			while (!IMEMSLAB_ISFULL(slab)) imslab_alloc(slab);
-			cache->free_objects -= slab->inuse;
-		}
-		imemcache_slab_delete(cache, slab);
-		free_count++;
-	}
-	if (id == 0) cache->count_free -= free_count;
-	else if (id == 1) cache->count_full -= free_count;
-	else cache->count_partial -= free_count;
-	return free_count;
-}
-
-static void imemcache_destroy_list(imemcache_t *cache)
-{
-	int i;
-
-	for (i = 0; i < (int)IMCACHE_LRU_COUNT; i++) 
-		imutex_destroy(&cache->array[i].lock);
-	
-	imemcache_drain_list(cache, 0, -1);
-	imemcache_drain_list(cache, 1, -1);
-	imemcache_drain_list(cache, 2, -1);
-
-	imutex_lock(&cache->list_lock);
-	cache->count_free = 0;
-	cache->count_full = 0;
-	cache->count_partial = 0;
-	cache->free_objects = 0;
-	imutex_unlock(&cache->list_lock);
-
-	imutex_destroy(&cache->list_lock);
-}
-
-#define IMCACHE_CHECK_MAGIC		0x05
-
-static void* imemcache_list_alloc(imemcache_t *cache)
-{
-	imemslab_t *slab;
-	iqueue_head *p;
-	ilong slab_obj_num;
-	char *lptr = NULL;
-
-	if (IMCACHE_NOLOCK(cache) == 0)
-		imutex_lock(&cache->list_lock);
-
-	p = cache->slabs_partial.next;
-	if (p == &cache->slabs_partial) {
-		p = cache->slabs_free.next;
-		if (p == &cache->slabs_free) {
-			slab = imemcache_slab_create(cache, &slab_obj_num);
-			if (slab == NULL) {
-				if (IMCACHE_NOLOCK(cache) == 0)
-					imutex_unlock(&cache->list_lock);
-				return NULL;
-			}
-			p = &slab->queue;
-			cache->free_objects += slab_obj_num;
-			slab = iqueue_entry(p, imemslab_t, queue);
-		}	else {
-			iqueue_del(p);
-			iqueue_init(p);
-			cache->count_free--;
-			slab = iqueue_entry(p, imemslab_t, queue);
-		}
-		iqueue_add(p, &cache->slabs_partial);
-		cache->count_partial++;
-	}
-	slab = iqueue_entry(p, imemslab_t, queue);
-	assert(IMEMSLAB_ISFULL(slab) == 0);
-	lptr = (char*)imslab_alloc(slab);
-	assert(lptr);
-	if (cache->free_objects) cache->free_objects--;
-	if (IMEMSLAB_ISFULL(slab)) {
-		iqueue_del(p);
-		iqueue_init(p);
-		iqueue_add(p, &cache->slabs_full);
-		cache->count_partial--;
-		cache->count_full++;
-	}
-	if (IMCACHE_NOLOCK(cache) == 0)
-		imutex_unlock(&cache->list_lock);
-	*(imemslab_t**)lptr = slab;
-	lptr += sizeof(imemslab_t*);
-	return lptr;
-}
-
-static void imemcache_list_free(imemcache_t *cache, void *ptr)
-{
-	imemslab_t *slab;
-	iqueue_head *p;
-	char *lptr = (char*)ptr;
-	char *membase;
-	int invalidptr;
-	ilong tofree;
-
-	lptr -= sizeof(imemslab_t*);
-	slab = *(imemslab_t**)lptr;
-	assert(slab);
-
-	membase = (char*)slab->membase;
-	invalidptr = !(lptr >= membase && lptr < membase + slab->memsize);
-
-	assert( !invalidptr );
-	if (invalidptr) return;
-	if (cache != NULL) {
-		invalidptr = ((void*)cache != slab->extra);
-		assert( !invalidptr );
-		if (invalidptr) return;
-	}
-
-	cache = (imemcache_t*)slab->extra;
-	p = &slab->queue;
-
-	if (IMCACHE_NOLOCK(cache) == 0)
-		imutex_lock(&cache->list_lock);
-
-	if (IMEMSLAB_ISFULL(slab)) {
-		assert(cache->count_full);
-		iqueue_del(p);
-		iqueue_init(p);
-		iqueue_add_tail(p, &cache->slabs_partial);
-		cache->count_full--;
-		cache->count_partial++;
-	}
-	imslab_free(slab, lptr);
-	cache->free_objects++;
-
-	if (IMEMSLAB_ISEMPTY(slab)) {
-		iqueue_del(p);
-		iqueue_init(p);
-		iqueue_add(p, &cache->slabs_free);
-		cache->count_partial--;
-		cache->count_free++;
-	}
-
-	if (IMCACHE_NOLOCK(cache) == 0)
-		imutex_unlock(&cache->list_lock);
-
-	if (IMCACHE_NODRAIN(cache) == 0) {
-		if (cache->free_objects >= cache->free_limit) {
-			tofree = cache->count_free >> 1;
-			if (tofree > 0)
-				tofree = imemcache_drain_list(cache, 0, tofree);
-		}
-	}
-}
-
-
-/*====================================================================*/
-/* IMEMECACHE INTERFACE                                               */
-/*====================================================================*/
-
-/* callback to fetch processor id */
-int (*__ihook_processor_id)(void) = NULL;
-
-static int imemcache_fill_batch(imemcache_t *cache, int array_index)
-{
-	imemlru_t *array = &cache->array[array_index];
-	int count = 0;
-	void *ptr;
-
-	imutex_lock(&cache->list_lock);
-
-	for (count = 0; array->avial < array->batchcount; count++) {
-		ptr = imemcache_list_alloc(cache);
-		if (ptr == NULL) break;
-		array->entry[array->avial++] = ptr;
-	}
-
-	imutex_unlock(&cache->list_lock);
-
-	if (cache->pages_inuse > cache->pages_hiwater)
-		cache->pages_hiwater = cache->pages_inuse;
-
-	return count;
-}
-
-int imemcache_batch_new(imemcache_t *cache, void **ptr, int count)
-{
-	int n = 0;
-
-	imutex_lock(&cache->list_lock);
-
-	for (n = 0; n < count; n++) {
-		void *p = imemcache_list_alloc(cache);
-		if (ptr == NULL) break;
-		ptr[n] = p;
-	}
-
-	imutex_unlock(&cache->list_lock);
-
-	return n;
-}
-
-int imemcache_batch_del(imemcache_t *cache, void **ptr, int count)
-{
-	int n = 0;
-
-	imutex_lock(&cache->list_lock);
-
-	for (n = 0; n < count; n++) {
-		imemcache_list_free(cache, ptr[n]);
-	}
-
-	if (cache->free_objects >= cache->free_limit) {
-		if (cache->count_free > 1) {
-			imemcache_drain_list(cache, 0, cache->count_free >> 1);
-		}
-	}
-
-	imutex_unlock(&cache->list_lock);
-
-	return count;
-}
-
-static void *imemcache_alloc(imemcache_t *cache)
-{
-	imemlru_t *array;
-	int array_index = 0;
-	void *ptr = NULL;
-	void **head;
-
-	if (__ihook_processor_id) 
-		array_index = __ihook_processor_id();
-
-	array_index &= (IMCACHE_LRU_COUNT - 1);
-
-	array = &cache->array[array_index];
-
-	imutex_lock(&array->lock);
-	if (array->avial == 0)
-		imemcache_fill_batch(cache, array_index);
-	if (array->avial != 0) {
-		ptr = array->entry[--array->avial];
-	}
-	imutex_unlock(&array->lock);
-
-	if (ptr == 0) {
-		return NULL;
-	}
-
-	assert(ptr);
-	head = (void**)((char*)ptr - sizeof(void*));
-	head[0] = (void*)((size_t)head[0] | IMCACHE_CHECK_MAGIC);
-
-	return ptr;
-}
-
-static void *imemcache_free(imemcache_t *cache, void *ptr)
-{
-	imemslab_t *slab;
-	imemlru_t *array;
-	size_t linear;
-	char *lptr = (char*)ptr;
-	void **head;
-	int array_index = 0;
-	int invalidptr, count;
-
-	if (__ihook_processor_id) 
-		array_index = __ihook_processor_id();
-
-	array_index &= (IMCACHE_LRU_COUNT - 1);
-	
-	head = (void**)(lptr - sizeof(void*));
-	linear = (size_t)head[0];
-	invalidptr = ((linear & IMCACHE_CHECK_MAGIC) != IMCACHE_CHECK_MAGIC);
-	head[0] = (void*)(linear & ~(IMROUNDSIZE - 1));
-
-	assert( !invalidptr );
-	if (invalidptr) return NULL;
-
-	lptr -= sizeof(imemslab_t*);
-	slab = *(imemslab_t**)lptr;
-
-	if (cache) {
-		assert(cache == (imemcache_t*)slab->extra);
-		if (cache != slab->extra) {
-			return NULL;
-		}
-	}
-
-	cache = (imemcache_t*)slab->extra;
-	array = &cache->array[array_index];
-
-	imutex_lock(&array->lock);
-	
-	if (array->avial >= array->limit) {
-
-		imutex_lock(&cache->list_lock);
-
-		for (count = 0; array->avial > array->batchcount; count++)
-			imemcache_list_free(cache, array->entry[--array->avial]);
-
-		imemcache_list_free(cache, ptr);
-
-		imutex_unlock(&cache->list_lock);
-
-		if (cache->free_objects >= cache->free_limit) {
-			if (cache->count_free > 1) {
-				imutex_lock(&cache->list_lock);
-				imemcache_drain_list(cache, 0, cache->count_free >> 1);
-				imutex_unlock(&cache->list_lock);
-			}
-		}
-
-	}	else {
-
-		array->entry[array->avial++] = ptr;
-	}
-
-	imutex_unlock(&array->lock);
-
-	return cache;
-}
-
-
-static void imemcache_shrink(imemcache_t *cache)
-{
-	imemlru_t *array;
-	int array_index = 0;
-
-	array_index = 0;
-	array_index &= (IMCACHE_LRU_COUNT - 1);
-
-	array = &cache->array[array_index];
-
-	imutex_lock(&array->lock);
-	imutex_lock(&cache->list_lock);
-
-	for (; array->avial > 0; ) 
-		imemcache_list_free(cache, array->entry[--array->avial]);
-
-	imemcache_drain_list(cache, 0, -1);
-
-	imutex_unlock(&cache->list_lock);
-	imutex_unlock(&array->lock);
-}
-
-
-static void *imemcache_gfp_alloc(struct IMEMGFP *gfp)
-{
-	imemcache_t *cache = (imemcache_t*)gfp->extra;
-	char *lptr;
-	lptr = (char*)imemcache_alloc(cache);
-	assert(lptr);
-	return lptr;
-}
-
-static void imemcache_gfp_free(struct IMEMGFP *gfp, void *ptr)
-{
-	imemcache_t *cache = (imemcache_t*)gfp->extra;
-	char *lptr = (char*)ptr;;
-	imemcache_free(cache, lptr);
-}
-
-static imemcache_t *imemcache_create(const char *name, 
-		size_t obj_size, struct IMEMGFP *gfp)
-{
-	imemcache_t *cache;
-	size_t page_size;
-
-	assert(imslab_inited && imem_gfp_inited);
-	assert(obj_size >= sizeof(void*));
-
-	page_size = (!gfp)? imem_gfp_default.page_size : gfp->page_size;
-	assert(obj_size > 0 && obj_size <= page_size - IMROUNDSIZE);
-
-	cache = (imemcache_t*)internal_malloc(0, sizeof(imemcache_t));
-	assert(cache);
-
-	imemcache_init_list(cache, gfp, obj_size);
-
-	name = name? name : "NONAME";
-	strncpy(cache->name, name, IMCACHE_NAMESIZE);
-
-	if (cache->gfp) cache->gfp->refcnt++;
-	cache->flags |= IMCACHE_FLAG_NOLOCK;
-	cache->index = 0;
-
-	iqueue_init(&cache->queue);
-
-	gfp = &cache->page_supply;
-	gfp->page_size = cache->obj_size;
-	gfp->refcnt = 0;
-	gfp->alloc_page = imemcache_gfp_alloc;
-	gfp->free_page = imemcache_gfp_free;
-	gfp->extra = cache;
-	gfp->pages_inuse = 0;
-	gfp->pages_new = 0;
-	gfp->pages_del = 0;
-
-	return cache;
-}
-
-static void imemcache_release(imemcache_t *cache)
-{
-	imemlru_t *array;
-	void *entry[IMCACHE_ARRAYLIMIT];
-	ilong n, i, j;
-
-	for (i = 0; i < IMCACHE_LRU_COUNT; i++) {
-		array = &cache->array[i];
-
-		imutex_lock(&array->lock);
-		for (j = 0, n = 0; j < array->avial; j++, n++) 
-			entry[j] = array->entry[j];
-		array->avial = 0;
-		imutex_unlock(&array->lock);
-
-		imutex_lock(&cache->list_lock);
-
-		for (j = 0; j < n; j++) 
-			imemcache_list_free(NULL, entry[j]);
-
-		imutex_unlock(&cache->list_lock);
-	}
-
-	imemcache_destroy_list(cache);
-
-	if (cache->gfp) 
-		cache->gfp->refcnt--;
-	
-	internal_free(0, cache);
-}
-
-
-
-/*====================================================================*/
-/* IKMEM INTERFACE                                                    */
-/*====================================================================*/
-static imemcache_t **ikmem_array = NULL;
-static imemcache_t **ikmem_lookup = NULL;
-
-static imutex_t ikmem_lock;
-static int ikmem_count = 0;
-static volatile int ikmem_inited = 0;
-
-static imemcache_t *ikmem_size_lookup1[257];
-static imemcache_t *ikmem_size_lookup2[257];
-
-static size_t ikmem_inuse = 0;
-static iqueue_head ikmem_head;
-static iqueue_head ikmem_large_ptr;
-
-static size_t ikmem_water_mark = 0;
-
-static size_t ikmem_range_high = 0;
-static size_t ikmem_range_low = 0;
-
-#ifndef IKMEM_DISABLE
-#define IKMEM_DEFAULT_HOOK		NULL
-#else
-#define IKMEM_DEFAULT_HOOK		(&ikmem_std_hook);
-#endif
-
-extern const ikmemhook_t ikmem_std_hook;
-static const ikmemhook_t *ikmem_hook = IKMEM_DEFAULT_HOOK;
-
-int ikmem_boot_flags = 0;
-
-// invoked when IKMEM_ENABLE_BOOT is defined
-void ikmem_boot_hook(int stage);
-
-
-static int ikmem_append(size_t size, struct IMEMGFP *gfp)
-{
-	imemcache_t *cache, **p1, **p2;
-	static int sizelimit = 0;
-	char name[64];
-	char nums[32];
-	int index, k;
-	size_t num;
-
-	strncpy(name, "kmem_", 20);
-
-	for (num = size, index = 0; ; ) {
-		nums[index++] = (char)((num % 10) + '0');
-		num /= 10;
-		if (num == 0) break;
-	}
-
-	for (k = 0; k < index; k++) 
-		name[5 + k] = nums[index - 1 - k];
-
-	name[5 + index] = 0;
-
-	cache = imemcache_create(name, size, gfp);
-	
-	#ifdef IKMEM_MINWASTE
-	cache->array[0].limit = 2;
-	cache->array[0].batchcount = 1;
-	cache->free_limit = 1;
-	#endif
-
-	assert(cache);
-	
-	cache->flags |= IMCACHE_FLAG_SYSTEM;
-
-	if (ikmem_count == 0) sizelimit = 0;
-	if (ikmem_count >= sizelimit || ikmem_array == 0) {
-		sizelimit = (sizelimit <= 0)? 8 : sizelimit * 2;
-		sizelimit = (sizelimit < ikmem_count)? ikmem_count + 2 : sizelimit;
-	
-		p1 = (imemcache_t**)internal_malloc(0, 
-								sizeof(imemcache_t) * sizelimit * 2);
-		p2 = p1 + sizelimit;
-
-		assert(p1);
-
-		if (ikmem_array != NULL) {
-			memcpy(p1, ikmem_array, sizeof(imemcache_t) * ikmem_count);
-			memcpy(p2, ikmem_lookup, sizeof(imemcache_t) * ikmem_count);
-			internal_free(0, ikmem_array);
-		}
-		ikmem_array = p1;
-		ikmem_lookup = p2;
-	}
-
-	cache->index = ikmem_count;
-
-	ikmem_array[ikmem_count] = cache;
-	ikmem_lookup[ikmem_count++] = cache;
-
-	for (index = ikmem_count - 1; index > 1; index = k) {
-		k = index - 1;
-		if (ikmem_lookup[index]->obj_size < ikmem_lookup[k]->obj_size)
-			break;
-		cache = ikmem_lookup[index];
-		ikmem_lookup[index] = ikmem_lookup[k];
-		ikmem_lookup[k] = cache;
-	}
-
-	return ikmem_count - 1;
-}
-
-
-static size_t ikmem_page_waste(size_t obj_size, 
-		size_t page_size)
-{
-	imemcache_t cache;
-	size_t size, k;
-	cache.obj_size = (size_t)obj_size;
-	cache.page_size = (size_t)page_size;
-	cache.unit_size = IMROUNDUP(obj_size + sizeof(void*));
-	cache.flags = 0;
-	imemcache_calculate(&cache);
-	size = IMROUNDUP(cache.obj_size + sizeof(void*)) * cache.num;
-	size = page_size - size;
-	k = IMROUNDUP(sizeof(imemslab_t));
-	if (IMCACHE_OFFSLAB(&cache)) size += k;
-	return size;
-}
-
-static size_t ikmem_gfp_waste(size_t obj_size, imemgfp_t *gfp)
-{
-	imemcache_t *cache;
-	size_t waste;
-	if (gfp == NULL) {
-		return ikmem_page_waste(obj_size, imem_gfp_default.page_size);
-	}
-	cache = (imemcache_t*)gfp->extra;
-	waste = ikmem_page_waste(obj_size, cache->obj_size) * cache->num;
-	return waste + ikmem_gfp_waste(cache->obj_size, cache->gfp);
-}
-
-static imemgfp_t *ikmem_choose_gfp(size_t obj_size, ilong *w)
-{
-	size_t hiwater = IMROUNDUP(obj_size + sizeof(void*)) * 64;
-	size_t lowater = IMROUNDUP(obj_size + sizeof(void*)) * 8;
-	imemcache_t *cache;
-	size_t min, waste;
-	int index, i = -1;
-
-	min = imem_gfp_default.page_size;
-	for (index = 0; index < ikmem_count; index++) {
-		cache = ikmem_array[index];
-		if (cache->obj_size < lowater || cache->obj_size > hiwater)
-			continue;
-		waste = ikmem_gfp_waste(obj_size, &ikmem_array[index]->page_supply);
-		if (waste < min) min = waste, i = index;
-	}
-	if (i < 0 || i >= ikmem_count) {
-		if (w) w[0] = (ilong)ikmem_gfp_waste(obj_size, NULL);
-		return NULL;
-	}
-	if (w) w[0] = (ilong)min;
-	return &ikmem_array[i]->page_supply;
-}
-
-static void ikmem_insert(size_t objsize, int approxy)
-{
-	imemgfp_t *gfp;
-	size_t optimize;
-	ilong index, waste;
-
-	for (index = 0; index < ikmem_count; index++) {
-		optimize = ikmem_array[index]->obj_size;
-		if (optimize < objsize) continue;
-		if (optimize == objsize) break;
-		if (optimize - objsize <= (objsize >> 4) && approxy) break;
-	}
-
-	if (index < ikmem_count) 
-		return;
-
-	gfp = ikmem_choose_gfp(objsize, &waste);
-	ikmem_append(objsize, gfp);
-}
-
-imemcache_t *ikmem_choose_size(size_t size)
-{
-	int index;
-	if (size >= imem_page_size) return NULL;
-	if (ikmem_count > 0) if (size > ikmem_lookup[0]->obj_size) return NULL;
-	for (index = ikmem_count - 1; index >= 0; index--) {
-		if (ikmem_lookup[index]->obj_size >= size) 
-			return ikmem_lookup[index];
-	}
-	return NULL;
-}
-
-static void ikmem_setup_caches(size_t *sizelist)
-{
-	static int Z[] = { 24, 40, 48, 56, 80, 96, 112, 160, 192, 224, 330, -1 };
-	size_t fib1 = 8, fib2 = 16, f;
-	size_t *sizevec, *p;
-	size_t k = 0;
-	ilong limit, shift, count, i, j;
-	imemcache_t *cache;
-
-	limit = 64;
-	sizevec = (size_t*)internal_malloc(0, sizeof(ilong) * limit);
-	assert(sizevec);
-
-	#define ikmem_sizevec_append(size) do { \
-		if (count >= limit) {	\
-			limit = limit * 2;	\
-			p = (size_t*)internal_malloc(0, sizeof(ilong) * limit);	\
-			assert(p);	\
-			memcpy(p, sizevec, sizeof(ilong) * count);	\
-			free(sizevec);	\
-			sizevec = p;	\
-		}	\
-		sizevec[count++] = (size); \
-	}	while (0)
-
-	shift = imem_page_shift;
-	for (count = 0; shift >= 3; shift--) {
-		ikmem_sizevec_append(((size_t)1) << shift);
-	}
-
-	#ifndef IKMEM_DISABLE_JESIZE
-	for (i = 0; Z[i] >= 0; i++) {
-		k = (size_t)Z[i];
-		ikmem_sizevec_append(k);
-	}
-	fib1 = 168;
-	fib2 = 272;
-	#endif
-
-	for (; fib2 < (imem_gfp_default.page_size >> 2); ) {
-		f = fib1 + fib2;
-		fib1 = fib2;
-		fib2 = f;
-		#ifndef IKMEM_DISABLE_FIB
-		ikmem_sizevec_append(f);
-		#endif
-	}
-
-	for (i = 0; i < count - 1; i++) {
-		for (j = i + 1; j < count; j++) {
-			if (sizevec[i] < sizevec[j]) 
-				k = sizevec[i], 
-				sizevec[i] = sizevec[j], 
-				sizevec[j] = k;
-		}
-	}
-
-	for (i = 0; i < count; i++) ikmem_insert(sizevec[i], 1);
-	internal_free(0, sizevec);
-
-	if (sizelist) {
-		for (; sizelist[0]; sizelist++) 
-			ikmem_insert(*sizelist, 0);
-	}
-
-	for (f = 4; f <= 1024; f += 4) 
-		ikmem_size_lookup1[f >> 2] = ikmem_choose_size(f);
-
-	for (f = 1024; f <= (256 << 10); f += 1024) 
-		ikmem_size_lookup2[f >> 10] = ikmem_choose_size(f);
-
-	for (i = 0; i < ikmem_count; i++) {
-		cache = ikmem_lookup[i];
-		cache->extra = (ilong*)internal_malloc(0, sizeof(ilong) * 8);
-		cache->index = i;
-		assert(cache->extra);
-		memset(cache->extra, 0, sizeof(ilong) * 8);
-	}
-
-	ikmem_size_lookup1[0] = NULL;
-	ikmem_size_lookup2[0] = NULL;
-}
-
-#define IKMEM_MUTEX_MAX		8
-
-#define IKMEM_MUTEX_INIT	(-1)
-#define IKMEM_MUTEX_ONCE	(-2)
-#define IKMEM_MUTEX_BOOT0	(-3)
-#define IKMEM_MUTEX_BOOT1	(-4)
-
-IMUTEX_TYPE* ikmem_mutex_once(int id)
-{
-	static IMUTEX_TYPE mutexs[IKMEM_MUTEX_MAX];
-#if defined(IMUTEX_DISABLE) 
-	return &mutexs[0];
-#elif defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
-	static volatile int mutex_inited = 0;
-	if (mutex_inited == 0) {
-		static DWORD align_dwords[20] = { 
-			0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0
-		};
-		unsigned char *align_ptr = (unsigned char*)align_dwords;
-		LONG *once;
-		LONG last = 0;
-		while (((size_t)align_ptr) & 63) align_ptr++;
-		once = (LONG*)align_ptr;
-		last = InterlockedExchange(once, 1);
-		if (last == 0) {
-			if (mutex_inited == 0) {
-				int i = 0;
-				for (i = 0; i < IKMEM_MUTEX_MAX; i++) {
-					IMUTEX_INIT(&mutexs[i]);
-				}
-				mutex_inited = 1;
-			}
-		}
-		while (mutex_inited == 0) Sleep(1);
-	}
-	return &mutexs[(id + 4) & (IKMEM_MUTEX_MAX - 1)];
-#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
-	static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-	static volatile int mutex_inited = 0;
-	if (mutex_inited == 0) {
-		pthread_mutex_lock(&mutex);
-		if (mutex_inited == 0) {
-			int i;
-			for (i = 0; i < IKMEM_MUTEX_MAX; i++) {
-				IMUTEX_INIT(&mutexs[i]);
-			}
-			mutex_inited = 1;
-		}
-		pthread_mutex_unlock(&mutex);
-	}
-	return &mutexs[(id + 4) & (IKMEM_MUTEX_MAX - 1)];
-#else
-	return &mutexs[0];
-#endif
-}
-
-int ikmem_current_cpu(void)
-{
-#if defined(IMUTEX_DISABLE) 
-	return 0;
-#elif defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
-	return (int)(GetCurrentThreadId() % 67);
-#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
-	size_t self = (size_t)pthread_self();
-	return (int)(self % 67);
-#else
-	return 0;
-#endif
-}
-
-void ikmem_init(int page_shift, int pg_malloc, size_t *sz)
-{
-	IMUTEX_TYPE *mutex;
-	size_t psize;
-	ilong limit;
-
-	if (ikmem_inited != 0)
-		return;
-
-	mutex = ikmem_mutex_once(IKMEM_MUTEX_INIT);
-
-	IMUTEX_LOCK(mutex);
-
-	if (ikmem_inited == 0) {
-		imem_gfp_init(page_shift, pg_malloc);
-		imslab_set_init();
-		
-		ikmem_lookup = NULL;
-		ikmem_array = NULL;
-		ikmem_count = 0;
-		ikmem_inuse = 0;
-
-		psize = imem_gfp_default.page_size - IMROUNDUP(sizeof(void*));
-		ikmem_append(psize, 0);
-
-		limit = imem_page_shift - 4;
-		limit = limit < 10? 10 : limit;
-		
-		ikmem_setup_caches(sz);
-
-		imutex_init(&ikmem_lock);
-		iqueue_init(&ikmem_head);
-		iqueue_init(&ikmem_large_ptr);
-
-		ikmem_range_high = (size_t)0;
-		ikmem_range_low = ~((size_t)0);
-
-	#if defined(IMUTEX_DISABLE) 
-		__ihook_processor_id = NULL;
-	#else
-		__ihook_processor_id = ikmem_current_cpu;
-	#endif
-
-		ikmem_inited = 1;
-	}
-
-	IMUTEX_UNLOCK(mutex);
-	
-#ifdef IKMEM_ENABLE_BOOT
-	if ((ikmem_boot_flags & 1) == 0) {
-		mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT0);
-		IMUTEX_LOCK(mutex);
-		if ((ikmem_boot_flags & 1) == 0) {
-			ikmem_boot_hook(0);
-			ikmem_boot_flags |= 1;
-		}
-		IMUTEX_UNLOCK(mutex);
-	}
-#endif
-}
-
-void ikmem_destroy(void)
-{
-	imemcache_t *cache;
-	iqueue_head *p, *next;
-	ilong index;
-
-	if (ikmem_inited == 0) {
-		return;
-	}
-
-#ifdef IKMEM_ENABLE_BOOT
-	if (ikmem_boot_flags) {
-		IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT0);
-		IMUTEX_LOCK(mutex);
-		if (ikmem_boot_flags) {
-			ikmem_boot_hook(1);
-			ikmem_boot_flags = 0;
-		}
-		IMUTEX_UNLOCK(mutex);
-	}
-#endif
-
-	imutex_lock(&ikmem_lock);
-	for (p = ikmem_head.next; p != &ikmem_head; ) {
-		cache = IQUEUE_ENTRY(p, imemcache_t, queue);
-		p = p->next;
-		iqueue_del(&cache->queue);
-		imemcache_release(cache);
-	}
-
-	imutex_unlock(&ikmem_lock);
-
-	for (index = ikmem_count - 1; index >= 0; index--) {
-		cache = ikmem_array[index];
-		if (cache->extra) {
-			internal_free(0, cache->extra);
-			cache->extra = NULL;
-		}
-		imemcache_release(cache);
-	}
-
-	internal_free(0, ikmem_array);
-	ikmem_lookup = NULL;
-	ikmem_array = NULL;
-	ikmem_count = 0;
-
-	imutex_lock(&ikmem_lock);
-
-	for (p = ikmem_large_ptr.next; p != &ikmem_large_ptr; ) {
-		next = p->next;
-		iqueue_del(p);
-		internal_free(0, p);
-		p = next;
-	}
-
-	imutex_unlock(&ikmem_lock);
-	imutex_destroy(&ikmem_lock);
-
-	imslab_set_destroy();
-	imem_gfp_destroy();
-
-	ikmem_inited = 0;
-}
-
-
-/*====================================================================*/
-/* IKMEM CORE                                                         */
-/*====================================================================*/
-#define IKMEM_LARGE_HEAD	\
-	IMROUNDUP(sizeof(iqueue_head) + sizeof(void*) + sizeof(ilong))
-
-#define IKMEM_STAT(cache, id) (((ilong*)((cache)->extra))[id])
-
-
-void ikmem_once_init(void)
-{
-	IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_ONCE);
-	IMUTEX_LOCK(mutex);
-	if (ikmem_inited == 0) {
-		ikmem_init(0, 0, NULL);
-	}
-	IMUTEX_UNLOCK(mutex);
-}
-
-void* ikmem_core_malloc(size_t size);
-void* ikmem_core_realloc(void *ptr, size_t size);
-void ikmem_core_free(void *ptr);
-void ikmem_core_shrink(void);
-size_t ikmem_core_ptrsize(const void *ptr);
-
-size_t ikmem_core_csize(int index)
-{
-	if (index < 0) return ikmem_count;
-	if (index >= ikmem_count) return 0;
-	return ikmem_lookup[index]->obj_size;
-}
-
-void* ikmem_core_malloc(size_t size)
-{
-	imemcache_t *cache = NULL;
-	size_t round;
-	iqueue_head *p;
-	char *lptr;
-
-	if (ikmem_inited == 0) ikmem_once_init();
-
-	assert(size > 0 && size <= (((size_t)1) << 30));
-	round = (size + 3) & ~((size_t)3);
-
-	if (round <= 1024) {
-		cache = ikmem_size_lookup1[round >> 2];
-	}	else {
-		round = (size + 1023) & ~((size_t)1023);
-		if (round < (256 << 10)) 
-			cache = ikmem_size_lookup2[round >> 10];
-	}
-
-	if (cache == NULL)
-		cache = ikmem_choose_size(size);
-
-	if (ikmem_water_mark > 0 && size > ikmem_water_mark)
-		cache = NULL;
-
-	if (cache == NULL) {
-		lptr = (char*)internal_malloc(0, IKMEM_LARGE_HEAD + size);
-		if (lptr == NULL) return NULL;
-		
-		p = (iqueue_head*)lptr;
-		lptr += IKMEM_LARGE_HEAD;
-		*(void**)(lptr - sizeof(void*)) = NULL;
-		*(ilong*)(lptr - sizeof(void*) - sizeof(ilong)) = size;
-
-		imutex_lock(&ikmem_lock);
-		iqueue_add(p, &ikmem_large_ptr);
-		imutex_unlock(&ikmem_lock);
-
-	}	else {
-		lptr = (char*)imemcache_alloc(cache);
-		if (lptr == NULL) {
-			ikmem_core_shrink();
-			lptr = (char*)imemcache_alloc(cache);
-			if (lptr == NULL) {
-				return NULL;
-			}
-		}
-		if (cache->extra) {
-			IKMEM_STAT(cache, 0) += 1;
-			IKMEM_STAT(cache, 1) += 1;
-		}
-		ikmem_inuse += cache->obj_size;
-	}
-
-	if (ikmem_range_high < (size_t)lptr)
-		ikmem_range_high = (size_t)lptr;
-	if (ikmem_range_low > (size_t)lptr)
-		ikmem_range_low = (size_t)lptr;
-
-	return lptr;
-}
-
-void ikmem_core_free(void *ptr)
-{
-	imemcache_t *cache = NULL;
-	iqueue_head *p;
-	char *lptr = (char*)ptr;
-
-	if (ikmem_inited == 0) ikmem_once_init();
-	if (ptr == NULL) return;
-
-	if (*(void**)(lptr - sizeof(void*)) == NULL) {
-		lptr -= IKMEM_LARGE_HEAD;
-		p = (iqueue_head*)lptr;
-		imutex_lock(&ikmem_lock);
-		iqueue_del(p);
-		imutex_unlock(&ikmem_lock);
-		internal_free(0, lptr);
-	}	else {
-		cache = (imemcache_t*)imemcache_free(NULL, ptr);
-		if (cache == NULL) return;
-		if (cache->extra) {
-			IKMEM_STAT(cache, 0) -= 1;
-			IKMEM_STAT(cache, 2) += 1;
-		}
-		ikmem_inuse -= cache->obj_size;
-	}
-}
-
-size_t ikmem_core_ptrsize(const void *ptr)
-{
-	size_t size, linear;
-	imemcache_t *cache;
-	imemslab_t *slab;
-	const char *lptr = (const char*)ptr;
-	int invalidptr;
-
-	if (ikmem_inited == 0) ikmem_once_init();
-
-	if ((size_t)lptr < ikmem_range_low ||
-		(size_t)lptr > ikmem_range_high) 
-		return 0;
-
-	if (*(const void**)(lptr - sizeof(void*)) == NULL) {
-		size = *(const size_t*)(lptr - sizeof(void*) - sizeof(ilong));
-	}	else {
-
-		linear = (size_t)(*(const void**)(lptr - sizeof(void*)));
-		invalidptr = ((linear & IMCACHE_CHECK_MAGIC) != IMCACHE_CHECK_MAGIC);
-
-		if ( invalidptr ) return 0;
-
-		slab = (imemslab_t*)(linear & ~(IMROUNDSIZE - 1));
-		lptr -= sizeof(void*);
-
-		if (lptr >= (const char*)slab->membase + slab->memsize ||
-			lptr < (const char*)slab->membase) 
-			return 0;
-
-		cache = (imemcache_t*)slab->extra;
-		size = cache->obj_size;
-	}
-
-	return size;
-}
-
-void* ikmem_core_realloc(void *ptr, size_t size)
-{
-	size_t oldsize;
-	void *newptr;
-
-	if (ikmem_inited == 0) ikmem_once_init();
-
-	if (ptr == NULL) {
-		if (size == 0) return NULL;
-		return ikmem_core_malloc(size);
-	}
-
-	oldsize = ikmem_core_ptrsize(ptr);
-
-	if (size == 0) {
-		ikmem_core_free(ptr);
-		return NULL;
-	}
-
-	assert(oldsize > 0);
-	
-	if (oldsize >= size) {
-		if (oldsize * 3 < size * 4) 
-			return ptr;
-	}
-
-	newptr = ikmem_core_malloc(size);
-
-	if (newptr == NULL) {
-		ikmem_core_free(ptr);
-		return NULL;
-	}
-
-	memcpy(newptr, ptr, oldsize < size? oldsize : size);
-	ikmem_core_free(ptr);
-
-	return newptr;
-}
-
-void ikmem_core_shrink(void)
-{
-	imemcache_t *cache;
-	int index;
-
-	if (ikmem_inited == 0) ikmem_once_init();
-
-	for (index = ikmem_count - 1; index >= 0; index--) {
-		cache = ikmem_lookup[index];
-		imemcache_shrink(cache);
-	}
-}
-
-imemcache_t *ikmem_core_get(int id)
-{
-	if (id < 0 || id >= ikmem_count) return NULL;
-	return ikmem_lookup[id];
-}
-
-void ikmem_boot_once(void)
-{
-#ifdef IKMEM_ENABLE_BOOT
-	if ((ikmem_boot_flags & 2) == 0) {
-		IMUTEX_TYPE *mutex = ikmem_mutex_once(IKMEM_MUTEX_BOOT1);
-		IMUTEX_LOCK(mutex);
-		if ((ikmem_boot_flags & 2) == 0) {
-			ikmem_boot_hook(2);
-			ikmem_boot_flags |= 2;
-		}
-		IMUTEX_UNLOCK(mutex);
-	}
-#endif
-}
-
-void* ikmem_malloc(size_t size)
-{
-#ifdef IKMEM_ENABLE_BOOT
-	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
-#endif
-	if (ikmem_hook) {
-		return ikmem_hook->kmem_malloc_fn(size);
-	}
-	return ikmem_core_malloc(size);
-}
-
-void* ikmem_realloc(void *ptr, size_t size)
-{
-#ifdef IKMEM_ENABLE_BOOT
-	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
-#endif
-	if (ikmem_hook) {
-		return ikmem_hook->kmem_realloc_fn(ptr, size);
-	}
-	return ikmem_core_realloc(ptr, size);
-}
-
-void ikmem_free(void *ptr)
-{
-	if (ptr == NULL) return;
-#ifdef IKMEM_ENABLE_BOOT
-	if ((ikmem_boot_flags & 2) == 0) ikmem_boot_once();
-#endif
-	if (ikmem_hook) {
-		ikmem_hook->kmem_free_fn(ptr);
-		return;
-	}
-	ikmem_core_free(ptr);
-}
-
-void ikmem_shrink(void)
-{
-	if (ikmem_hook) {
-		if (ikmem_hook->kmem_shrink_fn) {
-			ikmem_hook->kmem_shrink_fn();
-		}
-		return;
-	}
-	ikmem_core_shrink();
-}
-
-size_t ikmem_ptr_size(const void *ptr)
-{
-	if (ikmem_hook) {
-		if (ikmem_hook->kmem_ptr_size_fn)
-			return ikmem_hook->kmem_ptr_size_fn(ptr);
-		return 0;
-	}
-	return ikmem_core_ptrsize(ptr);
-}
-
-static imemcache_t* ikmem_search(const char *name, int needlock)
-{
-	imemcache_t *cache, *result;
-	iqueue_head *head;
-	ilong index;
-
-	for (index = 0; index < ikmem_count; index++) {
-		cache = ikmem_array[index];
-		if (strcmp(cache->name, name) == 0) return cache;
-	}
-	result = NULL;
-	if (needlock) imutex_lock(&ikmem_lock);
-	for (head = ikmem_head.next; head != &ikmem_head; head = head->next) {
-		cache = iqueue_entry(head, imemcache_t, queue);
-		if (strcmp(cache->name, name) == 0) {
-			result = cache;
-			break;
-		}
-	}
-	if (needlock) imutex_unlock(&ikmem_lock);
-	return result;
-}
-
-
-void ikmem_option(size_t watermark)
-{
-	ikmem_water_mark = watermark;
-}
-
-
-imemcache_t *ikmem_get(const char *name)
-{
-	return ikmem_search(name, 1);
-}
-
-ilong ikmem_page_info(ilong *pg_inuse, ilong *pg_new, ilong *pg_del)
-{
-	if (pg_inuse) pg_inuse[0] = imem_gfp_default.pages_inuse;
-	if (pg_new) pg_new[0] = imem_gfp_default.pages_new;
-	if (pg_del) pg_del[0] = imem_gfp_default.pages_del;
-	return imem_page_size;
-}
-
-ilong ikmem_cache_info(int id, int *inuse, int *cnew, int *cdel, int *cfree)
-{
-	imemcache_t *cache;
-	ilong nfree, i;
-	if (id < 0 || id >= ikmem_count) return -1;
-	cache = ikmem_array[id];
-	nfree = cache->free_objects;
-	for (i = 0; i < IMCACHE_LRU_COUNT; i++) 
-		nfree += cache->array[i].avial;
-	if (cache->extra) {
-		if (inuse) inuse[0] = (int)IKMEM_STAT(cache, 0);
-		if (cnew) cnew[0] = (int)IKMEM_STAT(cache, 1);
-		if (cdel) cdel[0] = (int)IKMEM_STAT(cache, 2);
-	}
-	if (cfree) cfree[0] = (int)nfree;
-	return cache->obj_size;
-}
-
-ilong ikmem_waste_info(ilong *kmem_inuse, ilong *total_mem)
-{
-	size_t totalmem;
-	totalmem = imem_page_size * imem_gfp_default.pages_inuse;
-	if (kmem_inuse) kmem_inuse[0] = ikmem_inuse;
-	if (total_mem) total_mem[0] = totalmem;
-	return ikmem_inuse;
-}
-
-
-
-#ifndef IKMEM_CACHE_TYPE
-#define IKMEM_CACHE_TYPE
-typedef void* ikmem_cache_t;
-#endif
-
-imemcache_t *ikmem_create(const char *name, size_t size)
-{
-	imemcache_t *cache;
-	imemgfp_t *gfp;
-	
-	if (ikmem_inited == 0) ikmem_init(0, 0, 0);
-	if (size >= imem_page_size) return NULL;
-
-	gfp = ikmem_choose_gfp(size, NULL);
-	imutex_lock(&ikmem_lock);
-	cache = ikmem_search(name, 0);
-	if (cache != NULL) {
-		imutex_unlock(&ikmem_lock);
-		return NULL;
-	}
-	cache = imemcache_create(name, size, gfp);
-	if (cache == NULL) {
-		imutex_unlock(&ikmem_lock);
-		return NULL;
-	}
-	cache->flags |= IMCACHE_FLAG_ONQUEUE;
-	cache->user = (ilong)gfp;
-	iqueue_add_tail(&ikmem_head, &cache->queue);
-	imutex_unlock(&ikmem_lock);
-
-	return cache;
-}
-
-void ikmem_delete(imemcache_t *cache)
-{
-	assert(IMCACHE_SYSTEM(cache) == 0);
-	assert(IMCACHE_ONQUEUE(cache));
-	if (IMCACHE_SYSTEM(cache)) return;
-	if (IMCACHE_ONQUEUE(cache) == 0) return;
-	imutex_lock(&ikmem_lock);
-	iqueue_del(&cache->queue);
-	imutex_unlock(&ikmem_lock);
-	imemcache_release(cache); 
-}
-
-void *ikmem_cache_alloc(imemcache_t *cache)
-{
-	char *ptr;
-	assert(cache);
-	ptr = (char*)imemcache_alloc(cache);
-	return ptr;
-}
-
-void ikmem_cache_free(imemcache_t *cache, void *ptr)
-{
-	imemcache_free(cache, ptr);
-}
-
-void ikmem_cache_shrink(imemcache_t *cache)
-{
-	imemcache_shrink(cache);
-}
-
-
-/*====================================================================*/
-/* IKMEM HOOKING                                                      */
-/*====================================================================*/
-static void* ikmem_std_malloc(size_t size)
-{
-	size_t round = (size + 3) & ~((size_t)3);
-	char *lptr;
-	lptr = (char*)internal_malloc(0, round + sizeof(void*));
-	if (lptr == NULL) return NULL;
-	*((size_t*)lptr) = (round | 1);
-	lptr += sizeof(void*);
-	return lptr;
-}
-
-static void ikmem_std_free(void *ptr)
-{
-	char *lptr = ((char*)ptr) - sizeof(void*);
-	size_t size = *((size_t*)lptr);
-	int invalidptr;
-	invalidptr = (size & 1) != 1;
-	if (invalidptr) {
-		assert(!invalidptr);
-		return;
-	}
-	*((size_t*)ptr) = 0;
-	internal_free(0, lptr);
-}
-
-static size_t ikmem_std_ptr_size(const void *ptr)
-{
-	const char *lptr = ((const char*)ptr) - sizeof(void*);
-	size_t size = *((const size_t*)lptr);
-	if ((size & 1) != 1) {
-		assert((size & 1) == 1);
-		return 0;
-	}
-	return size & (~((size_t)3));
-}
-
-static void* ikmem_std_realloc(void *ptr, size_t size)
-{
-	size_t oldsize;
-	void *newptr;
-
-	if (ptr == NULL) return ikmem_std_malloc(size);
-	oldsize = ikmem_std_ptr_size(ptr);
-
-	if (size == 0) {
-		ikmem_std_free(ptr);
-		return NULL;
-	}
-
-	if (oldsize >= size) {
-		if (oldsize * 3 < size * 4) 
-			return ptr;
-	}
-
-	newptr = ikmem_std_malloc(size);
-	if (newptr == NULL) {
-		ikmem_std_free(ptr);
-		return NULL;
-	}
-
-	memcpy(newptr, ptr, oldsize < size? oldsize : size);
-	ikmem_std_free(ptr);
-
-	return newptr;
-}
-
-const ikmemhook_t ikmem_std_hook = 
-{
-	ikmem_std_malloc,
-	ikmem_std_free,
-	ikmem_std_realloc,
-	ikmem_std_ptr_size,
-	NULL,
-};
-
-int ikmem_hook_install(const ikmemhook_t *hook)
-{
-	if (ikmem_inited) return -1;
-	if (hook == NULL) {
-		ikmem_hook = NULL;
-		return 0;
-	}
-	if (hook == (const ikmemhook_t*)(~((size_t)0))) {
-		ikmem_hook = &ikmem_std_hook;
-		return 0;
-	}
-	if (hook->kmem_malloc_fn == ikmem_malloc)
-		return -1;
-	if (hook->kmem_free_fn == ikmem_free)
-		return -1;
-	if (hook->kmem_realloc_fn == ikmem_realloc)
-		return -1;
-	if (hook->kmem_ptr_size_fn == ikmem_ptr_size)
-		return -1;
-	if (hook->kmem_shrink_fn == ikmem_shrink)
-		return -1;
-	ikmem_hook = hook;
-	return 0;
-}
-
-const ikmemhook_t *ikmem_hook_get(int id)
-{
-	if (id == 0) return NULL;
-	return &ikmem_std_hook;
-}
-
 
 /*====================================================================*/
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
 /*====================================================================*/
-static void* ikmem_allocator_malloc(struct IALLOCATOR *, size_t);
-static void ikmem_allocator_free(struct IALLOCATOR *, void *);
-
-struct IALLOCATOR ikmem_allocator = 
-{
-	ikmem_allocator_malloc,
-	ikmem_allocator_free,
-	0, 0
-};
-
-
-static void* ikmem_allocator_malloc(struct IALLOCATOR *a, size_t len)
-{
-	a = a + 1;
-	return ikmem_malloc(len);
-}
-
-static void ikmem_allocator_free(struct IALLOCATOR *a, void *ptr)
-{
-	assert(ptr);
-	a = a + 1;
-	ikmem_free(ptr);
-}
-
 
 ivector_t *iv_create(void)
 {
 	ivector_t *vec;
 	vec = (ivector_t*)ikmem_malloc(sizeof(ivector_t));
 	if (vec == NULL) return NULL;
-	iv_init(vec, &ikmem_allocator);
+	iv_init(vec, ikmem_allocator);
 	return vec;
 }
 
@@ -2451,7 +490,7 @@ imemnode_t *imnode_create(ilong nodesize, int grow_limit)
 	imemnode_t *mnode;
 	mnode = (imemnode_t*)ikmem_malloc(sizeof(imemnode_t));
 	if (mnode == NULL) return NULL;
-	imnode_init(mnode, nodesize, &ikmem_allocator);
+	imnode_init(mnode, nodesize, ikmem_allocator);
 	mnode->grow_limit = grow_limit;
 	return mnode;
 }
@@ -2461,6 +500,659 @@ void imnode_delete(imemnode_t *mnode)
 	assert(mnode);
 	imnode_destroy(mnode);
 	ikmem_free(mnode);
+}
+
+
+/*--------------------------------------------------------------------*/
+/* Collection - Array                                                 */
+/*--------------------------------------------------------------------*/
+
+struct ic_array
+{
+	struct IVECTOR vec;
+	void (*fn_destroy)(void*);
+	size_t size;
+	void **items;
+};
+
+ic_array *ic_array_new(void (*destroy_func)(void*))
+{
+	ic_array *array = (ic_array*)ikmem_malloc(sizeof(ic_array));
+	if (array == NULL) return NULL;
+	iv_init(&array->vec, ikmem_allocator);
+	array->fn_destroy = destroy_func;
+	array->size = 0;
+	return array;
+};
+
+
+void ic_array_delete(ic_array *array)
+{
+	array->items = (void**)array->vec.data;
+}
+
+void ic_array_release(ic_array *array)
+{
+	if (array->fn_destroy) {
+		size_t n = array->size;
+		size_t i;
+		for (i = 0; i < n; i++) {
+			array->fn_destroy(array->items[i]);
+			array->items[i] = NULL;
+		}
+	}
+	iv_destroy(&array->vec);
+	array->size = 0;
+	array->items = NULL;
+	ikmem_free(array);
+}
+
+static void ic_array_update(ic_array *array)
+{
+	array->items = (void**)array->vec.data;
+}
+
+void ic_array_reserve(ic_array *array, size_t new_size)
+{
+	int hr = iv_obj_reserve(&array->vec, char*, new_size);
+	if (hr != 0) {
+		assert(hr == 0);
+	}
+	ic_array_update(array);
+}
+
+size_t ic_array_size(const ic_array *array)
+{
+	return array->size;
+}
+
+void** ic_array_ptr(ic_array *array)
+{
+	return array->items;
+}
+
+void* ic_array_index(ic_array *array, size_t index)
+{
+	assert(index < array->size);
+	return array->items[index];
+}
+
+const void* ic_array_const_index(const ic_array *array, size_t index)
+{
+	assert(index < array->size);
+	return array->items[index];
+}
+
+void ic_array_push(ic_array *array, void *item)
+{
+	int hr = iv_obj_push(&array->vec, void*, &item);
+	if (hr) {
+		assert(hr == 0);
+	}
+	ic_array_update(array);
+	array->size++;
+}
+
+void ic_array_push_left(ic_array *array, void *item)
+{
+	int hr = iv_obj_insert(&array->vec, void*, 0, &item);
+	if (hr) {
+		assert(hr == 0);
+	}
+	ic_array_update(array);
+	array->size++;
+}
+
+void ic_array_replace(ic_array *array, size_t index, void *item)
+{
+	assert(index < array->size);
+	if (array->fn_destroy) {
+		array->fn_destroy(array->items[index]);
+	}
+	array->items[index] = item;
+}
+
+void* ic_array_pop(ic_array *array)
+{
+	void *item;
+	int hr;
+	assert(array->size > 0);
+	array->size--;
+	item = array->items[array->size];
+	hr = iv_obj_resize(&array->vec, void*, array->size);
+	ic_array_update(array);
+	if (hr) {
+		assert(hr == 0);
+	}
+	return item;
+}
+
+void* ic_array_pop_left(ic_array *array)
+{
+	void *item;
+	int hr;
+	assert(array->size > 0);
+	array->size--;
+	item = array->items[0];
+	hr = iv_obj_erase(&array->vec, void*, 0, 1);
+	ic_array_update(array);
+	if (hr) {
+		assert(hr == 0);
+	}
+	return item;
+}
+
+void ic_array_remove(ic_array *array, size_t index)
+{
+	assert(index < array->size);
+	if (array->fn_destroy) {
+		array->fn_destroy(array->items[index]);
+	}
+	iv_obj_erase(&array->vec, void*, index, 1);
+	ic_array_update(array);
+	array->size--;
+}
+
+void ic_array_insert_before(ic_array *array, size_t index, void *item)
+{
+	int hr = iv_obj_insert(&array->vec, void*, index, &item);
+	if (hr) {
+		assert(hr == 0);
+	}
+	ic_array_update(array);
+	array->size++;
+}
+
+void* ic_array_pop_at(ic_array *array, size_t index)
+{
+	void *item;
+	int hr;
+	assert(array->size > 0);
+	item = array->items[index];
+	hr = iv_obj_erase(&array->vec, void*, index, 1);
+	if (hr) {
+		assert(hr == 0);
+	}
+	return item;
+}
+
+void ic_array_sort(ic_array *array, 
+		int (*compare)(const void*, const void*))
+{
+	if (array->size) {
+		void **items = array->items;
+		size_t size = array->size;
+		size_t i, j;
+		for (i = 0; i < size - 1; i++) {
+			for (j = i + 1; j < size; j++) {
+				if (compare(items[i], items[j]) > 0) {
+					void *tmp = items[i];
+					items[i] = items[j];
+					items[j] = tmp;
+				}
+			}
+		}
+	}
+}
+
+void ic_array_for_each(ic_array *array, void (*iterator)(void *item))
+{
+	if (iterator) {
+		void **items = array->items;
+		size_t count = array->size;
+		for (; count > 0; count--, items++) {
+			iterator(items[0]);
+		}
+	}
+}
+
+ilong ic_array_search(const ic_array *array, 
+		int (*compare)(const void*, const void*),
+		const void *item, 
+		ilong start_pos)
+{
+	ilong size = (ilong)array->size;
+	void **items = array->items;
+	if (start_pos < 0) {
+		start_pos = 0;
+	}
+	for (items = items + start_pos; start_pos < size; start_pos++) {
+		if (compare(items[0], item) == 0) {
+			return start_pos;
+		}
+		items++;
+	}
+	return -1;
+}
+
+ilong ic_array_bsearch(const ic_array *array,
+		int (*compare)(const void*, const void*),
+		const void *item)
+{
+	ilong top, bottom, mid;
+	void **items = array->items;
+	if (array->size == 0) return -1;
+	top = 0;
+	bottom = (ilong)array->size - 1;
+	while (1) {
+		int hr;
+		mid = (top + bottom) >> 1;
+		hr = compare(item, items[mid]);
+		if (hr < 0) bottom = mid;
+		else if (hr > 0) top = mid;
+		else return mid;
+		if (top == bottom) break;
+	}
+	return -1;
+}
+
+
+/*--------------------------------------------------------------------*/
+/* rbtree - node manipulation                                         */
+/*--------------------------------------------------------------------*/
+
+/* LEFT is 0: walk towards left, and 1 for right */
+static inline struct ib_node *_ib_node_walk(struct ib_node *node, int LEFT)
+{
+	int RIGHT = 1 - LEFT;
+	if (node == NULL) return NULL;
+	
+	if (node->child[LEFT]) {
+		node = node->child[LEFT];
+		while (node->child[RIGHT]) 
+			node = node->child[RIGHT];
+	}
+	else {
+		while (1) {
+			struct ib_node *last = node;
+			node = node->parent;
+			if (node == NULL) break;
+			if (node->child[RIGHT] == last) break;
+		}
+	}
+
+	return node;
+}
+
+/* LEFT is 0: left head, and 1 for right head */
+static inline struct ib_node *_ib_node_head(struct ib_root *root, int LEFT)
+{
+	struct ib_node *node = root->node;
+	if (node == NULL) return NULL;
+	while (node->child[LEFT]) 
+		node = node->child[LEFT];
+	return node;
+}
+
+struct ib_node *ib_node_first(struct ib_root *root)
+{
+	return _ib_node_head(root, 0);
+}
+
+struct ib_node *ib_node_last(struct ib_root *root)
+{
+	return _ib_node_head(root, 1);
+}
+
+struct ib_node *ib_node_next(struct ib_node *node)
+{
+	return _ib_node_walk(node, 1);
+}
+
+struct ib_node *ib_node_prev(struct ib_node *node)
+{
+	return _ib_node_walk(node, 0);
+}
+
+static inline void 
+_ib_child_replace(struct ib_node *oldnode, struct ib_node *newnode, 
+		struct ib_node *parent, struct ib_root *root) 
+{
+	if (parent) {
+		parent->child[(parent->child[1] == oldnode)? 1 : 0] = newnode;
+	}
+	else {
+		root->node = newnode;
+	}
+}
+
+static inline struct ib_node *
+_ib_node_rotate(struct ib_node *node, struct ib_root *root, int LEFT)
+{
+	int RIGHT = 1 - LEFT;
+	struct ib_node *right = node->child[RIGHT];
+	struct ib_node *parent = node->parent;
+	node->child[RIGHT] = right->child[LEFT];
+	ASSERTION(node && right);
+	if (right->child[LEFT]) 
+		right->child[LEFT]->parent = node;
+	right->child[LEFT] = node;
+	right->parent = parent;
+	if (parent) {
+		parent->child[(node == parent->child[1])? 1 : 0] = right;
+	}	else {
+		root->node = right;
+	}
+	node->parent = right;
+	return right;
+}
+
+static inline struct ib_node*
+_ib_node_insert_update(struct ib_root *root,
+		struct ib_node *node, struct ib_node *parent, 
+		struct ib_node *gparent, int LEFT)
+{
+	int RIGHT = 1 - LEFT;
+	struct ib_node *uncle = gparent->child[RIGHT];
+	if (uncle) {
+		if (uncle->color == IB_RED) {
+			uncle->color = IB_BLACK;
+			parent->color = IB_BLACK;
+			gparent->color = IB_RED;
+			return gparent;
+		}
+	}
+	if (parent->child[RIGHT] == node) {
+		struct ib_node *tmp;
+		_ib_node_rotate(parent, root, LEFT);
+		tmp = parent;
+		parent = node;
+		node = tmp;
+	}
+	parent->color = IB_BLACK;
+	gparent->color = IB_RED;
+	_ib_node_rotate(gparent, root, RIGHT);
+	return node;
+}
+
+void ib_node_insert_color(struct ib_node *node, struct ib_root *root)
+{
+	node->color = IB_RED;
+	while (1) {
+		struct ib_node *parent, *gparent;
+		parent = node->parent;
+		if (parent == NULL) break;
+		if (parent->color != IB_RED) break;
+		gparent = parent->parent;
+		if (parent == gparent->child[0]) {
+			node = _ib_node_insert_update(root, node, parent, gparent, 0);
+		}
+		else {
+			node = _ib_node_insert_update(root, node, parent, gparent, 1);
+		}
+	}
+	root->node->color = IB_BLACK;
+}
+
+static inline struct ib_node*
+_ib_node_erase_update(struct ib_node **child, struct ib_node *parent, 
+		struct ib_root *root, int LEFT)
+{
+	int RIGHT = 1 - LEFT;
+	struct ib_node *node = child[0];
+	struct ib_node *sibling = parent->child[RIGHT];
+	ASSERTION(sibling);
+	if (sibling->color == IB_RED) {
+		sibling->color = IB_BLACK;
+		parent->color = IB_RED;
+		_ib_node_rotate(parent, root, LEFT);
+		sibling = parent->child[RIGHT];
+	}
+	if (((!sibling->child[0]) || sibling->child[0]->color == IB_BLACK) &&
+		((!sibling->child[1]) || sibling->child[1]->color == IB_BLACK)) {
+		sibling->color = IB_RED;
+		node = parent;
+		parent = node->parent;
+		child[0] = node;
+		return parent;
+	}
+	if ((!sibling->child[RIGHT]) || sibling->child[RIGHT]->color != IB_RED) {
+		struct ib_node *sl = sibling->child[LEFT];
+		if (sl) sl->color = IB_BLACK;
+		sibling->color = IB_RED;
+		_ib_node_rotate(sibling, root, RIGHT);
+		sibling = parent->child[RIGHT];
+	}
+	sibling->color = parent->color;
+	parent->color = IB_BLACK;
+	if (sibling->child[RIGHT])
+		sibling->child[RIGHT]->color = IB_BLACK;
+	_ib_node_rotate(parent, root, LEFT);
+	child[0] = node;
+	return NULL;
+}
+
+static inline void 
+_ib_node_rebalance(struct ib_node *parent, struct ib_root *root)
+{
+	struct ib_node *node = NULL;
+	while (1) {
+		if (parent == NULL) break;
+		if (node != NULL && node->color == IB_RED) break;
+		if (parent->child[0] == node) {
+			parent = _ib_node_erase_update(&node, parent, root, 0);
+		}
+		else {
+			parent = _ib_node_erase_update(&node, parent, root, 1);
+		}
+	}
+	if (node) {
+		node->color = IB_BLACK;
+	}
+}
+
+void ib_node_erase(struct ib_node *node, struct ib_root *root)
+{
+	struct ib_node *child, *parent;
+	unsigned int color;
+	ASSERTION(node);
+	if (node->child[0] && node->child[1]) {
+		struct ib_node *old = node;
+		struct ib_node *left;
+		node = node->child[IB_RIGHT];
+		while ((left = node->child[IB_LEFT]) != NULL)
+			node = left;
+		child = node->child[IB_RIGHT];
+		parent = node->parent;
+		color = node->color;
+		_ib_child_replace(node, child, parent, root);
+		if (node->parent == old)
+			parent = node;
+		node->child[0] = old->child[0];
+		node->child[1] = old->child[1];
+		node->parent = old->parent;
+		node->color = old->color;
+		_ib_child_replace(old, node, old->parent, root);
+		old->child[IB_LEFT]->parent = node;
+		if (old->child[IB_RIGHT]) {
+			old->child[IB_RIGHT]->parent = node;
+		}
+	}
+	else {
+		child = node->child[(node->child[0] == NULL)? 1 : 0];
+		parent = node->parent;
+		color = node->color;
+		/* printf("delete %d child=%d\n", ib_value(node), child? 1:0); */
+		_ib_child_replace(node, child, parent, root);
+	}
+	/* if node has only one child, it must be red due to rule 5,
+	 * and this node must be black due to rule 4.
+	 */
+	if (child) {
+		ASSERTION(child->color == IB_RED);
+		child->color = IB_BLACK;
+		child->parent = parent;
+	}
+	else if (color == IB_BLACK && parent) {
+		_ib_node_rebalance(parent, root);
+	}
+}
+
+void ib_node_replace(struct ib_node *victim, struct ib_node *newnode,
+		struct ib_root *root)
+{
+	struct ib_node *parent = victim->parent;
+	if (parent) {
+		parent->child[(parent->child[1] == victim)? 1 : 0] = newnode;
+	}	else {
+		root->node = newnode;
+	}
+	if (victim->child[0]) victim->child[0]->parent = newnode;
+	if (victim->child[1]) victim->child[1]->parent = newnode;
+	newnode->child[0] = victim->child[0];
+	newnode->child[1] = victim->child[1];
+	newnode->parent = victim->parent;
+	newnode->color = victim->color;
+}
+
+
+/*--------------------------------------------------------------------*/
+/* rbtree - friendly interface                                        */
+/*--------------------------------------------------------------------*/
+
+void ib_tree_init(struct ib_tree *tree,
+	int (*compare)(const void*, const void*), size_t size, size_t offset)
+{
+	tree->root.node = NULL;
+	tree->offset = offset;
+	tree->size = size;
+	tree->count = 0;
+	tree->compare = compare;
+}
+
+
+void *ib_tree_first(struct ib_tree *tree)
+{
+	struct ib_node *node = ib_node_first(&tree->root);
+	if (!node) return NULL;
+	return IB_NODE2DATA(node, tree->offset);
+}
+
+void *ib_tree_last(struct ib_tree *tree)
+{
+	struct ib_node *node = ib_node_last(&tree->root);
+	if (!node) return NULL;
+	return IB_NODE2DATA(node, tree->offset);
+}
+
+void *ib_tree_next(struct ib_tree *tree, void *data)
+{
+	struct ib_node *nn;
+	if (!data) return NULL;
+	nn = IB_DATA2NODE(data, tree->offset);
+	nn = ib_node_next(nn);
+	if (!nn) return NULL;
+	return IB_NODE2DATA(nn, tree->offset);
+}
+
+void *ib_tree_prev(struct ib_tree *tree, void *data)
+{
+	struct ib_node *nn;
+	if (!data) return NULL;
+	nn = IB_DATA2NODE(data, tree->offset);
+	nn = ib_node_prev(nn);
+	if (!nn) return NULL;
+	return IB_NODE2DATA(nn, tree->offset);
+}
+
+
+/* require a temporary user structure (data) which contains the key */
+void *ib_tree_find(struct ib_tree *tree, const void *data)
+{
+	struct ib_node *n = tree->root.node;
+	int (*compare)(const void*, const void*) = tree->compare;
+	int offset = tree->offset;
+	while (n) {
+		void *nd = IB_NODE2DATA(n, offset);
+		int hr = compare(data, nd);
+		if (hr != 0) {
+			n = n->child[(hr > 0)? IB_RIGHT : IB_LEFT];
+		}
+		else {
+			return nd;
+		}
+	}
+	return NULL;
+}
+
+void *ib_tree_nearest(struct ib_tree *tree, const void *data)
+{
+	struct ib_node *n = tree->root.node;
+	struct ib_node *p = NULL;
+	int (*compare)(const void*, const void*) = tree->compare;
+	int offset = tree->offset;
+	while (n) {
+		void *nd = IB_NODE2DATA(n, offset);
+		int hr = compare(data, nd);
+		if (hr != 0) {
+			p = n;
+			n = n->child[(hr > 0)? IB_RIGHT : IB_LEFT];
+		}
+		else {
+			return nd;
+		}
+	}
+	return (p)? IB_NODE2DATA(p, offset) : NULL;
+}
+
+
+/* returns NULL for success, otherwise returns conflict node with same key */
+void *ib_tree_add(struct ib_tree *tree, void *data)
+{
+	struct ib_node **link = &tree->root.node;
+	struct ib_node *parent = NULL;
+	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
+	int (*compare)(const void*, const void*) = tree->compare;
+	int offset = tree->offset;
+	while (link[0]) {
+		void *pd;
+		int hr;
+		parent = link[0];
+		pd = IB_NODE2DATA(parent, offset);
+		hr = compare(node, pd);
+		if (hr == 0) {
+			return pd;
+		}	
+		else {
+			link = &(parent->child[(hr > 0)? 1 : 0]);
+		}
+	}
+	ib_node_link(node, parent, link);
+	ib_node_insert_color(node, &tree->root);
+	tree->count++;
+	return NULL;
+}
+
+
+void ib_tree_remove(struct ib_tree *tree, void *data)
+{
+	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
+	if (!ib_node_empty(node)) {
+		ib_node_erase(node, &tree->root);
+		node->parent = node;
+		tree->count--;
+	}
+}
+
+
+void ib_tree_replace(struct ib_tree *tree, void *victim, void *newdata)
+{
+	struct ib_node *vicnode = IB_DATA2NODE(victim, tree->offset);
+	struct ib_node *newnode = IB_DATA2NODE(newdata, tree->offset);
+	ib_node_replace(vicnode, newnode, &tree->root);
+	vicnode->parent = vicnode;
+}
+
+
+void ib_tree_clear(struct ib_tree *tree, void (*destroy)(void *data))
+{
+	while (1) {
+		void *data;
+		if (tree->root.node == NULL) break;
+		data = IB_NODE2DATA(tree->root.node, tree->offset);
+		ib_tree_remove(tree, data);
+		if (destroy) destroy(data);
+	}
 }
 
 

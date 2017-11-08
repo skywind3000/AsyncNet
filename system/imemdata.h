@@ -27,83 +27,8 @@
 
 
 /**********************************************************************
- * 32BIT INTEGER DEFINITION 
- **********************************************************************/
-#ifndef __INTEGER_32_BITS__
-#define __INTEGER_32_BITS__
-#if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
-	typedef __UINT32_TYPE__ ISTDUINT32;
-	typedef __INT32_TYPE__ ISTDINT32;
-#elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)
-	typedef __UINT_FAST32_TYPE__ ISTDUINT32;
-	typedef __INT_FAST32_TYPE__ ISTDINT32;
-#elif defined(_WIN64) || defined(WIN64) || defined(__amd64__) || \
-	defined(__x86_64) || defined(__x86_64__) || defined(_M_IA64) || \
-	defined(_M_AMD64)
-	typedef unsigned int ISTDUINT32;
-	typedef int ISTDINT32;
-#elif defined(_WIN32) || defined(WIN32) || defined(__i386__) || \
-	defined(__i386) || defined(_M_X86)
-	typedef unsigned long ISTDUINT32;
-	typedef long ISTDINT32;
-#elif defined(__MACOS__)
-	typedef UInt32 ISTDUINT32;
-	typedef SInt32 ISTDINT32;
-#elif defined(__APPLE__) && defined(__MACH__)
-	#include <sys/types.h>
-	typedef u_int32_t ISTDUINT32;
-	typedef int32_t ISTDINT32;
-#elif defined(__BEOS__)
-	#include <sys/inttypes.h>
-	typedef u_int32_t ISTDUINT32;
-	typedef int32_t ISTDINT32;
-#elif (defined(_MSC_VER) || defined(__BORLANDC__)) && (!defined(__MSDOS__))
-	typedef unsigned __int32 ISTDUINT32;
-	typedef __int32 ISTDINT32;
-#elif defined(__GNUC__) && (__GNUC__ > 3)
-	#include <stdint.h>
-	typedef uint32_t ISTDUINT32;
-	typedef int32_t ISTDINT32;
-#else 
-	typedef unsigned long ISTDUINT32; 
-	typedef long ISTDINT32;
-#endif
-#endif
-
-
-/**********************************************************************
  * Global Macros
  **********************************************************************/
-#ifndef __IINT8_DEFINED
-#define __IINT8_DEFINED
-typedef char IINT8;
-#endif
-
-#ifndef __IUINT8_DEFINED
-#define __IUINT8_DEFINED
-typedef unsigned char IUINT8;
-#endif
-
-#ifndef __IUINT16_DEFINED
-#define __IUINT16_DEFINED
-typedef unsigned short IUINT16;
-#endif
-
-#ifndef __IINT16_DEFINED
-#define __IINT16_DEFINED
-typedef short IINT16;
-#endif
-
-#ifndef __IINT32_DEFINED
-#define __IINT32_DEFINED
-typedef ISTDINT32 IINT32;
-#endif
-
-#ifndef __IUINT32_DEFINED
-#define __IUINT32_DEFINED
-typedef ISTDUINT32 IUINT32;
-#endif
-
 #ifndef __IINT64_DEFINED
 #define __IINT64_DEFINED
 #if defined(_MSC_VER) || defined(__BORLANDC__)
@@ -271,18 +196,21 @@ static inline void it_sresize(ivalue_t *v, iulong s)
 	iulong block = 0;
 	if (it_ptr(v) == &(v->param)) { 
 		if (need > sizeof(v->param)) {
-			for (block = 1; block < need; block <<= 1);
+			for (block = 8; block < need; block <<= 1);
 			it_ptr(v) = ikmem_malloc(block); 
 			assert(it_ptr(v));
 			memcpy(it_ptr(v), &(v->param), it_size(v));
+			v->param = block;
 		}	
-	}	else { 
+	}	
+	else { 
 		if (need > sizeof(v->param)) { 
-			iulong oblock = ikmem_ptr_size(it_str(v));
+			iulong oblock = v->param;
 			if (need > oblock || need <= (oblock >> 1)) {
-				for (block = 1; block < need; block <<= 1);
+				for (block = 8; block < need; block <<= 1);
 				it_ptr(v) = ikmem_realloc(it_str(v), block); 
 				assert(it_ptr(v));
+				v->param = block;
 			}
 		}	else { 
 			memcpy(&(v->param), it_ptr(v), newsize);
@@ -675,7 +603,7 @@ struct IDICTENTRY
 {
 	ivalue_t key;				/* key		*/
 	ivalue_t val;				/* val		*/
-	iqueue_head queue;			/* bucket list iterator */
+	ilist_head queue;			/* bucket list iterator */
 	ilong pos;					/* integer iterator */
 	ilong sid;					/* index id */
 };
@@ -683,7 +611,7 @@ struct IDICTENTRY
 /* a hash bucket in a dictionary */
 struct IDICTBUCKET
 {
-	iqueue_head head;			/* bucket list head */
+	ilist_head head;			/* bucket list head */
 	ilong count;				/* how many entries in the bucket */
 };
 
@@ -1414,8 +1342,8 @@ ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2,
 struct IMSTREAM
 {
 	struct IMEMNODE *fixed_pages;
-	struct IQUEUEHEAD head;
-	struct IQUEUEHEAD lru;
+	struct ILISTHEAD head;
+	struct ILISTHEAD lru;
 	iulong pos_read;
 	iulong pos_write;
 	iulong size;
