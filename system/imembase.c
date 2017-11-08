@@ -507,7 +507,7 @@ void imnode_delete(imemnode_t *mnode)
 /* Collection - Array                                                 */
 /*--------------------------------------------------------------------*/
 
-struct ic_array
+struct ib_array
 {
 	struct IVECTOR vec;
 	void (*fn_destroy)(void*);
@@ -515,9 +515,9 @@ struct ic_array
 	void **items;
 };
 
-ic_array *ic_array_new(void (*destroy_func)(void*))
+ib_array *ib_array_new(void (*destroy_func)(void*))
 {
-	ic_array *array = (ic_array*)ikmem_malloc(sizeof(ic_array));
+	ib_array *array = (ib_array*)ikmem_malloc(sizeof(ib_array));
 	if (array == NULL) return NULL;
 	iv_init(&array->vec, ikmem_allocator);
 	array->fn_destroy = destroy_func;
@@ -526,12 +526,12 @@ ic_array *ic_array_new(void (*destroy_func)(void*))
 };
 
 
-void ic_array_delete(ic_array *array)
+void ib_array_delete(ib_array *array)
 {
 	array->items = (void**)array->vec.data;
 }
 
-void ic_array_release(ic_array *array)
+void ib_array_release(ib_array *array)
 {
 	if (array->fn_destroy) {
 		size_t n = array->size;
@@ -547,63 +547,63 @@ void ic_array_release(ic_array *array)
 	ikmem_free(array);
 }
 
-static void ic_array_update(ic_array *array)
+static void ib_array_update(ib_array *array)
 {
 	array->items = (void**)array->vec.data;
 }
 
-void ic_array_reserve(ic_array *array, size_t new_size)
+void ib_array_reserve(ib_array *array, size_t new_size)
 {
 	int hr = iv_obj_reserve(&array->vec, char*, new_size);
 	if (hr != 0) {
 		assert(hr == 0);
 	}
-	ic_array_update(array);
+	ib_array_update(array);
 }
 
-size_t ic_array_size(const ic_array *array)
+size_t ib_array_size(const ib_array *array)
 {
 	return array->size;
 }
 
-void** ic_array_ptr(ic_array *array)
+void** ib_array_ptr(ib_array *array)
 {
 	return array->items;
 }
 
-void* ic_array_index(ic_array *array, size_t index)
+void* ib_array_index(ib_array *array, size_t index)
 {
 	assert(index < array->size);
 	return array->items[index];
 }
 
-const void* ic_array_const_index(const ic_array *array, size_t index)
+const void* ib_array_const_index(const ib_array *array, size_t index)
 {
 	assert(index < array->size);
 	return array->items[index];
 }
 
-void ic_array_push(ic_array *array, void *item)
+void ib_array_push(ib_array *array, void *item)
 {
 	int hr = iv_obj_push(&array->vec, void*, &item);
 	if (hr) {
 		assert(hr == 0);
 	}
-	ic_array_update(array);
+	ib_array_update(array);
 	array->size++;
 }
 
-void ic_array_push_left(ic_array *array, void *item)
+void ib_array_push_left(ib_array *array, void *item)
 {
 	int hr = iv_obj_insert(&array->vec, void*, 0, &item);
 	if (hr) {
 		assert(hr == 0);
 	}
-	ic_array_update(array);
+	ib_array_update(array);
 	array->size++;
 }
 
-void ic_array_replace(ic_array *array, size_t index, void *item)
+void ib_array_replace(ib_array *array, size_t index, void *item)
 {
 	assert(index < array->size);
 	if (array->fn_destroy) {
@@ -612,7 +612,7 @@ void ic_array_replace(ic_array *array, size_t index, void *item)
 	array->items[index] = item;
 }
 
-void* ic_array_pop(ic_array *array)
+void* ib_array_pop(ib_array *array)
 {
 	void *item;
 	int hr;
@@ -620,14 +620,14 @@ void* ic_array_pop(ic_array *array)
 	array->size--;
 	item = array->items[array->size];
 	hr = iv_obj_resize(&array->vec, void*, array->size);
-	ic_array_update(array);
+	ib_array_update(array);
 	if (hr) {
 		assert(hr == 0);
 	}
 	return item;
 }
 
-void* ic_array_pop_left(ic_array *array)
+void* ib_array_pop_left(ib_array *array)
 {
 	void *item;
 	int hr;
@@ -635,35 +635,35 @@ void* ic_array_pop_left(ic_array *array)
 	array->size--;
 	item = array->items[0];
 	hr = iv_obj_erase(&array->vec, void*, 0, 1);
-	ic_array_update(array);
+	ib_array_update(array);
 	if (hr) {
 		assert(hr == 0);
 	}
 	return item;
 }
 
-void ic_array_remove(ic_array *array, size_t index)
+void ib_array_remove(ib_array *array, size_t index)
 {
 	assert(index < array->size);
 	if (array->fn_destroy) {
 		array->fn_destroy(array->items[index]);
 	}
 	iv_obj_erase(&array->vec, void*, index, 1);
-	ic_array_update(array);
+	ib_array_update(array);
 	array->size--;
 }
 
-void ic_array_insert_before(ic_array *array, size_t index, void *item)
+void ib_array_insert_before(ib_array *array, size_t index, void *item)
 {
 	int hr = iv_obj_insert(&array->vec, void*, index, &item);
 	if (hr) {
 		assert(hr == 0);
 	}
-	ic_array_update(array);
+	ib_array_update(array);
 	array->size++;
 }
 
-void* ic_array_pop_at(ic_array *array, size_t index)
+void* ib_array_pop_at(ib_array *array, size_t index)
 {
 	void *item;
 	int hr;
@@ -676,7 +676,7 @@ void* ic_array_pop_at(ic_array *array, size_t index)
 	return item;
 }
 
-void ic_array_sort(ic_array *array, 
+void ib_array_sort(ib_array *array, 
 		int (*compare)(const void*, const void*))
 {
 	if (array->size) {
@@ -695,7 +695,7 @@ void ic_array_sort(ic_array *array,
 	}
 }
 
-void ic_array_for_each(ic_array *array, void (*iterator)(void *item))
+void ib_array_for_each(ib_array *array, void (*iterator)(void *item))
 {
 	if (iterator) {
 		void **items = array->items;
@@ -706,7 +706,7 @@ void ic_array_for_each(ic_array *array, void (*iterator)(void *item))
 	}
 }
 
-ilong ic_array_search(const ic_array *array, 
+ilong ib_array_search(const ib_array *array, 
 		int (*compare)(const void*, const void*),
 		const void *item, 
 		ilong start_pos)
@@ -725,7 +725,7 @@ ilong ic_array_search(const ic_array *array,
 	return -1;
 }
 
-ilong ic_array_bsearch(const ic_array *array,
+ilong ib_array_bsearch(const ib_array *array,
 		int (*compare)(const void*, const void*),
 		const void *item)
 {

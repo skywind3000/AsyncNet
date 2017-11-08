@@ -435,35 +435,35 @@ void imnode_delete(imemnode_t *);
 /* Collection - Array                                                 */
 /*--------------------------------------------------------------------*/
 
-struct ic_array;
-typedef struct ic_array ic_array;
+struct ib_array;
+typedef struct ib_array ib_array;
 
-ic_array *ic_array_new(void (*destroy_func)(void*));
-void ic_array_delete(ic_array *array);
-void ic_array_reserve(ic_array *array, size_t new_size);
-size_t ic_array_size(const ic_array *array);
-void** ic_array_ptr(ic_array *array);
-void* ic_array_index(ic_array *array, size_t index);
-const void* ic_array_const_index(const ic_array *array, size_t index);
-void ic_array_push(ic_array *array, void *item);
-void ic_array_push_left(ic_array *array, void *item);
-void ic_array_replace(ic_array *array, size_t index, void *item);
-void* ic_array_pop(ic_array *array);
-void* ic_array_pop_left(ic_array *array);
-void ic_array_remove(ic_array *array, size_t index);
-void ic_array_insert_before(ic_array *array, size_t index, void *item);
-void* ic_array_pop_at(ic_array *array, size_t index);
-void ic_array_for_each(ic_array *array, void (*iterator)(void *item));
+ib_array *ib_array_new(void (*destroy_func)(void*));
+void ib_array_delete(ib_array *array);
+void ib_array_reserve(ib_array *array, size_t new_size);
+size_t ib_array_size(const ib_array *array);
+void** ib_array_ptr(ib_array *array);
+void* ib_array_index(ib_array *array, size_t index);
+const void* ib_array_const_index(const ib_array *array, size_t index);
+void ib_array_push(ib_array *array, void *item);
+void ib_array_push_left(ib_array *array, void *item);
+void ib_array_replace(ib_array *array, size_t index, void *item);
+void* ib_array_pop(ib_array *array);
+void* ib_array_pop_left(ib_array *array);
+void ib_array_remove(ib_array *array, size_t index);
+void ib_array_insert_before(ib_array *array, size_t index, void *item);
+void* ib_array_pop_at(ib_array *array, size_t index);
+void ib_array_for_each(ib_array *array, void (*iterator)(void *item));
 
-void ic_array_sort(ic_array *array, 
+void ib_array_sort(ib_array *array, 
 		int (*compare)(const void*, const void*));
 
-ilong ic_array_search(const ic_array *array, 
+ilong ib_array_search(const ib_array *array, 
 		int (*compare)(const void*, const void*),
 		const void *item, 
 		ilong start_pos);
 
-ilong ic_array_bsearch(const ic_array *array,
+ilong ib_array_bsearch(const ib_array *array,
 		int (*compare)(const void*, const void*),
 		const void *item);
 
