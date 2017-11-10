@@ -683,7 +683,7 @@ public:
 	MemNode(int nodesize = 8, int growlimit = 1024) {
 		_node = imnode_create(nodesize, growlimit);
 		if (_node == NULL) {
-			SYSTEM_THROW("Error to create imemnode_t", 10006);
+			SYSTEM_THROW("Error to create ib_memnode", 10006);
 		}
 		_nodesize = nodesize;
 	}
@@ -731,15 +731,15 @@ public:
 	}
 
 	// 取得节点分配器 C原始对象
-	imemnode_t* node_ptr() { return _node; }
-	const imemnode_t* node_ptr() const { return _node; }
+	ib_memnode* node_ptr() { return _node; }
+	const ib_memnode* node_ptr() const { return _node; }
 
 	ilong node_max() const { return _node->node_max; }
 	long size() const { return _node->node_used; }
 
 protected:
 	int _nodesize;
-	imemnode_t *_node;
+	ib_memnode *_node;
 };
 
 
@@ -749,7 +749,7 @@ protected:
 class MemStream
 {
 public:
-	MemStream(imemnode_t *node) {
+	MemStream(ib_memnode *node) {
 		ims_init(&_stream, node, -1, -1);
 	}
 

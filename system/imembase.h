@@ -487,7 +487,7 @@ struct ib_root
 
 
 /*--------------------------------------------------------------------*/
-/* macros                                                             */
+/* NODE MACROS                                                        */
 /*--------------------------------------------------------------------*/
 #define IB_LEFT    0        /* left child index */
 #define IB_RIGHT   1        /* right child index */
@@ -506,17 +506,18 @@ struct ib_root
 #define ib_node_init(node) do { ((node)->parent) = (node); } while (0)
 #define ib_node_empty(node) ((node)->parent == (node))
 
+#define IB_AVL_HEIGHT(node)      (((int*)(&((node)->color)))[0])
+#define IB_AVL_CHILD_HEIGHT(node, c)    \
+	(((node)->child[c])? IB_AVL_HEIGHT((node)->child[c]) : 0)
+
 
 /*--------------------------------------------------------------------*/
-/* rbtree - node manipulation                                         */
+/* binary search tree - node manipulation                             */
 /*--------------------------------------------------------------------*/
 struct ib_node *ib_node_first(struct ib_root *root);
 struct ib_node *ib_node_last(struct ib_root *root);
 struct ib_node *ib_node_next(struct ib_node *node);
 struct ib_node *ib_node_prev(struct ib_node *node);
-
-void ib_node_insert_color(struct ib_node *node, struct ib_root *root);
-void ib_node_erase(struct ib_node *node, struct ib_root *root);
 
 void ib_node_replace(struct ib_node *victim, struct ib_node *newnode,
 		struct ib_root *root);
@@ -529,9 +530,17 @@ static inline void ib_node_link(struct ib_node *node, struct ib_node *parent,
 	ib_link[0] = node;
 }
 
+/* rbtree insert rebalance and erase */
+void ib_rb_node_post_insert(struct ib_node *node, struct ib_root *root);
+void ib_rb_node_erase(struct ib_node *node, struct ib_root *root);
+
+/* avl insert rebalance and erase */
+void ib_avl_node_post_insert(struct ib_node *node, struct ib_root *root);
+void ib_avl_node_erase(struct ib_node *node, struct ib_root *root);
+
 
 /*--------------------------------------------------------------------*/
-/* rbtree - node templates                                            */
+/* rbtree / avl - node templates                                      */
 /*--------------------------------------------------------------------*/
 #define ib_node_find(root, what, compare_fn, result_node, result_index) do {\
 		struct ib_node *__n = (root)->node; \
@@ -547,7 +556,7 @@ static inline void ib_node_link(struct ib_node *node, struct ib_node *parent,
 	}   while (0)
 
 
-#define ib_node_add(root, newnode, compare_fn, duplicate_node) do { \
+#define ib_rb_node_add(root, newnode, compare_fn, duplicate_node) do { \
 		struct ib_node **__link = &((root)->node); \
 		struct ib_node *__parent = NULL; \
 		struct ib_node *__duplicate = NULL; \
@@ -561,10 +570,27 @@ static inline void ib_node_link(struct ib_node *node, struct ib_node *parent,
 		(duplicate_node) = __duplicate; \
 		if (__duplicate == NULL) { \
 			ib_node_link(newnode, __parent, __link); \
-			ib_node_insert_color(newnode, root); \
+			ib_rb_node_post_insert(newnode, root); \
 		} \
 	}   while (0)
 
+#define ib_avl_node_add(root, newnode, compare_fn, duplicate_node) do { \
+		struct ib_node **__link = &((root)->node); \
+		struct ib_node *__parent = NULL; \
+		struct ib_node *__duplicate = NULL; \
+		int __hr = 1; \
+		while (__link[0]) { \
+			__parent = __link[0]; \
+			__hr = (compare_fn)(newnode, __parent); \
+			if (__hr == 0) { __duplicate = __parent; break; } \
+			else { __link = &(__parent->child[(__hr < 0)? 0 : 1]); } \
+		} \
+		(duplicate_node) = __duplicate; \
+		if (__duplicate == NULL) { \
+			ib_node_link(newnode, __parent, __link); \
+			ib_avl_node_post_insert(newnode, root); \
+		} \
+	}   while (0)
 
 
 /*--------------------------------------------------------------------*/
