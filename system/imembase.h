@@ -540,7 +540,7 @@ void ib_avl_node_erase(struct ib_node *node, struct ib_root *root);
 
 
 /*--------------------------------------------------------------------*/
-/* rbtree / avl - node templates                                      */
+/* rbtree - node templates                                            */
 /*--------------------------------------------------------------------*/
 #define ib_node_find(root, what, compare_fn, result_node, result_index) do {\
 		struct ib_node *__n = (root)->node; \
@@ -574,23 +574,6 @@ void ib_avl_node_erase(struct ib_node *node, struct ib_root *root);
 		} \
 	}   while (0)
 
-#define ib_avl_node_add(root, newnode, compare_fn, duplicate_node) do { \
-		struct ib_node **__link = &((root)->node); \
-		struct ib_node *__parent = NULL; \
-		struct ib_node *__duplicate = NULL; \
-		int __hr = 1; \
-		while (__link[0]) { \
-			__parent = __link[0]; \
-			__hr = (compare_fn)(newnode, __parent); \
-			if (__hr == 0) { __duplicate = __parent; break; } \
-			else { __link = &(__parent->child[(__hr < 0)? 0 : 1]); } \
-		} \
-		(duplicate_node) = __duplicate; \
-		if (__duplicate == NULL) { \
-			ib_node_link(newnode, __parent, __link); \
-			ib_avl_node_post_insert(newnode, root); \
-		} \
-	}   while (0)
 
 
 /*--------------------------------------------------------------------*/
