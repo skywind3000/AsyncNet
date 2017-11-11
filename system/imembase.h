@@ -531,8 +531,8 @@ static inline void ib_node_link(struct ib_node *node, struct ib_node *parent,
 }
 
 /* rbtree insert rebalance and erase */
-void ib_rb_node_post_insert(struct ib_node *node, struct ib_root *root);
-void ib_rb_node_erase(struct ib_node *node, struct ib_root *root);
+void ib_node_post_insert(struct ib_node *node, struct ib_root *root);
+void ib_node_erase(struct ib_node *node, struct ib_root *root);
 
 /* avl insert rebalance and erase */
 void ib_avl_node_post_insert(struct ib_node *node, struct ib_root *root);
@@ -556,7 +556,7 @@ void ib_avl_node_erase(struct ib_node *node, struct ib_root *root);
 	}   while (0)
 
 
-#define ib_rb_node_add(root, newnode, compare_fn, duplicate_node) do { \
+#define ib_node_add(root, newnode, compare_fn, duplicate_node) do { \
 		struct ib_node **__link = &((root)->node); \
 		struct ib_node *__parent = NULL; \
 		struct ib_node *__duplicate = NULL; \
@@ -570,7 +570,7 @@ void ib_avl_node_erase(struct ib_node *node, struct ib_root *root);
 		(duplicate_node) = __duplicate; \
 		if (__duplicate == NULL) { \
 			ib_node_link(newnode, __parent, __link); \
-			ib_rb_node_post_insert(newnode, root); \
+			ib_node_post_insert(newnode, root); \
 		} \
 	}   while (0)
 

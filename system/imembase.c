@@ -886,7 +886,7 @@ _ib_node_insert_update(struct ib_root *root,
 	return node;
 }
 
-void ib_rb_node_post_insert(struct ib_node *node, struct ib_root *root)
+void ib_node_post_insert(struct ib_node *node, struct ib_root *root)
 {
 	node->color = IB_RED;
 	while (1) {
@@ -960,7 +960,7 @@ _ib_node_rebalance(struct ib_node *parent, struct ib_root *root)
 	}
 }
 
-void ib_rb_node_erase(struct ib_node *node, struct ib_root *root)
+void ib_node_erase(struct ib_node *node, struct ib_root *root)
 {
 	struct ib_node *child, *parent;
 	unsigned int color;
@@ -1234,7 +1234,7 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 		}
 	}
 	ib_node_link(node, parent, link);
-	ib_rb_node_post_insert(node, &tree->root);
+	ib_node_post_insert(node, &tree->root);
 	tree->count++;
 	return NULL;
 }
@@ -1244,7 +1244,7 @@ void ib_tree_remove(struct ib_tree *tree, void *data)
 {
 	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
 	if (!ib_node_empty(node)) {
-		ib_rb_node_erase(node, &tree->root);
+		ib_node_erase(node, &tree->root);
 		node->parent = node;
 		tree->count--;
 	}
