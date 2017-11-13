@@ -1225,7 +1225,7 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 		int hr;
 		parent = link[0];
 		pd = IB_NODE2DATA(parent, offset);
-		hr = compare(node, pd);
+		hr = compare(data, pd);
 		if (hr == 0) {
 			return pd;
 		}	
