@@ -606,11 +606,63 @@ void ib_tree_clear(struct ib_tree *tree, void (*destroy)(void *data));
 
 
 
+/*--------------------------------------------------------------------*/
+/* string                                                             */
+/*--------------------------------------------------------------------*/
+struct ib_string;
+typedef struct ib_string ib_string;
+
+#ifndef IB_STRING_SSO
+#define IB_STRING_SSO	14
+#endif
+
+struct ib_string
+{
+	char *ptr;
+	int size;
+	int capacity;
+	char sso[IB_STRING_SSO + 2];
+};
+
+#define ib_string_ptr(str) ((str)->ptr)
+#define ib_string_size(str) ((str)->size)
+
+ib_string* ib_string_new(void);
+ib_string* ib_string_new_from(const char *text);
+ib_string* ib_string_new_size(const char *text, int size);
+
+void ib_string_delete(ib_string *str);
+
+ib_string* ib_string_resize(ib_string *str, int newsize);
+
+ib_string* ib_string_assign(ib_string *str, const char *src);
+ib_string* ib_string_assign_size(ib_string *str, const char *src, int size);
+
+ib_string* ib_string_erase(ib_string *str, int pos, int size);
+ib_string* ib_string_insert(ib_string *str, int pos, 
+		const void *data, int size);
+
+ib_string* ib_string_append(ib_string *str, const char *src);
+ib_string* ib_string_append_size(ib_string *str, const char *src, int size);
+ib_string* ib_string_append_c(ib_string *str, char c);
+
+ib_string* ib_string_prepend(ib_string *str, const char *src);
+ib_string* ib_string_prepend_size(ib_string *str, const char *src, int size);
+ib_string* ib_string_prepend_c(ib_string *str, char c);
+
+ib_string* ib_string_rewrite(ib_string *str, int pos, const char *src);
+ib_string* ib_string_rewrite_size(ib_string *str, int pos, 
+		const char *src, int size);
+
+int ib_string_compare(const struct ib_string *a, const struct ib_string *b);
+
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
+
+
 
 
