@@ -1023,6 +1023,40 @@ void ib_node_erase(struct ib_node *node, struct ib_root *root)
 }
 
 
+/* avl nodes destroy: fast tear down the whole tree */
+struct ib_node* ib_node_tear(struct ib_root *root, struct ib_node **next)
+{
+	struct ib_node *node = *next;
+	struct ib_node *parent;
+	if (node == NULL) {
+		if (root->node == NULL) 
+			return NULL;
+		node = root->node;
+	}
+	/* sink down to the leaf */
+	while (1) {
+		if (node->left) node = node->left;
+		else if (node->right) node = node->right;
+		else break;
+	}
+	/* tear down one leaf */
+	parent = node->parent;
+	if (parent == NULL) {
+		*next = NULL;
+		root->node = NULL;
+		return node;
+	}
+	if (parent->left == node) {
+		parent->left = NULL;
+	}	else {
+		parent->right = NULL;
+	}
+	node->height = 0;
+	*next = parent;
+	return node;
+}
+
+
 
 /*--------------------------------------------------------------------*/
 /* avltree - friendly interface                                       */
@@ -1180,6 +1214,75 @@ void ib_tree_clear(struct ib_tree *tree, void (*destroy)(void *data))
 	}
 }
 
+
+/*--------------------------------------------------------------------*/
+/* fastbin - fixed size object allocator                              */
+/*--------------------------------------------------------------------*/
+
+void ib_fastbin_init(struct ib_fastbin *fb, size_t obj_size)
+{
+	const size_t align = sizeof(void*);
+	size_t need;
+	fb->start = NULL;
+	fb->endup = NULL;
+	fb->next = NULL;
+	fb->pages = NULL;
+	fb->obj_size = (obj_size + align - 1) & (~(align - 1));
+	need = fb->obj_size * 32 + sizeof(void*) + 16;	
+	fb->page_size = (align <= 2)? 8 : 32;
+	while (fb->page_size < need) {
+		fb->page_size *= 2;
+	}
+	fb->maximum = (align <= 2)? fb->page_size : 0x10000;
+}
+
+void ib_fastbin_destroy(struct ib_fastbin *fb)
+{
+	while (fb->pages) {
+		void *page = fb->pages;
+		void *next = IB_NEXT(page);
+		fb->pages = next;
+		ikmem_free(page);
+	}
+	fb->start = NULL;
+	fb->endup = NULL;
+	fb->next = NULL;
+	fb->pages = NULL;
+}
+
+void* ib_fastbin_new(struct ib_fastbin *fb)
+{
+	size_t obj_size = fb->obj_size;
+	void *obj;
+	obj = fb->next;
+	if (obj) {
+		fb->next = IB_NEXT(fb->next);
+		return obj;
+	}
+	if (fb->start + obj_size > fb->endup) {
+		char *page = (char*)ikmem_malloc(fb->page_size);
+		size_t lineptr = (size_t)page;
+		ASSERTION(page);
+		IB_NEXT(page) = fb->pages;
+		fb->pages = page;
+		lineptr = (lineptr + sizeof(void*) + 15) & (~15);
+		fb->start = (char*)lineptr;
+		fb->endup = (char*)page + fb->page_size;
+		if (fb->page_size < fb->maximum) {
+			fb->page_size *= 2;
+		}
+	}
+	obj = fb->start;
+	fb->start += obj_size;
+	ASSERTION(fb->start <= fb->endup);
+	return obj;
+}
+
+void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
+{
+	IB_NEXT(ptr) = fb->next;
+	fb->next = ptr;
+}
 
 
 /*--------------------------------------------------------------------*/
@@ -1405,5 +1508,651 @@ ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 	}
 	return str;
 }
+
+
+
+/*--------------------------------------------------------------------*/
+/* static hash table (closed hash table with avlnode)                 */
+/*--------------------------------------------------------------------*/
+
+
+void ib_hash_init(struct ib_hash_table *ht, 
+		size_t (*hash)(const void *key),
+		int (*compare)(const void *key1, const void *key2))
+{
+	size_t i;
+	ht->count = 0;
+	ht->index_size = IB_HASH_INIT_SIZE;
+	ht->index_mask = ht->index_size - 1;
+	ht->hash = hash;
+	ht->compare = compare;
+	ilist_init(&ht->head);
+	ht->index = ht->init;
+	for (i = 0; i < IB_HASH_INIT_SIZE; i++) {
+		ht->index[i].avlroot.node = NULL;
+		ilist_init(&(ht->index[i].node));
+	}
+}
+
+struct ib_hash_node* ib_hash_node_first(struct ib_hash_table *ht)
+{
+	struct ILISTHEAD *head = ht->head.next;
+	if (head != &ht->head) {
+		struct ib_hash_index *index = 
+			ilist_entry(head, struct ib_hash_index, node);
+		struct ib_node *avlnode = ib_node_first(&index->avlroot);
+		if (avlnode == NULL) return NULL;
+		return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+	}
+	return NULL;
+}
+
+struct ib_hash_node* ib_hash_node_last(struct ib_hash_table *ht)
+{
+	struct ILISTHEAD *head = ht->head.prev;
+	if (head != &ht->head) {
+		struct ib_hash_index *index = 
+			ilist_entry(head, struct ib_hash_index, node);
+		struct ib_node *avlnode = ib_node_last(&index->avlroot);
+		if (avlnode == NULL) return NULL;
+		return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+	}
+	return NULL;
+}
+
+struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht, 
+		struct ib_hash_node *node)
+{
+	struct ib_node *avlnode;
+	struct ib_hash_index *index;
+	struct ILISTHEAD *listnode;
+	if (node == NULL) return NULL;
+	avlnode = ib_node_next(&node->avlnode);
+	if (avlnode) {
+		return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+	}
+	index = &(ht->index[node->hash & ht->index_mask]);
+	listnode = index->node.next;
+	if (listnode == &(ht->head)) {
+		return NULL;
+	}
+	index = ilist_entry(listnode, struct ib_hash_index, node);
+	avlnode = ib_node_first(&index->avlroot);
+	if (avlnode == NULL) return NULL;
+	return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+}
+
+struct ib_hash_node* ib_hash_node_prev(struct ib_hash_table *ht, 
+		struct ib_hash_node *node)
+{
+	struct ib_node *avlnode;
+	struct ib_hash_index *index;
+	struct ILISTHEAD *listnode;
+	if (node == NULL) return NULL;
+	avlnode = ib_node_prev(&node->avlnode);
+	if (avlnode) {
+		return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+	}
+	index = &(ht->index[node->hash & ht->index_mask]);
+	listnode = index->node.prev;
+	if (listnode == &(ht->head)) {
+		return NULL;
+	}
+	index = ilist_entry(listnode, struct ib_hash_index, node);
+	avlnode = ib_node_last(&index->avlroot);
+	if (avlnode == NULL) return NULL;
+	return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+}
+
+struct ib_hash_node* ib_hash_find(struct ib_hash_table *ht,
+		const struct ib_hash_node *node)
+{
+	size_t hash = node->hash;
+	const void *key = node->key;
+	struct ib_hash_index *index = &(ht->index[hash & ht->index_mask]);
+	struct ib_node *avlnode = index->avlroot.node;
+	int (*compare)(const void *, const void *) = ht->compare;
+	while (avlnode) {
+		struct ib_hash_node *snode = 
+			IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+		size_t shash = snode->hash;
+		if (hash == shash) {
+			int hc = compare(key, snode->key);
+			if (hc == 0) return snode;
+			avlnode = (hc < 0)? avlnode->left : avlnode->right;
+		}
+		else {
+			avlnode = (hash < shash)? avlnode->left : avlnode->right;
+		}
+	}
+	return NULL;
+}
+
+void ib_hash_erase(struct ib_hash_table *ht, struct ib_hash_node *node)
+{
+	struct ib_hash_index *index;
+	ASSERTION(node && ht);
+	ASSERTION(!ib_node_empty(&node->avlnode));
+	index = &ht->index[node->hash & ht->index_mask];
+	if (index->avlroot.node == &node->avlnode && node->avlnode.height == 1) {
+		index->avlroot.node = NULL;
+		ilist_del_init(&index->node);
+	}
+	else {
+		ib_node_erase(&node->avlnode, &index->avlroot);
+	}
+	ib_node_init(&node->avlnode);
+	ht->count--;
+}
+
+struct ib_node** ib_hash_track(struct ib_hash_table *ht,
+		const struct ib_hash_node *node, struct ib_node **parent)
+{
+	size_t hash = node->hash;
+	const void *key = node->key;
+	struct ib_hash_index *index = &(ht->index[hash & ht->index_mask]);
+	struct ib_node **link = &index->avlroot.node;
+	struct ib_node *p = NULL;
+	int (*compare)(const void *key1, const void *key2) = ht->compare;
+	parent[0] = NULL;
+	while (link[0]) {
+		struct ib_hash_node *snode;
+		size_t shash;
+		p = link[0];
+		snode = IB_ENTRY(p, struct ib_hash_node, avlnode);
+		shash = snode->hash;
+		if (hash == shash) {
+			int hc = compare(key, snode->key);
+			if (hc == 0) {
+				parent[0] = p;
+				return NULL;
+			}
+			link = (hc < 0)? (&p->left) : (&p->right);
+		}
+		else {
+			link = (hash < shash)? (&p->left) : (&p->right);
+		}
+	}
+	parent[0] = p;
+	return link;
+}
+
+
+struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
+		struct ib_hash_node *node)
+{
+	struct ib_hash_index *index = &(ht->index[node->hash & ht->index_mask]);
+	if (index->avlroot.node == NULL) {
+		index->avlroot.node = &node->avlnode;
+		node->avlnode.parent = NULL;
+		node->avlnode.left = NULL;
+		node->avlnode.right = NULL;
+		node->avlnode.height = 1;
+		ilist_add_tail(&index->node, &ht->head);
+	}
+	else {
+		struct ib_node **link, *parent;
+		link = ib_hash_track(ht, node, &parent);
+		if (link == NULL) {
+			ASSERTION(parent);
+			return IB_ENTRY(parent, struct ib_hash_node, avlnode);
+		}
+		ib_node_link(&node->avlnode, parent, link);
+		ib_node_post_insert(&node->avlnode, &index->avlroot);
+	}
+	ht->count++;
+	return NULL;
+}
+
+
+void ib_hash_replace(struct ib_hash_table *ht, 
+		struct ib_hash_node *victim, struct ib_hash_node *newnode)
+{
+	struct ib_hash_index *index = &ht->index[victim->hash & ht->index_mask];
+	ib_node_replace(&victim->avlnode, &newnode->avlnode, &index->avlroot);
+}
+
+void ib_hash_clear(struct ib_hash_table *ht,
+		void (*destroy)(struct ib_hash_node *node))
+{
+	while (!ilist_is_empty(&ht->head)) {
+		struct ib_hash_index *index = ilist_entry(ht->head.next, 
+				struct ib_hash_index, node);
+		struct ib_node *next = NULL;
+		while (index->avlroot.node != NULL) {
+			struct ib_node *avlnode = ib_node_tear(&index->avlroot, &next);
+			ASSERTION(avlnode);
+			if (destroy) {
+				struct ib_hash_node *node = 
+					IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+				destroy(node);
+			}
+		}
+		ilist_del_init(&index->node);
+	}
+	ht->count = 0;
+}
+
+
+void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
+{
+	struct ib_hash_index *old_index = ht->index;
+	struct ib_hash_index *new_index = (struct ib_hash_index*)ptr;
+	size_t index_size = 1;
+	struct ILISTHEAD head;
+	size_t i;
+	ASSERTION(nbytes >= sizeof(struct ib_hash_index));
+	if (new_index == NULL) {
+		if (ht->index == ht->init) {
+			return NULL;
+		}
+		new_index = ht->init;
+		index_size = IB_HASH_INIT_SIZE;
+	}
+	else if (new_index == old_index) {
+		return old_index;
+	}
+	if (new_index != ht->init) {
+		size_t test_size = sizeof(struct ib_hash_index);
+		while (test_size < nbytes) {
+			size_t next_size = test_size * 2;
+			if (next_size > nbytes) break;
+			test_size = next_size;
+			index_size = index_size * 2;
+		}
+	}
+	ht->index = new_index;
+	ht->index_size = index_size;
+	ht->index_mask = index_size - 1;
+	ht->count = 0;
+	for (i = 0; i < index_size; i++) {
+		ht->index[i].avlroot.node = NULL;
+		ilist_init(&ht->index[i].node);
+	}
+	ilist_replace(&ht->head, &head);
+	ilist_init(&ht->head);
+	while (!ilist_is_empty(&head)) {
+		struct ib_hash_index *index = ilist_entry(head.next, 
+				struct ib_hash_index, node);
+	#if 1
+		struct ib_node *next = NULL;
+		while (index->avlroot.node) {
+			struct ib_node *avlnode = ib_node_tear(&index->avlroot, &next);
+			struct ib_hash_node *snode, *hr;
+			ASSERTION(avlnode);
+			snode = IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+			hr = ib_hash_add(ht, snode);
+			ASSERTION(hr == NULL);
+			hr = hr;
+		}
+	#else
+		while (index->avlroot.node) {
+			struct ib_node *avlnode = index->avlroot.node;
+			struct ib_hash_node *snode, *hr;
+			ib_node_erase(avlnode, &index->avlroot);
+			snode = IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+			hr = ib_hash_add(ht, snode);
+			ASSERTION(hr == NULL);
+			hr = hr;
+		}
+	#endif
+		ilist_del_init(&index->node);
+	}
+	return (old_index == ht->init)? NULL : old_index;
+}
+
+
+/*--------------------------------------------------------------------*/
+/* hash map, wrapper of ib_hash_table to support direct key/value     */
+/*--------------------------------------------------------------------*/
+
+struct ib_hash_entry* ib_map_first(struct ib_hash_map *hm)
+{
+	struct ib_hash_node *node = ib_hash_node_first(&hm->ht);
+	if (node == NULL) return NULL;
+	return IB_ENTRY(node, struct ib_hash_entry, node);
+}
+
+
+struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm)
+{
+	struct ib_hash_node *node = ib_hash_node_last(&hm->ht);
+	if (node == NULL) return NULL;
+	return IB_ENTRY(node, struct ib_hash_entry, node);
+}
+
+
+struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm, 
+		struct ib_hash_entry *n)
+{
+	struct ib_hash_node *node = ib_hash_node_next(&hm->ht, &n->node);
+	if (node == NULL) return NULL;
+	return IB_ENTRY(node, struct ib_hash_entry, node);
+}
+
+
+struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm, 
+		struct ib_hash_entry *n)
+{
+	struct ib_hash_node *node = ib_hash_node_prev(&hm->ht, &n->node);
+	if (node == NULL) return NULL;
+	return IB_ENTRY(node, struct ib_hash_entry, node);
+}
+
+
+void ib_map_init(struct ib_hash_map *hm, size_t (*hash)(const void*),
+		int (*compare)(const void *, const void *))
+{
+	hm->count = 0;
+	hm->key_copy = NULL;
+	hm->key_destroy = NULL;
+	hm->value_copy = NULL;
+	hm->value_destroy = NULL;
+	hm->insert = 0;
+	hm->fixed = 0;
+	ib_hash_init(&hm->ht, hash, compare);
+	ib_fastbin_init(&hm->fb, sizeof(struct ib_hash_entry));
+}
+
+void ib_map_destroy(struct ib_hash_map *hm)
+{
+	void *ptr;
+	ib_map_clear(hm);
+	ptr = ib_hash_swap(&hm->ht, NULL, 0);
+	if (ptr) {
+		ikmem_free(ptr);
+	}
+	ib_fastbin_destroy(&hm->fb);
+}
+
+struct ib_hash_entry* ib_map_find(struct ib_hash_map *hm, const void *key)
+{
+	struct ib_hash_table *ht = &hm->ht;
+	struct ib_hash_node dummy;
+	struct ib_hash_node *rh;
+	void *ptr = (void*)key;
+	ib_hash_node_key(ht, &dummy, ptr);
+	rh = ib_hash_find(ht, &dummy);
+	return (rh == NULL)? NULL : IB_ENTRY(rh, struct ib_hash_entry, node);
+}
+
+
+void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval)
+{
+	struct ib_hash_entry *entry = ib_map_find(hm, key);
+	if (entry == NULL) return defval;
+	return ib_hash_value(entry);
+}
+
+static inline struct ib_hash_entry* 
+ib_hash_entry_allocate(struct ib_hash_map *hm, void *key, void *value)
+{
+	struct ib_hash_entry *entry;
+	entry = (struct ib_hash_entry*)ib_fastbin_new(&hm->fb);
+	ASSERTION(entry);
+	if (hm->key_copy) entry->node.key = hm->key_copy(key);
+	else entry->node.key = key;
+	if (hm->value_copy) entry->value = hm->value_copy(value);
+	else entry->value = value;
+	return entry;
+}
+
+static inline struct ib_hash_entry*
+ib_hash_update(struct ib_hash_map *hm, void *key, void *value, int update)
+{
+	size_t hash = hm->ht.hash(key);
+	struct ib_hash_index *index = &(hm->ht.index[hash & hm->ht.index_mask]);
+	struct ib_node **link = &index->avlroot.node;
+	struct ib_node *parent = NULL;
+	struct ib_hash_entry *entry;
+	int (*compare)(const void *key1, const void *key2) = hm->ht.compare;
+	if (index->avlroot.node == NULL) {
+		entry = ib_hash_entry_allocate(hm, key, value);
+		ASSERTION(entry);
+		entry->node.avlnode.height = 1;
+		entry->node.avlnode.left = NULL;
+		entry->node.avlnode.right = NULL;
+		entry->node.avlnode.parent = NULL;
+		entry->node.hash = hash;
+		index->avlroot.node = &(entry->node.avlnode);
+		ilist_add_tail(&index->node, &(hm->ht.head));
+		hm->ht.count++;
+		hm->insert = 1;
+		return entry;
+	}
+	while (link[0]) {
+		struct ib_hash_node *snode;
+		size_t shash;
+		parent = link[0];
+		snode = IB_ENTRY(parent, struct ib_hash_node, avlnode);
+		shash = snode->hash;
+		if (hash != shash) {
+			link = (hash < shash)? (&parent->left) : (&parent->right);
+		}	else {
+			int hc = compare(key, snode->key);
+			if (hc == 0) {
+				entry = IB_ENTRY(snode, struct ib_hash_entry, node);
+				if (update) {
+					if (hm->value_destroy) {
+						hm->value_destroy(entry->value);
+					}
+					if (hm->value_copy == NULL) entry->value = value;
+					else entry->value = hm->value_copy(value);
+				}
+				hm->insert = 0;
+				return entry;
+			}	else {
+				link = (hc < 0)? (&parent->left) : (&parent->right);
+			}
+		}
+	}
+	entry = ib_hash_entry_allocate(hm, key, value);
+	ASSERTION(entry);
+	entry->node.hash = hash;
+	ib_node_link(&(entry->node.avlnode), parent, link);
+	ib_node_post_insert(&(entry->node.avlnode), &index->avlroot);
+	hm->ht.count++;
+	hm->insert = 1;
+	return entry;
+}
+
+static inline void ib_map_rehash(struct ib_hash_map *hm, size_t capacity)
+{
+	size_t isize = hm->ht.index_size;
+	size_t limit = (capacity * 6) >> 2;    /* capacity * 6 / 4 */
+	if (isize < limit && hm->fixed == 0) {
+		size_t need = isize;
+		size_t size;
+		void *ptr;
+		while (need < limit) need <<= 1;
+		size = need * sizeof(struct ib_hash_index);
+		ptr = ikmem_malloc(size);
+		ASSERTION(ptr);
+		ptr = ib_hash_swap(&hm->ht, ptr, size);
+		if (ptr) {
+			ikmem_free(ptr);
+		}
+	}
+}
+
+void ib_map_reserve(struct ib_hash_map *hm, size_t capacity)
+{
+	ib_map_rehash(hm, capacity);
+}
+
+struct ib_hash_entry* 
+ib_map_add(struct ib_hash_map *hm, void *key, void *value, int *success)
+{
+	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 0);
+	if (success) success[0] = hm->insert;
+	ib_map_rehash(hm, hm->ht.count);
+	return entry;
+}
+
+struct ib_hash_entry*
+ib_map_set(struct ib_hash_map *hm, void *key, void *value)
+{
+	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 0);
+	ib_map_rehash(hm, hm->ht.count);
+	return entry;
+}
+
+void *ib_map_get(struct ib_hash_map *hm, const void *key)
+{
+	return ib_map_lookup(hm, key, NULL);
+}
+
+void ib_map_erase(struct ib_hash_map *hm, struct ib_hash_entry *entry)
+{
+	ASSERTION(entry);
+	ASSERTION(!ib_node_empty(&(entry->node.avlnode)));
+	ib_hash_erase(&hm->ht, &entry->node);
+	ib_node_init(&(entry->node.avlnode));
+	if (hm->key_destroy) hm->key_destroy(entry->node.key);
+	if (hm->value_destroy) hm->value_destroy(entry->value);
+	entry->node.key = NULL;
+	entry->value = NULL;
+	ib_fastbin_del(&hm->fb, entry);
+}
+
+int ib_map_remove(struct ib_hash_map *hm, const void *key)
+{
+	struct ib_hash_entry *entry;
+	entry = ib_map_find(hm, key);
+	if (entry == NULL) {
+		return -1;
+	}
+	ib_map_erase(hm, entry);
+	return 0;
+}
+
+void ib_map_clear(struct ib_hash_map *hm)
+{
+	while (1) {
+		struct ib_hash_entry *entry = ib_map_first(hm);
+		if (entry == NULL) break;
+		ib_map_erase(hm, entry);
+	}
+	ASSERTION(hm->count == 0);
+}
+
+
+/*--------------------------------------------------------------------*/
+/* common type hash and equal functions                               */
+/*--------------------------------------------------------------------*/
+size_t ib_hash_seed = 0x11223344;
+
+size_t ib_hash_func_uint(const void *key)
+{
+#if 0
+	size_t x = (size_t)key;
+	return (x * 2654435761u) ^ ib_hash_seed;
+#else
+	return (size_t)key;
+#endif
+}
+
+size_t ib_hash_func_int(const void *key)
+{
+#if 0
+	size_t x = (size_t)key;
+	return (x * 2654435761u) ^ ib_hash_seed;
+#else
+	return (size_t)key;
+#endif
+}
+
+size_t ib_hash_bytes_stl(const void *ptr, size_t size, size_t seed)
+{
+	const unsigned char *buf = (const unsigned char*)ptr;
+	const size_t m = 0x5bd1e995;
+	size_t hash = size ^ seed;
+	for (; size >= 4; buf += 4, size -= 4) {
+		size_t k = *((IUINT32*)buf);
+		k *= m;
+		k = (k >> 24) * m;
+		hash = (hash * m) ^ k;
+	}
+	switch (size) {
+	case 3: hash ^= ((IUINT32)buf[2]) << 16;
+	case 2: hash ^= ((IUINT32)buf[1]) << 8;
+	case 1: hash ^= ((IUINT32)buf[0]); hash = hash * m; break;
+	}
+	hash = (hash ^ (hash >> 13)) * m;
+	return hash ^ (hash >> 15);
+}
+
+size_t ib_hash_bytes_lua(const void *ptr, size_t size, size_t seed)
+{
+	const unsigned char *name = (const unsigned char*)ptr;
+	size_t step = (size >> 5) + 1;
+	size_t h = size ^ seed, i;
+    for(i = size; i >= step; i -= step)
+        h = h ^ ((h << 5) + (h >> 2) + (size_t)name[i - 1]);
+    return h;
+}
+
+size_t ib_hash_func_str(const void *key)
+{
+	ib_string *str = (ib_string*)key;
+#ifndef IB_HASH_BYTES_STL
+	return ib_hash_bytes_lua(str->ptr, str->size, ib_hash_seed);
+#else
+	return ib_hash_bytes_stl(str->ptr, str->size, ib_hash_seed);
+#endif
+}
+
+size_t ib_hash_func_cstr(const void *key)
+{
+	const char *str = (const char*)key;
+	size_t size = strlen(str);
+#ifndef IB_HASH_BYTES_STL
+	return ib_hash_bytes_lua(str, size, ib_hash_seed);
+#else
+	return ib_hash_bytes_stl(str, size, ib_hash_seed);
+#endif
+}
+
+int ib_hash_compare_uint(const void *key1, const void *key2)
+{
+	size_t x = (size_t)key1;
+	size_t y = (size_t)key2;
+	if (x == y) return 0;
+	return (x < y)? -1 : 1;
+}
+
+int ib_hash_compare_int(const void *key1, const void *key2)
+{
+	ilong x = (ilong)key1;
+	ilong y = (ilong)key2;
+	if (x == y) return 0;
+	return (x < y)? -1 : 1;
+}
+
+int ib_hash_compare_str(const void *key1, const void *key2)
+{
+	return ib_string_compare((const ib_string*)key1, (const ib_string*)key2);
+}
+
+int ib_compare_bytes(const void *p1, size_t s1, const void *p2, size_t s2)
+{
+	int minsize = (s1 < s2)? s1 : s2;
+	int hr = memcmp(p1, p2, minsize);
+	if (hr == 0) {
+		if (s1 == s2) return 0;
+		return (s1 < s2)? -1 : 1;
+	}
+	else {
+		return (hr < 0)? -1 : 1;
+	}
+}
+
+int ib_hash_compare_cstr(const void *key1, const void *key2)
+{
+	const char *x = (const char*)key1;
+	const char *y = (const char*)key2;
+	return ib_compare_bytes(x, strlen(x), y, strlen(y));
+}
+
 
 
