@@ -2156,3 +2156,38 @@ int ib_hash_compare_cstr(const void *key1, const void *key2)
 
 
 
+struct ib_hash_entry *ib_map_find_uint(struct ib_hash_map *hm, iulong key)
+{
+	struct ib_hash_entry *hr;
+	void *kk = (void*)key;
+	ib_map_search(hm, kk, ib_hash_func_uint, ib_hash_compare_uint, hr);
+	return hr;
+}
+
+struct ib_hash_entry *ib_map_find_int(struct ib_hash_map *hm, ilong key)
+{
+	struct ib_hash_entry *hr;
+	void *kk = (void*)key;
+	ib_map_search(hm, kk, ib_hash_func_int, ib_hash_compare_int, hr);
+	return hr;
+}
+
+struct ib_hash_entry *ib_map_find_str(struct ib_hash_map *hm, const ib_string *key)
+{
+	struct ib_hash_entry *hr;
+	void *kk = (void*)key;
+	ib_map_search(hm, kk, ib_hash_func_str, ib_hash_compare_str, hr);
+	return hr;
+}
+
+struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key)
+{
+	struct ib_hash_entry *hr;
+	void *kk = (void*)key;
+	ib_map_search(hm, kk, ib_hash_func_cstr, ib_hash_compare_cstr, hr);
+	return hr;
+}
+
+
+
+
