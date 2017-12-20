@@ -573,11 +573,11 @@ struct ib_node* ib_node_tear(struct ib_root *root, struct ib_node **next);
 
 
 /*--------------------------------------------------------------------*/
-/* rbtree - friendly interface                                        */
+/* avltree - friendly interface                                       */
 /*--------------------------------------------------------------------*/
 struct ib_tree
 {
-	struct ib_root root;		/* rbtree root */
+	struct ib_root root;		/* avl root */
 	size_t offset;				/* node offset in user data structure */
 	size_t size;                /* size of user data structure */
 	size_t count;				/* node count */
@@ -586,7 +586,7 @@ struct ib_tree
 };
 
 
-/* initialize rbtree, use IB_OFFSET(type, member) for "offset"
+/* initialize avltree, use IB_OFFSET(type, member) for "offset"
  * eg:
  *     ib_tree_init(&mytree, mystruct_compare,
  *          sizeof(struct mystruct_t), 
