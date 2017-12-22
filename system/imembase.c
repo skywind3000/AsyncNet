@@ -1782,8 +1782,10 @@ void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
 			ASSERTION(avlnode);
 			snode = IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
 			hr = ib_hash_add(ht, snode);
-			ASSERTION(hr == NULL);
-			hr = hr;
+			if (hr != NULL) {
+				ASSERTION(hr == NULL);
+				return NULL;
+			}
 		}
 	#else
 		while (index->avlroot.node) {
