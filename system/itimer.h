@@ -92,26 +92,26 @@ typedef ISTDUINT32 IUINT32;
 
 
 /*====================================================================*/
-/* QUEUE DEFINITION                                                   */
+/* LIST DEFINITION                                                   */
 /*====================================================================*/
-#ifndef __IQUEUE_DEF__
-#define __IQUEUE_DEF__
+#ifndef __ILIST_DEF__
+#define __ILIST_DEF__
 
-struct IQUEUEHEAD {
-	struct IQUEUEHEAD *next, *prev;
+struct ILISTHEAD {
+	struct ILISTHEAD *next, *prev;
 };
 
-typedef struct IQUEUEHEAD iqueue_head;
+typedef struct ILISTHEAD ilist_head;
 
 
 /*--------------------------------------------------------------------*/
-/* queue init                                                         */
+/* list init                                                         */
 /*--------------------------------------------------------------------*/
-#define IQUEUE_HEAD_INIT(name) { &(name), &(name) }
-#define IQUEUE_HEAD(name) \
-	struct IQUEUEHEAD name = IQUEUE_HEAD_INIT(name)
+#define ILIST_HEAD_INIT(name) { &(name), &(name) }
+#define ILIST_HEAD(name) \
+	struct ILISTHEAD name = ILIST_HEAD_INIT(name)
 
-#define IQUEUE_INIT(ptr) ( \
+#define ILIST_INIT(ptr) ( \
 	(ptr)->next = (ptr), (ptr)->prev = (ptr))
 
 #define IOFFSETOF(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
@@ -119,63 +119,63 @@ typedef struct IQUEUEHEAD iqueue_head;
 #define ICONTAINEROF(ptr, type, member) ( \
 		(type*)( ((char*)((type*)ptr)) - IOFFSETOF(type, member)) )
 
-#define IQUEUE_ENTRY(ptr, type, member) ICONTAINEROF(ptr, type, member)
+#define ILIST_ENTRY(ptr, type, member) ICONTAINEROF(ptr, type, member)
 
 
 /*--------------------------------------------------------------------*/
-/* queue operation                                                    */
+/* list operation                                                    */
 /*--------------------------------------------------------------------*/
-#define IQUEUE_ADD(node, head) ( \
+#define ILIST_ADD(node, head) ( \
 	(node)->prev = (head), (node)->next = (head)->next, \
 	(head)->next->prev = (node), (head)->next = (node))
 
-#define IQUEUE_ADD_TAIL(node, head) ( \
+#define ILIST_ADD_TAIL(node, head) ( \
 	(node)->prev = (head)->prev, (node)->next = (head), \
 	(head)->prev->next = (node), (head)->prev = (node))
 
-#define IQUEUE_DEL_BETWEEN(p, n) ((n)->prev = (p), (p)->next = (n))
+#define ILIST_DEL_BETWEEN(p, n) ((n)->prev = (p), (p)->next = (n))
 
-#define IQUEUE_DEL(entry) (\
+#define ILIST_DEL(entry) (\
 	(entry)->next->prev = (entry)->prev, \
 	(entry)->prev->next = (entry)->next, \
 	(entry)->next = 0, (entry)->prev = 0)
 
-#define IQUEUE_DEL_INIT(entry) do { \
-	IQUEUE_DEL(entry); IQUEUE_INIT(entry); } while (0)
+#define ILIST_DEL_INIT(entry) do { \
+	ILIST_DEL(entry); ILIST_INIT(entry); } while (0)
 
-#define IQUEUE_IS_EMPTY(entry) ((entry) == (entry)->next)
+#define ILIST_IS_EMPTY(entry) ((entry) == (entry)->next)
 
-#define iqueue_init		IQUEUE_INIT
-#define iqueue_entry	IQUEUE_ENTRY
-#define iqueue_add		IQUEUE_ADD
-#define iqueue_add_tail	IQUEUE_ADD_TAIL
-#define iqueue_del		IQUEUE_DEL
-#define iqueue_del_init	IQUEUE_DEL_INIT
-#define iqueue_is_empty IQUEUE_IS_EMPTY
+#define ilist_init		ILIST_INIT
+#define ilist_entry		ILIST_ENTRY
+#define ilist_add		ILIST_ADD
+#define ilist_add_tail	ILIST_ADD_TAIL
+#define ilist_del		ILIST_DEL
+#define ilist_del_init	ILIST_DEL_INIT
+#define ilist_is_empty	ILIST_IS_EMPTY
 
-#define IQUEUE_FOREACH(iterator, head, TYPE, MEMBER) \
-	for ((iterator) = iqueue_entry((head)->next, TYPE, MEMBER); \
+#define ILIST_FOREACH(iterator, head, TYPE, MEMBER) \
+	for ((iterator) = ilist_entry((head)->next, TYPE, MEMBER); \
 		&((iterator)->MEMBER) != (head); \
-		(iterator) = iqueue_entry((iterator)->MEMBER.next, TYPE, MEMBER))
+		(iterator) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER))
 
-#define iqueue_foreach(iterator, head, TYPE, MEMBER) \
-	IQUEUE_FOREACH(iterator, head, TYPE, MEMBER)
+#define ilist_foreach(iterator, head, TYPE, MEMBER) \
+	ILIST_FOREACH(iterator, head, TYPE, MEMBER)
 
-#define iqueue_foreach_entry(pos, head) \
+#define ilist_foreach_entry(pos, head) \
 	for( (pos) = (head)->next; (pos) != (head) ; (pos) = (pos)->next )
 	
 
-#define __iqueue_splice(list, head) do {	\
-		iqueue_head *first = (list)->next, *last = (list)->prev; \
-		iqueue_head *at = (head)->next; \
+#define __ilist_splice(list, head) do {	\
+		ilist_head *first = (list)->next, *last = (list)->prev; \
+		ilist_head *at = (head)->next; \
 		(first)->prev = (head), (head)->next = (first);		\
 		(last)->next = (at), (at)->prev = (last); }	while (0)
 
-#define iqueue_splice(list, head) do { \
-	if (!iqueue_is_empty(list)) __iqueue_splice(list, head); } while (0)
+#define ilist_splice(list, head) do { \
+	if (!ilist_is_empty(list)) __ilist_splice(list, head); } while (0)
 
-#define iqueue_splice_init(list, head) do {	\
-	iqueue_splice(list, head);	iqueue_init(list); } while (0)
+#define ilist_splice_init(list, head) do {	\
+	ilist_splice(list, head);	ilist_init(list); } while (0)
 
 
 #ifdef _MSC_VER
@@ -198,11 +198,11 @@ typedef struct IQUEUEHEAD iqueue_head;
 #define ITVR_MASK		(ITVR_SIZE - 1)
 
 struct itimer_vec {
-	iqueue_head vec[ITVN_SIZE];
+	ilist_head vec[ITVN_SIZE];
 };
 
 struct itimer_vec_root {
-	iqueue_head vec[ITVR_SIZE];
+	ilist_head vec[ITVR_SIZE];
 };
 
 struct itimer_core {
@@ -216,7 +216,7 @@ struct itimer_core {
 };
 
 struct itimer_node {
-	iqueue_head head;
+	ilist_head head;
 	IUINT32 expires;
 	IUINT32 state;
 	void *data;

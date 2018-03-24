@@ -39,14 +39,14 @@ void itimer_core_init(itimer_core *core, IUINT32 jiffies)
 	core->tvecs[4] = &core->tv5;
 
 	for (i = 0; i < ITVR_SIZE; i++) {
-		iqueue_init(&core->tv1.vec[i]);
+		ilist_init(&core->tv1.vec[i]);
 	}
 
 	for (i = 0; i < ITVN_SIZE; i++) {
-		iqueue_init(&core->tv2.vec[i]);
-		iqueue_init(&core->tv3.vec[i]);
-		iqueue_init(&core->tv4.vec[i]);
-		iqueue_init(&core->tv5.vec[i]);
+		ilist_init(&core->tv2.vec[i]);
+		ilist_init(&core->tv3.vec[i]);
+		ilist_init(&core->tv4.vec[i]);
+		ilist_init(&core->tv5.vec[i]);
 	}
 }
 
@@ -60,13 +60,13 @@ void itimer_core_destroy(itimer_core *core)
 	for (i = 0; i < 5; i++) {
 		int count = (i == 0)? ITVR_SIZE : ITVN_SIZE;
 		for (j = 0; j < count; j++) {
-			iqueue_head *root = &(core->tv1.vec[j]);
+			ilist_head *root = &(core->tv1.vec[j]);
 			if (i > 0) root = &(core->tvecs[i]->vec[j]);
-			while (!iqueue_is_empty(root)) {
-				itimer_node *node = iqueue_entry(root->next, 
+			while (!ilist_is_empty(root)) {
+				itimer_node *node = ilist_entry(root->next, 
 					itimer_node, head);
-				if (!iqueue_is_empty(&node->head)) {
-					iqueue_del_init(&node->head);
+				if (!ilist_is_empty(&node->head)) {
+					ilist_del_init(&node->head);
 				}
 				node->core = NULL;
 			}
@@ -89,7 +89,7 @@ void itimer_core_run(itimer_core *core, IUINT32 jiffies)
 //---------------------------------------------------------------------
 void itimer_node_init(itimer_node *node, void (*fn)(void*), void *data)
 {
-	iqueue_init(&node->head);
+	ilist_init(&node->head);
 	node->expires = 0;
 	node->state = ITIMER_NODE_STATE_OK;
 	node->callback = fn;
@@ -107,8 +107,8 @@ void itimer_node_destroy(itimer_node *node)
 		assert(node->state == ITIMER_NODE_STATE_OK);
 		return ;
 	}
-	if (!iqueue_is_empty(&node->head)) {
-		iqueue_del_init(&node->head);
+	if (!ilist_is_empty(&node->head)) {
+		ilist_del_init(&node->head);
 		node->core = NULL;
 	}
 	node->state = ITIMER_NODE_STATE_BAD;
@@ -129,8 +129,8 @@ void itimer_node_add(itimer_core *core, itimer_node *node, IUINT32 expires)
 		return ;
 	}
 
-	if (!iqueue_is_empty(&node->head)) {
-		iqueue_del_init(&node->head);
+	if (!ilist_is_empty(&node->head)) {
+		ilist_del_init(&node->head);
 		node->core = NULL;
 	}
 
@@ -149,9 +149,9 @@ int itimer_node_del(itimer_core *core, itimer_node *node)
 		assert(node->state == ITIMER_NODE_STATE_OK);
 		return -1;
 	}
-	if (!iqueue_is_empty(&node->head)) {
+	if (!ilist_is_empty(&node->head)) {
 		assert(node->core != NULL);
-		iqueue_del_init(&node->head);
+		ilist_del_init(&node->head);
 		node->core = NULL;
 		return 1;
 	}
@@ -177,7 +177,7 @@ static void itimer_internal_add(itimer_core *core, itimer_node *node)
 {
 	IUINT32 expires = node->expires;
 	IUINT32 idx = expires - core->timer_jiffies;
-	iqueue_head *vec = NULL;
+	ilist_head *vec = NULL;
 
 	if (idx < ITVR_SIZE) {
 		int i = expires & ITVR_MASK;
@@ -203,7 +203,7 @@ static void itimer_internal_add(itimer_core *core, itimer_node *node)
 		vec = core->tv5.vec + i;
 	}
 
-	iqueue_add_tail(&node->head, vec);
+	ilist_add_tail(&node->head, vec);
 	node->core = core;
 }
 
@@ -213,13 +213,13 @@ static void itimer_internal_add(itimer_core *core, itimer_node *node)
 //---------------------------------------------------------------------
 static void itimer_internal_cascade(struct itimer_vec *tv, int index)
 {
-	iqueue_head queued;
-	iqueue_init(&queued);
-	iqueue_splice_init(tv->vec + index, &queued);
-	while (!iqueue_is_empty(&queued)) {
+	ilist_head queued;
+	ilist_init(&queued);
+	ilist_splice_init(tv->vec + index, &queued);
+	while (!ilist_is_empty(&queued)) {
 		itimer_node *node;
-		node = iqueue_entry(queued.next, itimer_node, head);
-		iqueue_del_init(&node->head);
+		node = ilist_entry(queued.next, itimer_node, head);
+		ilist_del_init(&node->head);
 		itimer_internal_add(node->core, node);
 	}
 }
@@ -233,9 +233,9 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 	#define ITIMER_INDEX(C, N) \
 		(((C)->timer_jiffies >> (ITVR_BITS + (N) * ITVN_BITS)) & ITVN_MASK)
 	while ((IINT32)(jiffies - core->timer_jiffies) >= 0) {
-		iqueue_head queued;
+		ilist_head queued;
 		int index = core->timer_jiffies & ITVR_MASK;
-		iqueue_init(&queued);
+		ilist_init(&queued);
 		if (index == 0) {
 			int i = ITIMER_INDEX(core, 0);
 			itimer_internal_cascade(&core->tv2, i);
@@ -253,15 +253,15 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 			}
 		}
 		core->timer_jiffies++;
-		iqueue_splice_init(core->tv1.vec + index, &queued);
-		while (!iqueue_is_empty(&queued)) {
+		ilist_splice_init(core->tv1.vec + index, &queued);
+		while (!ilist_is_empty(&queued)) {
 			itimer_node *node;
 			void (*fn)(void*);
 			void *data;
-			node = iqueue_entry(queued.next, itimer_node, head);
+			node = ilist_entry(queued.next, itimer_node, head);
 			fn = node->callback;
 			data = node->data;
-			iqueue_del_init(&node->head);
+			ilist_del_init(&node->head);
 			node->core = NULL;
 			if (fn) fn(data);
 		}
