@@ -29,7 +29,7 @@ const IUINT32 IKCP_CMD_WINS = 84;		// cmd: window size (tell)
 const IUINT32 IKCP_ASK_SEND = 1;		// need to send IKCP_CMD_WASK
 const IUINT32 IKCP_ASK_TELL = 2;		// need to send IKCP_CMD_WINS
 const IUINT32 IKCP_WND_SND = 32;
-const IUINT32 IKCP_WND_RCV = 32;
+const IUINT32 IKCP_WND_RCV = 128;
 const IUINT32 IKCP_MTU_DEF = 1400;
 const IUINT32 IKCP_ACK_FAST	= 3;
 const IUINT32 IKCP_INTERVAL	= 100;
@@ -374,7 +374,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 	if (len <= (int)kcp->mss) count = 1;
 	else count = (len + kcp->mss - 1) / kcp->mss;
 
-	if (count > 255) return -2;
+	if (count >= IKCP_WND_RCV) return -2;
 
 	if (count == 0) count = 1;
 
@@ -1070,7 +1070,7 @@ int ikcp_wndsize(ikcpcb *kcp, int sndwnd, int rcvwnd)
 			kcp->snd_wnd = sndwnd;
 		}
 		if (rcvwnd > 0) {
-			kcp->rcv_wnd = rcvwnd;
+			kcp->rcv_wnd = _imax(rcvwnd, IKCP_WND_RCV);
 		}
 	}
 	return 0;
