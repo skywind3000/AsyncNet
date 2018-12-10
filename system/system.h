@@ -94,8 +94,9 @@ protected:
 	int _line;
 };
 
+		//throw (*new ::System::SystemError(what, code, __LINE__, __FILE__)); 
 #define SYSTEM_THROW(what, code) do { \
-		throw (*new ::System::SystemError(what, code, __LINE__, __FILE__)); \
+		throw (::System::SystemError(what, code, __LINE__, __FILE__)); \
 	} while (0)
 
 #ifdef _MSC_VER
@@ -338,11 +339,10 @@ public:
 
 	virtual ~Thread() {
 		if (is_running()) {
-			char text[128];
-			strncpy(text, "thread(", 100);
-			strncat(text, iposix_thread_get_name(_thread), 100);
-			strncat(text, ") is still running", 100);
-			SYSTEM_THROW(text, 10010);
+			const char *name = iposix_thread_get_name(_thread);
+			fprintf(stderr, "ERROR: Thread(%s) is still running, joining", name);
+			fflush(stderr);
+			join();
 		}
 		if (_thread) iposix_thread_delete(_thread);
 		_thread = NULL;
