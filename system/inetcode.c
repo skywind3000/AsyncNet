@@ -1012,18 +1012,23 @@ static long async_core_node_new(CAsyncCore *core)
 	long index, id = -1;
 	CAsyncSock *sock;
 
-	if (core->nodes->node_used >= 0xffff) return -1;
+	if (core->nodes->node_used >= ASYNC_CORE_HID_MASK) 
+		return -1;
+
 	index = (long)imnode_new(core->nodes);
 	if (index < 0) return -2;
 
-	if (index >= 0x10000) {
+	if (index >= ASYNC_CORE_HID_SIZE) {
 		assert(index < 0x10000);
 		abort();
 	}
 
-	id = (index & 0xffff) | (core->index << 16);
+	id = (index & ASYNC_CORE_HID_MASK) | 
+		(core->index << ASYNC_CORE_HID_BITS);
+
 	core->index++;
-	if (core->index >= 0x7fff) core->index = 1;
+
+	if (core->index >= ASYNC_CORE_HID_SALT) core->index = 1;
 
 	sock = (CAsyncSock*)IMNODE_DATA(core->nodes, index);
 	if (sock == NULL) {
@@ -1055,7 +1060,7 @@ static long async_core_node_new(CAsyncCore *core)
 static inline CAsyncSock*
 async_core_node_get(CAsyncCore *core, long hid)
 {
-	long index = hid & 0xffff;
+	long index = ASYNC_CORE_HID_INDEX(hid);
 	CAsyncSock *sock;
 	if (index < 0 || index >= (long)core->nodes->node_max)
 		return NULL;
@@ -1072,7 +1077,7 @@ async_core_node_get(CAsyncCore *core, long hid)
 static inline const CAsyncSock*
 async_core_node_get_const(const CAsyncCore *core, long hid)
 {
-	long index = hid & 0xffff;
+	long index = ASYNC_CORE_HID_INDEX(hid);
 	const CAsyncSock *sock;
 	if (index < 0 || index >= (long)core->nodes->node_max)
 		return NULL;
@@ -1096,7 +1101,7 @@ static long async_core_node_delete(CAsyncCore *core, long hid)
 		ilist_init(&sock->node);
 	}
 	async_sock_destroy(sock);
-	imnode_del(core->nodes, hid & 0xffff);
+	imnode_del(core->nodes, ASYNC_CORE_HID_INDEX(hid));
 	core->count--;
 	return 0;
 }
@@ -1133,7 +1138,7 @@ static long _async_core_node_head(const CAsyncCore *core)
 static long _async_core_node_next(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	long index = hid & 0xffff;
+	long index = ASYNC_CORE_HID_INDEX(hid);
 	if (sock == NULL) return -1;
 	index = imnode_next(core->nodes, index);
 	if (index < 0) return -1;
@@ -1151,7 +1156,7 @@ static long _async_core_node_next(const CAsyncCore *core, long hid)
 static long _async_core_node_prev(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
-	long index = hid & 0xffff;
+	long index = ASYNC_CORE_HID_INDEX(hid);
 	if (sock == NULL) return -1;
 	index = imnode_prev(core->nodes, index);
 	if (index < 0) return -1;
@@ -1338,7 +1343,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	int hr;
 
 	if (sock == NULL) return -1;
-	if (core->count >= 0xffff) return -2;
+	if (core->count >= ASYNC_CORE_HID_MASK) return -2;
 
 	if (sock->mode == ASYNC_CORE_NODE_LISTEN4) {
 		addrlen = sizeof(remote4);

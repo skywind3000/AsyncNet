@@ -209,6 +209,17 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_NODE_ASSIGN      5       /* assigned fd ipv4 */
 #define ASYNC_CORE_NODE_DGRAM       6       /* raw dgram fd */
 
+#ifndef ASYNC_CORE_HID_BITS
+#define ASYNC_CORE_HID_BITS        16       /* size shift */
+#endif
+
+#define ASYNC_CORE_HID_SIZE        (1 << (ASYNC_CORE_HID_BITS))
+#define ASYNC_CORE_HID_MASK        ((ASYNC_CORE_HID_SIZE) - 1)
+#define ASYNC_CORE_HID_SALT        ((1 << (31 - ASYNC_CORE_HID_BITS)) - 1)
+
+#define ASYNC_CORE_HID_INDEX(hid)  ((hid) & ASYNC_CORE_HID_MASK) 
+
+
 /* Remote IP Validator: returns 1 to accept it, 0 to reject */
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
 	CAsyncCore *core, long listenhid, void *user);
