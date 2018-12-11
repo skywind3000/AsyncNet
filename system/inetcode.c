@@ -817,6 +817,9 @@ struct CAsyncCore
 #define ASYNC_CORE_FLAG_PROGRESS	1
 #define ASYNC_CORE_FLAG_SENSITIVE	2
 
+#define ASYNC_CORE_HID_SALT        ((1 << (31 - ASYNC_CORE_HID_BITS)) - 1)
+
+
 /* used to monitor self-pipe trick */
 static unsigned int async_core_monitor = 0; 
 
@@ -830,6 +833,7 @@ static unsigned int async_core_monitor = 0;
 static long _async_core_node_head(const CAsyncCore *core);
 static long _async_core_node_next(const CAsyncCore *core, long hid);
 static long _async_core_node_prev(const CAsyncCore *core, long hid);
+
 
 /*-------------------------------------------------------------------*/
 /* new async core                                                    */
@@ -1019,7 +1023,7 @@ static long async_core_node_new(CAsyncCore *core)
 	if (index < 0) return -2;
 
 	if (index >= ASYNC_CORE_HID_SIZE) {
-		assert(index < 0x10000);
+		assert(index < ASYNC_CORE_HID_SIZE);
 		abort();
 	}
 
