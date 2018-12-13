@@ -1,6 +1,7 @@
 #include <vector>
 #include "../system/system.h"
 #include "../system/inetbase.c"
+#include "PacketBuffer.h"
 
 int main()
 {
