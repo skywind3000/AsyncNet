@@ -16,7 +16,7 @@
 #define ASYNCNET_EXPORT
 #endif
 
-#include "AsyncNet.h"
+#include "AsyncExport.h"
 #include "TraceLog.h"
 #include "../system/system.h"
 #include "../system/inetnot.h"
