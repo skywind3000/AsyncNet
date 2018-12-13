@@ -1347,7 +1347,6 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	int hr;
 
 	if (sock == NULL) return -1;
-	if (core->count >= ASYNC_CORE_HID_MASK) return -2;
 
 	if (sock->mode == ASYNC_CORE_NODE_LISTEN4) {
 		addrlen = sizeof(remote4);
@@ -1362,10 +1361,15 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	#endif
 	}
 	else {
-		return -3;
+		return -2;
 	}
 
 	if (fd < 0) {
+		return -3;
+	}
+
+	if (core->count >= ASYNC_CORE_HID_MASK) {
+		iclose(fd);
 		return -4;
 	}
 
