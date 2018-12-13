@@ -10,7 +10,7 @@ unix/flag: -g
 
 out: ../AsyncNet.$(target)
 
-src: ../source/AsyncNet.cpp
+src: ../source/AsyncExport.cpp
 src: ../source/TraceLog.cpp
 
 src: ../system/imembase.c
