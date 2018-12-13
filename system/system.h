@@ -81,11 +81,14 @@ NAMESPACE_BEGIN(System)
 class SystemError {
 public:
 	SystemError(const char *what = NULL, int code = 0, int line = -1, const char *file = NULL);
+	SystemError(const SystemError &e);
+	SystemError& operator=(const SystemError &);
 	virtual ~SystemError();
 	const char* what() const;
 	int code() const;
 	const char* file() const;
 	int line() const;
+
 
 protected:
 	const char *_file;
@@ -115,6 +118,27 @@ inline SystemError::SystemError(const char *what, int code, int line, const char
 	_code = code;
 	_file = file;
 	_line = line;
+}
+
+inline SystemError::SystemError(const SystemError &e) {
+	int size = (e._what)? strlen(e._what) : 0;
+	_what = new char[size + 1];
+	memcpy(_what, e._what, size + 1);
+	_code = e._code;
+	_file = e._file;
+	_line = e._line;
+}
+
+inline SystemError& SystemError::operator=(const SystemError &e) {
+	if (_what) delete []_what;	
+	int size = (e._what)? strlen(e._what) : 0;
+	_what = new char[size + 1];
+	assert(_what);
+	memcpy(_what, e._what, size + 1);
+	_code = e._code;
+	_file = e._file;
+	_line = e._line;
+	return *this;
 }
 
 // destructor of SystemError
@@ -159,6 +183,10 @@ public:
 
 	IMUTEX_TYPE& mutex() { return _mutex; }
 	const IMUTEX_TYPE& mutex() const { return _mutex; }
+
+private:
+	CriticalSection(const CriticalSection &);
+	CriticalSection& operator=(const CriticalSection &);
 
 protected:
 	IMUTEX_TYPE _mutex;
@@ -223,6 +251,10 @@ public:
 		return r? true : false;
 	}
 
+private:
+	ConditionVariable(const ConditionVariable &);
+	ConditionVariable& operator=(const ConditionVariable &);
+
 protected:
 	iConditionVariable *_cond;
 };
@@ -262,6 +294,10 @@ public:
 		return i == 0? false : true;
 	}
 
+private:
+	EventPosix(const EventPosix &);
+	EventPosix& operator=(const EventPosix &);
+
 protected:
 	iEventPosix *_event;
 };
@@ -289,6 +325,10 @@ public:
 	void read_lock() { iposix_rwlock_r_lock(_rwlock); }
 	void read_unlock() { iposix_rwlock_r_unlock(_rwlock); }
 
+private:
+	ReadWriteLock(const ReadWriteLock &);
+	ReadWriteLock& operator=(const ReadWriteLock &);
+
 protected:
 	iRwLockPosix *_rwlock;
 };
@@ -315,6 +355,10 @@ public:
 	void leave() { _lock.leave(); }
 
 private:
+	ConditionLock(const ConditionLock &);
+	ConditionLock& operator=(const ConditionLock &);
+
+private:
 	ConditionVariable _cond;
 	CriticalSection _lock;
 };
@@ -339,10 +383,7 @@ public:
 
 	virtual ~Thread() {
 		if (is_running()) {
-			const char *name = iposix_thread_get_name(_thread);
-			fprintf(stderr, "ERROR: Thread(%s) is still running, joining", name);
-			fflush(stderr);
-			join();
+			assert(! is_running());
 		}
 		if (_thread) iposix_thread_delete(_thread);
 		_thread = NULL;
@@ -443,6 +484,10 @@ public:
 		iposix_thread_set_signal(NULL, sig);
 	}
 
+private:
+	Thread(const Thread &);
+	Thread& operator=(const Thread &);
+
 protected:
 	iPosixThread *_thread;
 };
@@ -511,6 +556,10 @@ public:
 		iposix_timer_reset(_timer);
 	}
 
+private:
+	Timer(const Timer &);
+	Timer& operator=(const Timer &);
+
 protected:
 	iPosixTimer *_timer;
 };
@@ -561,6 +610,10 @@ public:
 		return iposix_sem_value(_sem);
 	}
 
+private:
+	Semaphore(const Semaphore &);
+	Semaphore& operator=(const Semaphore &);
+
 protected:
 	iPosixSemaphore *_sem;
 };
@@ -605,6 +658,10 @@ public:
 		int retval = ipoll_event(_ipoll_desc, fd, event, udata);
 		return (retval == 0)? true : false;
 	}
+
+private:
+	KernelPoll(const KernelPoll &);
+	KernelPoll& operator=(const KernelPoll &);
 
 protected:
 	ipolld _ipoll_desc;
@@ -737,6 +794,10 @@ public:
 	ilong node_max() const { return _node->node_max; }
 	long size() const { return _node->node_used; }
 
+private:
+	MemNode(const MemNode &);
+	MemNode& operator=(const MemNode &);
+
 protected:
 	int _nodesize;
 	ib_memnode *_node;
@@ -783,6 +844,10 @@ public:
 
 	// 取得当前连续的一片数据地址指针，并返回连续数据的大小
 	ilong flat(void **ptr) { return ims_flat(&_stream, ptr); }
+
+private:
+	MemStream(const MemStream &);
+	MemStream& operator=(const MemStream &);
 
 protected:
 	IMSTREAM _stream;
@@ -982,6 +1047,10 @@ public:
 		async_sock_rc4_set_rkey(_sock, key, len);
 	}
 
+private:
+	AsyncSock(const AsyncSock &);
+	AsyncSock& operator=(const AsyncSock &);
+
 protected:
 	mutable CriticalSection *_lock;
 	CAsyncSock *_sock;
@@ -1165,6 +1234,10 @@ public:
 		return async_core_nfds(_core);
 	}
 
+private:
+	AsyncCore(const AsyncCore &);
+	AsyncCore& operator=(const AsyncCore &);
+
 protected:
 	CAsyncCore *_core;
 };
@@ -1290,6 +1363,10 @@ public:
 		async_notify_install(_notify, fun);
 		return hr;
 	}
+
+private:
+	AsyncNotify(const AsyncNotify &);
+	AsyncNotify& operator=(const AsyncNotify &);
 
 protected:
 	int _serverid;
