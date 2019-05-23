@@ -175,70 +175,39 @@ static void itimeofday_default(long *sec, long *usec)
 	#if defined(__unix)
 	struct timeval time;
 	gettimeofday(&time, NULL);
-	if (sec) *sec = time.tv_sec;
-	if (usec) *usec = time.tv_usec;
+	if (sec) *sec = (long)(time.tv_sec);
+	if (usec) *usec = (long)(time.tv_usec);
 	#elif defined(_WIN32)
-	static volatile long mode = 0, addsec = 0;
-	BOOL retval;
-	static IINT64 freq = 1;
-	IINT64 qpc;
-	if (mode == 0) {
-		IMUTEX_TYPE *lock = internal_mutex_get(0);
-		IMUTEX_LOCK(lock);
-		if (mode == 0) {
-			retval = QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
-			freq = (freq == 0)? 1 : freq;
-			retval = QueryPerformanceCounter((LARGE_INTEGER*)&qpc);
-			addsec = (long)time(NULL);
-			addsec = addsec - (long)((qpc / freq) & 0x7fffffff);
-			mode = 1;
-		}
-		IMUTEX_UNLOCK(lock);
-	}
-	retval = QueryPerformanceCounter((LARGE_INTEGER*)&qpc);
-	retval = retval * 2;
-	if (sec) *sec = (long)(qpc / freq) + addsec;
-	if (usec) *usec = (long)((qpc % freq) * 1000000 / freq);
-	#endif
-}
-
-static void itimeofday_clock(long *sec, long *usec)
-{
-	#if defined(_WIN32) && !defined(_XBOX)
-	static volatile unsigned long mode = 0, addsec;
-	static unsigned long lasttick = 0;
-	static IINT64 hitime = 0;
-	static CRITICAL_SECTION mutex;
-	unsigned long _cvalue;
+	typedef void (WINAPI * GetSystemTime_t)(LPFILETIME);
+	static GetSystemTime_t GetSystemTime_p = NULL;
+	static IINT64 epoch = 0;
+	static volatile int inited = 0;
+	LARGE_INTEGER ularge;
+	FILETIME file_time;
 	IINT64 current;
-	if (mode == 0) {
-		IMUTEX_TYPE *lock = internal_mutex_get(0);
-		IMUTEX_LOCK(lock);
-		if (mode == 0) {
-			lasttick = timeGetTime();
-			addsec = (unsigned long)time(NULL);
-			addsec = addsec - lasttick / 1000;
-			InitializeCriticalSection(&mutex);
-			mode = 1;
-		}
-		IMUTEX_UNLOCK(lock);
+	if (inited == 0) {
+		ularge.HighPart = 0x019db1de;
+		ularge.LowPart = 0xd53e8000;
+		epoch = (IINT64)ularge.QuadPart;
+		GetSystemTime_p = (GetSystemTime_t)GetProcAddress(
+				GetModuleHandle(TEXT("kernel32.dll")),
+				"GetSystemTimePreciseAsFileTime"
+				);
+		inited = 1;	
 	}
-	_cvalue = timeGetTime();
-	EnterCriticalSection(&mutex);
-	if (_cvalue < lasttick) {
-		hitime += 0x80000000ul;
-		lasttick = _cvalue;
-		hitime += 0x80000000ul;
+	if (GetSystemTime_p == NULL) {
+		GetSystemTimeAsFileTime(&file_time);
 	}
-	LeaveCriticalSection(&mutex);
-	current = hitime | _cvalue;
-	if (sec) *sec = (long)(current / 1000) + addsec;
-	if (usec) *usec = (long)(current % 1000) * 1000;
-	#else
-	itimeofday_default(sec, usec);
+	else {
+		GetSystemTime_p(&file_time);
+	}
+	ularge.LowPart = file_time.dwLowDateTime;
+	ularge.HighPart = file_time.dwHighDateTime;
+	current = ((IINT64)ularge.QuadPart) - epoch;
+	if (sec) *sec = (long)(current / 10000000);
+	if (usec) *usec = (long)((current % 10000000) / 10);
 	#endif
 }
-
 
 /* get time of day */
 void itimeofday(long *sec, long *usec)
@@ -246,11 +215,7 @@ void itimeofday(long *sec, long *usec)
 	static volatile int inited = 0;
 	IINT64 value;
 	long s, u;
-	if (itimemode == 0) {
-		itimeofday_clock(&s, &u);
-	}	else {
-		itimeofday_default(&s, &u);
-	}
+	itimeofday_default(&s, &u);
 	value = ((IINT64)s) * 1000 + (u / 1000);
 	itimeclock = value;
 	if (inited == 0) {
@@ -270,17 +235,18 @@ void itimeofday(long *sec, long *usec)
 /* get clock in millisecond 64 */
 IINT64 iclock64(void)
 {
+	long s, u;
 	IINT64 value;
-	itimeofday(NULL, NULL);
-	value = itimeclock;
+	itimeofday(&s, &u);
+	value = ((IINT64)s) * 1000 + (u / 1000);
 	return value;
 }
 
 /* get clock in millisecond */
 unsigned long iclock(void)
 {
-	iclock64();
-	return (unsigned long)(itimeclock & 0xfffffffful);
+	IINT64 value = iclock64();
+	return (unsigned long)(value & 0xfffffffful);
 }
 
 
