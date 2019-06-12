@@ -6323,7 +6323,7 @@ int isockaddr_pton(int af, const char *src, void *dst)
 	switch (af) {
 	case AF_INET:
 		return inet_pton4x(src, (unsigned char*)dst);
-#if AF_INET6
+#ifdef AF_INET6
 	case AF_INET6:
 		return inet_pton6x(src, (unsigned char*)dst);
 #endif
