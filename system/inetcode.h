@@ -199,7 +199,7 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_EVT_ESTAB     2   /* estab: (hid, tag) */
 #define ASYNC_CORE_EVT_DATA      3   /* data: (hid, tag)  */
 #define ASYNC_CORE_EVT_PROGRESS  4   /* output progress: (hid, tag) */
-#define ASYNC_CORE_EVT_PUSH      5   /* msg from async_core_push */
+#define ASYNC_CORE_EVT_PUSH      5   /* msg from async_core_post */
 #define ASYNC_CORE_EVT_DGRAM     6   /* raw fd event: (hid, tag) */
 
 #define ASYNC_CORE_NODE_IN          1       /* accepted node */
