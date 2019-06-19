@@ -199,8 +199,9 @@ typedef struct CAsyncCore CAsyncCore;
 #define ASYNC_CORE_EVT_ESTAB     2   /* estab: (hid, tag) */
 #define ASYNC_CORE_EVT_DATA      3   /* data: (hid, tag)  */
 #define ASYNC_CORE_EVT_PROGRESS  4   /* output progress: (hid, tag) */
-#define ASYNC_CORE_EVT_PUSH      5   /* msg from async_core_post */
-#define ASYNC_CORE_EVT_DGRAM     6   /* raw fd event: (hid, tag) */
+#define ASYNC_CORE_EVT_DGRAM     5   /* raw fd event: (hid, tag) */
+#define ASYNC_CORE_EVT_PUSH      6   /* msg from async_core_post */
+#define ASYNC_CORE_EVT_EXTEND    7   /* user defined event */
 
 #define ASYNC_CORE_NODE_IN          1       /* accepted node */
 #define ASYNC_CORE_NODE_OUT         2       /* connected out node */
@@ -282,7 +283,11 @@ long async_core_new_dgram(CAsyncCore *core, const struct sockaddr *addr,
 
 /* queue an ASYNC_CORE_EVT_PUSH event and wake async_core_wait up */
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
-	const char *data, long size);
+	const void *data, long size);
+
+/* queue an arbitrary event and wake async_core_wait up */
+int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
+	const void *data, long size);
 
 /* get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN */
 int async_core_get_mode(const CAsyncCore *core, long hid);
@@ -329,6 +334,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_MASKGET       14
 #define ASYNC_CORE_OPTION_MASKADD       15
 #define ASYNC_CORE_OPTION_MASKDEL       16
+#define ASYNC_CORE_OPTION_SHUTDOWN      17
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);

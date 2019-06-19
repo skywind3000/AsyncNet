@@ -374,7 +374,7 @@ int ikcp_send(ikcpcb *kcp, const char *buffer, int len)
 	if (len <= (int)kcp->mss) count = 1;
 	else count = (len + kcp->mss - 1) / kcp->mss;
 
-	if (count >= IKCP_WND_RCV) return -2;
+	if (count >= (int)IKCP_WND_RCV) return -2;
 
 	if (count == 0) count = 1;
 
@@ -601,7 +601,7 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 
 		size -= IKCP_OVERHEAD;
 
-		if ((long)size < (long)len || ((long)size) < 0) return -2;
+		if ((long)size < (long)len) return -2;
 
 		if (cmd != IKCP_CMD_PUSH && cmd != IKCP_CMD_ACK &&
 			cmd != IKCP_CMD_WASK && cmd != IKCP_CMD_WINS) 

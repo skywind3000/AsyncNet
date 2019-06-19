@@ -810,12 +810,13 @@ struct CAsyncCore
 /*-------------------------------------------------------------------*/
 /* async core definition                                             */
 /*-------------------------------------------------------------------*/
-#define ASYNC_CORE_PIPE_READ		0
-#define ASYNC_CORE_PIPE_WRITE		1
-#define ASYNC_CORE_PIPE_FLAG		2
+#define ASYNC_CORE_PIPE_READ        0
+#define ASYNC_CORE_PIPE_WRITE       1
+#define ASYNC_CORE_PIPE_FLAG        2
 
-#define ASYNC_CORE_FLAG_PROGRESS	1
-#define ASYNC_CORE_FLAG_SENSITIVE	2
+#define ASYNC_CORE_FLAG_PROGRESS    1
+#define ASYNC_CORE_FLAG_SENSITIVE   2
+#define ASYNC_CORE_FLAG_SHUTDOWN    4
 
 #define ASYNC_CORE_HID_SALT        ((1 << (31 - ASYNC_CORE_HID_BITS)) - 1)
 
@@ -1930,6 +1931,12 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 				}
 			}
 		}
+		if (sock->flags & ASYNC_CORE_FLAG_SHUTDOWN) {
+			if (sock->sendmsg.size == 0 && needclose == 0) {
+				needclose = 1;
+				code = 2006;
+			}
+		}
 		if (sock->state == ASYNC_SOCK_STATE_CLOSED || needclose) {
 			async_core_event_close(core, sock, code);
 		}
@@ -1943,7 +1950,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			sock = ilist_entry(core->head.next, CAsyncSock, node);
 			timeout = itimediff(core->current, sock->time + core->timeout);
 			if (timeout < 0) break;
-			async_core_event_close(core, sock, 2006);
+			async_core_event_close(core, sock, 2007);
 		}
 	}
 }
@@ -1964,7 +1971,7 @@ static long _async_core_send_vector(CAsyncCore *core, long hid,
 			async_sock_update(sock, 2);
 		}
 		if (sock->sendmsg.size > (iulong)sock->limited) {
-			async_core_event_close(core, sock, 2007);
+			async_core_event_close(core, sock, 2008);
 			return -200;
 		}
 	}
@@ -2103,7 +2110,7 @@ long async_core_read(CAsyncCore *core, int *event, long *wparam,
 /* push message to msg queue                                         */
 /*-------------------------------------------------------------------*/
 int async_core_push(CAsyncCore *core, int event, long wparam, long lparam, 
-	const char *data, long size)
+	const void *data, long size)
 {
 	async_core_msg_push(core, event, wparam, lparam, data, size);
 	return 0;
@@ -2114,7 +2121,7 @@ int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
 /* queue an ASYNC_CORE_EVT_PUSH event and wake async_core_wait up    */
 /*-------------------------------------------------------------------*/
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
-	const char *data, long size)
+	const void *data, long size)
 {
 	async_core_push(core, ASYNC_CORE_EVT_PUSH, wparam, lparam, data, size);
 	async_core_notify(core);
@@ -2280,6 +2287,21 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			hr = ipoll_set(core->pfd, sock->fd, sock->mask);
 		}	else {
 			hr = -30;
+		}
+		break;
+	case ASYNC_CORE_OPTION_SHUTDOWN:
+		if (sock->mode != ASYNC_CORE_NODE_LISTEN4 && 
+			sock->mode != ASYNC_CORE_NODE_LISTEN6 && 
+			sock->mode != ASYNC_CORE_NODE_DGRAM) {
+			if (sock->sendmsg.size > 0) {
+				async_sock_update(sock, 2);
+			}
+			if (sock->sendmsg.size == 0) {
+				async_core_event_close(core, sock, (int)value);
+			}	else {
+				async_core_node_mask(core, sock, 0, IPOLL_IN);;
+				sock->flags |= ASYNC_CORE_FLAG_SHUTDOWN;
+			}
 		}
 		break;
 	}
