@@ -2299,7 +2299,6 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			if (sock->sendmsg.size == 0) {
 				async_core_event_close(core, sock, (int)value);
 			}	else {
-				async_core_node_mask(core, sock, 0, IPOLL_IN);;
 				sock->flags |= ASYNC_CORE_FLAG_SHUTDOWN;
 			}
 		}
