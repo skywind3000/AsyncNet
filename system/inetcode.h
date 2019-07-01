@@ -335,6 +335,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_MASKADD       15
 #define ASYNC_CORE_OPTION_MASKDEL       16
 #define ASYNC_CORE_OPTION_SHUTDOWN      17
+#define ASYNC_CORE_OPTION_GETHEADER     18
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);

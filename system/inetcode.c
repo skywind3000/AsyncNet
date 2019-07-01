@@ -2303,6 +2303,9 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			}
 		}
 		break;
+	case ASYNC_CORE_OPTION_GETHEADER:
+		hr = sock->header;
+		break;
 	}
 	return hr;
 }
