@@ -73,7 +73,12 @@ struct CAsyncSock
 	int rc4_send_y;					/* rc4 encryption variable */
 	int rc4_recv_x;					/* rc4 encryption variable */
 	int rc4_recv_y;					/* rc4 encryption variable */
+	void *filter;					/* filter function */
+	void *object;					/* filter object */
+	int closing;					/* pending close */
+	int exitcode;					/* exit code */
 	struct ILISTHEAD node;			/* list node */
+	struct ILISTHEAD pending;		/* waiting close */
 	struct IMSTREAM linemsg;		/* line buffer */
 	struct IMSTREAM sendmsg;		/* send buffer */
 	struct IMSTREAM recvmsg;		/* recv buffer */
@@ -224,6 +229,9 @@ typedef struct CAsyncCore CAsyncCore;
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
 	CAsyncCore *core, long listenhid, void *user);
 
+/* Message Filter: can be installed to connection */
+typedef int (*CAsyncFilter)(CAsyncCore *core, void *object, long hid,
+	int cmd, const void *data, long size);
 
 /**
  * create CAsyncCore object:
@@ -357,6 +365,23 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 
 /* set remote ip validator */
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
+
+
+#define ASYNC_CORE_FILTER_RELEASE       0     /* delete filter object */
+#define ASYNC_CORE_FILTER_WRITE         1     /* upper level data send */
+#define ASYNC_CORE_FILTER_INPUT         2     /* lower level data arrival */
+
+/* setup filter */
+void async_core_filter(CAsyncCore *core, long hid, 
+	CAsyncFilter filter, void *object);
+
+#define ASYNC_CORE_DISPATCH_PUSH        0
+#define ASYNC_CORE_DISPATCH_SEND        1
+#define ASYNC_CORE_DISPATCH_CLOSE       2
+
+/* dispatch: for filter only, don't call outside the filter */
+void async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
+	const void *ptr, long size);
 
 /* set timeout */
 void async_core_timeout(CAsyncCore *core, long seconds);

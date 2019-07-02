@@ -145,7 +145,12 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->mask = 0;
 	asyncsock->error = 0;
 	asyncsock->flags = 0;
+	asyncsock->filter = NULL;
+	asyncsock->object = NULL;
+	asyncsock->exitcode = 0;
+	asyncsock->closing = 0;
 	ilist_init(&asyncsock->node);
+	ilist_init(&asyncsock->pending);
 	ims_init(&asyncsock->linemsg, nodes, 0, 0);
 	ims_init(&asyncsock->sendmsg, nodes, 0, 0);
 	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
@@ -173,6 +178,9 @@ void async_sock_destroy(CAsyncSock *asyncsock)
 	asyncsock->tag = -1;
 	asyncsock->error = 0;
 	asyncsock->buffer = NULL;
+	asyncsock->closing = 0;
+	asyncsock->filter = NULL;
+	asyncsock->object = NULL;
 	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
 	ims_destroy(&asyncsock->linemsg);
 	ims_destroy(&asyncsock->sendmsg);
@@ -797,12 +805,14 @@ struct CAsyncCore
 	int xfd[3];
 	int nolock;
 	int flags;
+	int dispatch;
 	IMUTEX_TYPE lock;
 	IMUTEX_TYPE xmtx;
 	IMUTEX_TYPE xmsg;
 	IUINT32 current;
 	IUINT32 lastsec;
 	IUINT32 timeout;
+	struct ILISTHEAD pending;
 	CAsyncValidator validator;
 };
 
@@ -830,6 +840,7 @@ static unsigned int async_core_monitor = 0;
 #define ASYNC_CORE_CRITICAL_END(c)	\
     do { if ((c)->nolock == 0) IMUTEX_UNLOCK(&((c)->lock)); } while (0)
 
+#define ASYNC_CORE_FILTER(s) ((CAsyncFilter)((s)->filter))
 
 static long _async_core_node_head(const CAsyncCore *core);
 static long _async_core_node_next(const CAsyncCore *core, long hid);
@@ -886,6 +897,7 @@ CAsyncCore* async_core_new(int flags)
 
 	ims_init(&core->msgs, core->cache, 0, 0);
 	ilist_init(&core->head);
+	ilist_init(&core->pending);
 
 	core->data = NULL;
 	core->msgcnt = 0;
@@ -901,6 +913,7 @@ CAsyncCore* async_core_new(int flags)
 	core->maxsize = ASYNC_SOCK_MAXSIZE;
 	core->limited = 0;
 	core->flags = 0;
+	core->dispatch = 0;
 
 	core->xfd[0] = -1;
 	core->xfd[1] = -1;
@@ -1052,6 +1065,10 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->flags = 0;
 	sock->error = 0;
 	ilist_add_tail(&sock->node, &core->head);
+	ilist_init(&sock->pending);
+	sock->closing = 0;
+	sock->filter = NULL;
+	sock->object = NULL;
 
 	core->count++;
 
@@ -1101,9 +1118,20 @@ static long async_core_node_delete(CAsyncCore *core, long hid)
 {
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	if (sock == NULL) return -1;
+	if (sock->filter) {
+		CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+		filter(core, sock->object, sock->hid, 
+				ASYNC_CORE_FILTER_RELEASE, NULL, 0);
+		sock->filter = NULL;
+		sock->object = NULL;
+	}
 	if (!ilist_is_empty(&sock->node)) {
 		ilist_del(&sock->node);
 		ilist_init(&sock->node);
+	}
+	if (!ilist_is_empty(&sock->pending)) {
+		ilist_del(&sock->pending);
+		ilist_init(&sock->pending);
 	}
 	async_sock_destroy(sock);
 	imnode_del(core->nodes, ASYNC_CORE_HID_INDEX(hid));
@@ -1273,6 +1301,7 @@ static long async_core_msg_read(CAsyncCore *core, int *event, long *wparam,
 	idecode32i_lsb(head + 10, &x);
 	LPARAM = x;
 	ims_read(&core->msgs, data, length);
+	core->msgcnt--;
 	if (core->nolock == 0) {
 		IMUTEX_UNLOCK(&core->xmsg);
 	}
@@ -1773,6 +1802,7 @@ long async_core_new_dgram(CAsyncCore *core,
 	return hr;
 }
 
+
 /*-------------------------------------------------------------------*/
 /* process close                                                     */
 /*-------------------------------------------------------------------*/
@@ -1780,6 +1810,18 @@ static void async_core_event_close(CAsyncCore *core,
 	CAsyncSock *sock, int code)
 {
 	IUINT32 data[2];
+	if (sock->filter) {
+		CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+		filter(core, sock->object, sock->hid, 
+			ASYNC_CORE_FILTER_RELEASE, NULL, 0);
+		sock->filter = NULL;
+		sock->object = NULL;
+	}
+	if (sock->sendmsg.size > 0) {
+		if (sock->fd >= 0) {
+			async_sock_update(sock, 2);
+		}
+	}
 	data[0] = sock->error;
 	data[1] = code;
 	if (sock->fd >= 0) {
@@ -1791,6 +1833,7 @@ static void async_core_event_close(CAsyncCore *core,
 	async_core_node_delete(core, sock->hid);
 }
 
+
 /*-------------------------------------------------------------------*/
 /* wait for events for millisec ms. and process events,              */
 /* if millisec equals zero, no wait.                                 */
@@ -1798,11 +1841,27 @@ static void async_core_event_close(CAsyncCore *core,
 static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 {
 	int fd, event, x, count, xf, code = 2010;
+	long pending = 0;
 	void *udata;
 	IUINT64 ts;
 	IUINT32 now;
 
-	count = ipoll_wait(core->pfd, millisec);
+	/* process pending close */
+	while (!ilist_is_empty(&core->pending)) {
+		CAsyncSock *sock;
+		sock = ilist_entry(core->pending.next, CAsyncSock, pending);
+		ilist_del(&sock->pending);
+		ilist_init(&sock->pending);
+		async_core_event_close(core, sock, sock->exitcode);
+	}
+
+	/* detect msg count */
+	if (core->nolock == 0) IMUTEX_LOCK(&core->xmsg);
+	pending = core->msgcnt;
+	if (core->nolock == 0) IMUTEX_UNLOCK(&core->xmsg);
+
+	/* waiting events */
+	count = ipoll_wait(core->pfd, (pending == 0)? millisec : 0);
 
 	ts = iclock64();
 	core->current = (IUINT32)(ts & 0xfffffffful);
@@ -1886,8 +1945,19 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 					}
 					size = async_sock_recv(sock, core->buffer,
 						core->bufsize);
-					async_core_msg_push(core, ASYNC_CORE_EVT_DATA,
-						sock->hid, sock->tag, core->buffer, size);
+					if (size >= 0) {
+						if (sock->filter == NULL) {
+							async_core_msg_push(core, ASYNC_CORE_EVT_DATA,
+								sock->hid, sock->tag, core->buffer, size);
+						}
+						else {
+							CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+							core->dispatch = 1;
+							filter(core, sock->object, sock->hid,
+								ASYNC_CORE_FILTER_INPUT, core->buffer, size);
+							core->dispatch = 0;
+						}
+					}
 				}
 			}
 		}
@@ -1957,6 +2027,44 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 
 
 /*-------------------------------------------------------------------*/
+/* close given hid                                                   */
+/*-------------------------------------------------------------------*/
+static int _async_core_close(CAsyncCore *core, long hid, int code)
+{
+	CAsyncSock *sock;
+	sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -1;
+	if (sock->sendmsg.size > 0) {
+		if (sock->fd >= 0) {
+			async_sock_update(sock, 2);
+		}
+	}
+	if (sock->closing) return -2;
+	sock->closing = 1;
+	sock->exitcode = code;
+	if (!ilist_is_empty(&sock->pending)) {
+		ilist_del(&sock->pending);
+		ilist_init(&sock->pending);
+	}
+	ilist_add_tail(&sock->pending, &core->pending);
+	return 0;
+}
+
+
+/*-------------------------------------------------------------------*/
+/* close given hid                                                   */
+/*-------------------------------------------------------------------*/
+int async_core_close(CAsyncCore *core, long hid, int code)
+{
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_close(core, hid, code);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+
+/*-------------------------------------------------------------------*/
 /* send vector                                                       */
 /*-------------------------------------------------------------------*/
 static long _async_core_send_vector(CAsyncCore *core, long hid,
@@ -1966,12 +2074,15 @@ static long _async_core_send_vector(CAsyncCore *core, long hid,
 	CAsyncSock *sock = async_core_node_get(core, hid);
 	long hr;
 	if (sock == NULL) return -100;
+	if (sock->closing) return -110;
 	if (sock->limited > 0 && sock->sendmsg.size > (iulong)sock->limited) {
 		if ((sock->flags & ASYNC_CORE_FLAG_SENSITIVE) == 0) {
-			async_sock_update(sock, 2);
+			if (sock->fd >= 0) {
+				async_sock_update(sock, 2);
+			}
 		}
 		if (sock->sendmsg.size > (iulong)sock->limited) {
-			async_core_event_close(core, sock, 2008);
+			_async_core_close(core, hid, 2008);
 			return -200;
 		}
 	}
@@ -1992,9 +2103,41 @@ long async_core_send_vector(CAsyncCore *core, long hid,
 	const void * const vecptr[],
 	const long veclen[], int count, int mask)
 {
+	CAsyncSock *sock = NULL;
 	long hr = -1;
 	ASYNC_CORE_CRITICAL_BEGIN(core);
-	hr = _async_core_send_vector(core, hid, vecptr, veclen, count, mask);
+	sock = async_core_node_get(core, hid);
+	if (sock) {
+		if (sock->filter == NULL) {
+			hr = _async_core_send_vector(core, hid, vecptr, 
+					veclen, count, mask);
+		}
+		else {
+			CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+			long length = 0;
+			int valid = 1, i;
+			for (i = 0; i < count; i++) length += veclen[i];
+			if (length > core->bufsize) {
+				if (async_core_buffer_resize(core, length) != 0) {
+					valid = 0;
+					hr = -1000;
+				}
+			}
+			if (valid) {
+				char *ptr;
+				for (ptr = (char*)core->data, i = 0; i < count; i++) {
+					if (vecptr[i]) {
+						memcpy(ptr, vecptr[i], veclen[i]);
+					}
+					ptr += veclen[i];
+				}
+				core->dispatch = 1;
+				hr = filter(core, sock->object, hid, 
+						ASYNC_CORE_FILTER_WRITE, core->data, length);
+				core->dispatch = 0;
+			}
+		}
+	}
 	ASYNC_CORE_CRITICAL_END(core);
 	return hr;
 }
@@ -2004,32 +2147,25 @@ long async_core_send_vector(CAsyncCore *core, long hid,
 /*-------------------------------------------------------------------*/
 long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
 {
+	CAsyncSock *sock = NULL;
 	const void *vecptr[1];
 	long veclen[1];
-	long hr;
+	long hr = -1;
 	vecptr[0] = ptr;
 	veclen[0] = len;
 	ASYNC_CORE_CRITICAL_BEGIN(core);
-	hr = _async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
-	ASYNC_CORE_CRITICAL_END(core);
-	return hr;
-}
-
-/*-------------------------------------------------------------------*/
-/* close given hid                                                   */
-/*-------------------------------------------------------------------*/
-int async_core_close(CAsyncCore *core, long hid, int code)
-{
-	CAsyncSock *sock;
-	int hr = -1;
-	ASYNC_CORE_CRITICAL_BEGIN(core);
 	sock = async_core_node_get(core, hid);
-	if (sock != NULL) {
-		if (sock->sendmsg.size > 0) {
-			async_sock_update(sock, 2);
+	if (sock) {
+		if (sock->filter == NULL) {
+			hr = _async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
 		}
-		async_core_event_close(core, sock, code);
-		hr = 0;
+		else {
+			CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+			core->dispatch = 1;
+			hr = filter(core, sock->object, hid, 
+					ASYNC_CORE_FILTER_WRITE, ptr, len);
+			core->dispatch = 0;
+		}
 	}
 	ASYNC_CORE_CRITICAL_END(core);
 	return hr;
@@ -2052,6 +2188,7 @@ void async_core_wait(CAsyncCore *core, IUINT32 millisec)
 	}
 	ASYNC_CORE_CRITICAL_END(core);
 }
+
 
 /*-------------------------------------------------------------------*/
 /* old interface compatible                                          */
@@ -2180,6 +2317,57 @@ long async_core_remain(const CAsyncCore *core, long hid)
 	return size;
 }
 
+/* setup filter */
+void async_core_filter(CAsyncCore *core, long hid, 
+	CAsyncFilter filter, void *object)
+{
+	CAsyncSock *sock;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock) {
+		if (sock->filter) {
+			CAsyncFilter previous = ASYNC_CORE_FILTER(sock);
+			previous(core, sock->object, hid, 
+				ASYNC_CORE_FILTER_RELEASE, NULL, 0);
+			sock->filter = NULL;
+			sock->object = NULL;
+		}
+		sock->filter = ((void*)filter);
+		sock->object = object;
+	}	else {
+		filter(core, object, hid, ASYNC_CORE_FILTER_RELEASE, NULL, 0);
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+}
+
+/* dispatch: for filter only, don't call outside the filter */
+void async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
+	const void *ptr, long size)
+{
+	CAsyncSock *sock = NULL;
+	if (core->dispatch == 0) return;
+	sock = async_core_node_get(core, hid);
+	if (sock == NULL) return;
+	if (sock->closing) return;
+	switch (cmd) {
+	case ASYNC_CORE_DISPATCH_PUSH:
+		async_core_msg_push(core, ASYNC_CORE_EVT_DATA, hid, 
+			sock->tag, ptr, size);
+		break;
+	case ASYNC_CORE_DISPATCH_SEND:
+		{
+			const void *vecptr[1];
+			long veclen[1];
+			vecptr[0] = ptr;
+			veclen[0] = size;
+			_async_core_send_vector(core, hid, vecptr, veclen, 1, 0);
+		}
+		break;
+	case ASYNC_CORE_DISPATCH_CLOSE:
+		_async_core_close(core, hid, (int)size);
+		break;
+	}
+}
 
 /* set connection socket option */
 static int _async_core_option(CAsyncCore *core, long hid, 
@@ -2294,10 +2482,12 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			sock->mode != ASYNC_CORE_NODE_LISTEN6 && 
 			sock->mode != ASYNC_CORE_NODE_DGRAM) {
 			if (sock->sendmsg.size > 0) {
-				async_sock_update(sock, 2);
+				if (sock->fd >= 0) {
+					async_sock_update(sock, 2);
+				}
 			}
 			if (sock->sendmsg.size == 0) {
-				async_core_event_close(core, sock, (int)value);
+				_async_core_close(core, sock->hid, (int)value);
 			}	else {
 				sock->flags |= ASYNC_CORE_FLAG_SHUTDOWN;
 			}
