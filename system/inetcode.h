@@ -367,9 +367,10 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 
 
-#define ASYNC_CORE_FILTER_RELEASE       0     /* delete filter object */
-#define ASYNC_CORE_FILTER_WRITE         1     /* upper level data send */
-#define ASYNC_CORE_FILTER_INPUT         2     /* lower level data arrival */
+#define ASYNC_CORE_FILTER_INIT          0     /* called after install */
+#define ASYNC_CORE_FILTER_RELEASE       1     /* called before delete */
+#define ASYNC_CORE_FILTER_WRITE         2     /* upper level data send */
+#define ASYNC_CORE_FILTER_INPUT         3     /* lower level data arrival */
 
 /* setup filter */
 void async_core_filter(CAsyncCore *core, long hid, 
@@ -380,7 +381,7 @@ void async_core_filter(CAsyncCore *core, long hid,
 #define ASYNC_CORE_DISPATCH_CLOSE       2
 
 /* dispatch: for filter only, don't call outside the filter */
-void async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
+int async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
 	const void *ptr, long size);
 
 /* set timeout */

@@ -2322,6 +2322,7 @@ void async_core_filter(CAsyncCore *core, long hid,
 	CAsyncFilter filter, void *object)
 {
 	CAsyncSock *sock;
+	if (core->dispatch) return;
 	ASYNC_CORE_CRITICAL_BEGIN(core);
 	sock = async_core_node_get(core, hid);
 	if (sock) {
@@ -2334,6 +2335,13 @@ void async_core_filter(CAsyncCore *core, long hid,
 		}
 		sock->filter = ((void*)filter);
 		sock->object = object;
+		if (filter) {
+			CAsyncFilter current = ASYNC_CORE_FILTER(sock);
+			core->dispatch = 1;
+			current(core, sock->object, hid,
+				ASYNC_CORE_FILTER_INIT, NULL, 0);
+			core->dispatch = 0;
+		}
 	}	else {
 		filter(core, object, hid, ASYNC_CORE_FILTER_RELEASE, NULL, 0);
 	}
@@ -2341,14 +2349,14 @@ void async_core_filter(CAsyncCore *core, long hid,
 }
 
 /* dispatch: for filter only, don't call outside the filter */
-void async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
+int async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
 	const void *ptr, long size)
 {
 	CAsyncSock *sock = NULL;
-	if (core->dispatch == 0) return;
+	if (core->dispatch == 0) return -1;
 	sock = async_core_node_get(core, hid);
-	if (sock == NULL) return;
-	if (sock->closing) return;
+	if (sock == NULL) return -2;
+	if (sock->closing) return -3;
 	switch (cmd) {
 	case ASYNC_CORE_DISPATCH_PUSH:
 		async_core_msg_push(core, ASYNC_CORE_EVT_DATA, hid, 
@@ -2367,6 +2375,7 @@ void async_core_dispatch(CAsyncCore *core, long hid, int cmd,
 		_async_core_close(core, hid, (int)size);
 		break;
 	}
+	return 0;
 }
 
 /* set connection socket option */
