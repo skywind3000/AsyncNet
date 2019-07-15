@@ -1901,7 +1901,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			int evt = event & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
 			iencode32u_lsb(body, (long)sock->fd);
 			iencode16u_lsb(body + 4, (short)evt);
-			iencode16u_lsb(body + 6, sock->ipv6? 1 : 0);
+			iencode16u_lsb(body + 6, (short)(sock->ipv6? 1 : 0));
 			async_core_msg_push(core, ASYNC_CORE_EVT_DGRAM, 
 					sock->hid, sock->tag, body, 8);
 			continue;
