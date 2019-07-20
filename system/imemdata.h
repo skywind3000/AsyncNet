@@ -69,7 +69,7 @@ typedef unsigned long long IUINT64;
 
 
 /**********************************************************************
- * DETECTION WORD ORDER
+ * DETECT BYTE ORDER & ALIGN
  **********************************************************************/
 #ifndef IWORDS_BIG_ENDIAN
     #ifdef _BIG_ENDIAN_
@@ -91,6 +91,17 @@ typedef unsigned long long IUINT64;
         #define IWORDS_BIG_ENDIAN  0
     #endif
 #endif
+
+#ifndef IWORDS_MUST_ALIGN
+	#if defined(__i386__) || defined(__i386) || defined(_i386_)
+		#define IWORDS_MUST_ALIGN 0
+	#elif defined(_M_IX86) || defined(_X86_) || defined(__x86_64__)
+		#define IWORDS_MUST_ALIGN 0
+	#else
+		#define IWORDS_MUST_ALIGN 1
+	#endif
+#endif
+
 
 #ifndef IASSERT
 #define IASSERT(x) assert(x)
@@ -793,7 +804,7 @@ static inline const char *idecode8u(const char *p, unsigned char *c)
 /* encode 16 bits unsigned int (lsb) */
 static inline char *iencode16u_lsb(char *p, unsigned short w)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*(unsigned char*)(p + 0) = (w & 255);
 	*(unsigned char*)(p + 1) = (w >> 8);
 #else
@@ -806,7 +817,7 @@ static inline char *iencode16u_lsb(char *p, unsigned short w)
 /* decode 16 bits unsigned int (lsb) */
 static inline const char *idecode16u_lsb(const char *p, unsigned short *w)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*w = *(const unsigned char*)(p + 1);
 	*w = *(const unsigned char*)(p + 0) + (*w << 8);
 #else
@@ -819,7 +830,7 @@ static inline const char *idecode16u_lsb(const char *p, unsigned short *w)
 /* encode 16 bits unsigned int (msb) */
 static inline char *iencode16u_msb(char *p, unsigned short w)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	*(unsigned short*)(p) = w;
 #else
 	*(unsigned char*)(p + 0) = (w >> 8);
@@ -832,7 +843,7 @@ static inline char *iencode16u_msb(char *p, unsigned short w)
 /* decode 16 bits unsigned int (msb) */
 static inline const char *idecode16u_msb(const char *p, unsigned short *w)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	*w = *(const unsigned short*)p;
 #else
 	*w = *(const unsigned char*)(p + 0);
@@ -845,7 +856,7 @@ static inline const char *idecode16u_msb(const char *p, unsigned short *w)
 /* encode 32 bits unsigned int (lsb) */
 static inline char *iencode32u_lsb(char *p, IUINT32 l)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*(unsigned char*)(p + 0) = (unsigned char)((l >>  0) & 0xff);
 	*(unsigned char*)(p + 1) = (unsigned char)((l >>  8) & 0xff);
 	*(unsigned char*)(p + 2) = (unsigned char)((l >> 16) & 0xff);
@@ -860,7 +871,7 @@ static inline char *iencode32u_lsb(char *p, IUINT32 l)
 /* decode 32 bits unsigned int (lsb) */
 static inline const char *idecode32u_lsb(const char *p, IUINT32 *l)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*l = *(const unsigned char*)(p + 3);
 	*l = *(const unsigned char*)(p + 2) + (*l << 8);
 	*l = *(const unsigned char*)(p + 1) + (*l << 8);
@@ -875,7 +886,7 @@ static inline const char *idecode32u_lsb(const char *p, IUINT32 *l)
 /* encode 32 bits unsigned int (msb) */
 static inline char *iencode32u_msb(char *p, IUINT32 l)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	*(IUINT32*)p = l;
 #else
 	*(unsigned char*)(p + 0) = (unsigned char)((l >> 24) & 0xff);
@@ -890,7 +901,7 @@ static inline char *iencode32u_msb(char *p, IUINT32 l)
 /* decode 32 bits unsigned int (msb) */
 static inline const char *idecode32u_msb(const char *p, IUINT32 *l)
 {
-#if IWORDS_BIG_ENDIAN
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	*l = *(const IUINT32*)p;
 #else 
 	*l = *(const unsigned char*)(p + 0);

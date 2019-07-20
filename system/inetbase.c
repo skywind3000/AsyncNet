@@ -4838,7 +4838,6 @@ void iposix_thread_delete(iPosixThread *thread)
 	if (thread == NULL) return;
 	if (thread->target == NULL) return;
 
-	assert(!thread->alive);
 	assert(thread->state == IPOSIX_THREAD_STATE_STOP);
 
 	thread->alive = 0;
