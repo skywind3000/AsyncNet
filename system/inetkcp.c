@@ -39,6 +39,7 @@ const IUINT32 IKCP_THRESH_INIT = 2;
 const IUINT32 IKCP_THRESH_MIN = 2;
 const IUINT32 IKCP_PROBE_INIT = 7000;		// 7 secs to probe window size
 const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
+const IUINT32 IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
 
 
 //---------------------------------------------------------------------
@@ -161,6 +162,7 @@ ikcpcb* ikcp_create(IUINT32 conv, void *user)
 	kcp->logmask = 0;
 	kcp->ssthresh = IKCP_THRESH_INIT;
 	kcp->fastresend = 0;
+	kcp->fastlimit = IKCP_FASTACK_LIMIT;
 	kcp->nocwnd = 0;
 	kcp->xmit = 0;
     kcp->dead_link = IKCP_DEADLINK;
@@ -572,7 +574,7 @@ void ikcp_parse_data(ikcpcb *kcp, IKCPSEG *newseg)
 //---------------------------------------------------------------------
 int ikcp_input(ikcpcb *kcp, const char *data, long size)
 {
-	IUINT32 una = kcp->snd_una;
+	IUINT32 prev_una = kcp->snd_una;
 
 	if (ikcp_canlog(kcp, IKCP_LOG_INPUT)) {
 		ikcp_log(kcp, IKCP_LOG_INPUT, "[RI] %d bytes", size);
@@ -673,7 +675,7 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 		size -= len;
 	}
 
-	if (itimediff(kcp->snd_una, una) > 0) {
+	if (itimediff(kcp->snd_una, prev_una) > 0) {
 		if (kcp->cwnd < kcp->rmt_wnd) {
 			IUINT32 mss = kcp->mss;
 			if (kcp->cwnd < kcp->ssthresh) {
@@ -865,11 +867,14 @@ void ikcp_flush(ikcpcb *kcp)
 			lost = 1;
 		}
 		else if (segment->fastack >= resent) {
-			needsend = 1;
-			segment->xmit++;
-			segment->fastack = 0;
-			segment->resendts = current + segment->rto;
-			change++;
+			if ((int)segment->xmit <= kcp->fastlimit || 
+				kcp->fastlimit <= 0) {
+				needsend = 1;
+				segment->xmit++;
+				segment->fastack = 0;
+				segment->resendts = current + segment->rto;
+				change++;
+			}
 		}
 
 		if (needsend) {

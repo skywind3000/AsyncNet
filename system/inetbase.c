@@ -4810,13 +4810,13 @@ iPosixThread *iposix_thread_new(iPosixThreadFun target, void *obj,
 	if (name == NULL) name = "NonameThread";
 
 	if (name) {
-		int size = strlen(name) + 1;
+		int size = (int)strlen(name);
 		if (size >= IPOSIX_THREAD_NAME_SIZE) 
 			size = IPOSIX_THREAD_NAME_SIZE - 1;
 		if (size > 0) {
-			memcpy(thread->name, name, size - 1);
+			memcpy(thread->name, name, size);
 		}
-		thread->name[size] = 0;
+		thread->name[(size < 0)? 0 : size] = 0;
 	}	else {
 		memcpy(thread->name, "NONAME", 6);
 		thread->name[6] = 0;
