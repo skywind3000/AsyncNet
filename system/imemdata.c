@@ -37,7 +37,7 @@ idict_t *idict_create(void)
 	iv_init(&dict->vect, ikmem_allocator);
 
 	dict->shift = 6;
-	dict->length = (1 << dict->shift);
+	dict->length = ((ilong)1 << dict->shift);
 	dict->mask = dict->length - 1;
 	dict->size = 0;
 	dict->nodes.grow_limit = 8192;
@@ -164,7 +164,7 @@ static inline int _idict_resize(idict_t *dict, int newshift)
 	ilong pos, i;
 	int retval;
 
-	newsize = (1l << newshift);
+	newsize = ((ilong)1 << newshift);
 
 	retval = iv_resize(&dict->vect, sizeof(struct IDICTBUCKET) * newsize);
 	if (retval) return -1;
@@ -262,7 +262,7 @@ static inline ilong _idict_update(idict_t *dict, const ivalue_t *key,
 
 	/* check necessary of table-growwing */
 	if (dict->size >= (dict->length << 1)) 
-		_idict_resize(dict, dict->shift + 1);
+		_idict_resize(dict, (int)(dict->shift) + 1);
 
 	return pos;
 }
@@ -403,7 +403,7 @@ void idict_clear(idict_t *dict)
 {
 	assert(dict);
 	while (1) {
-		long pos = idict_pos_head(dict);
+		ilong pos = idict_pos_head(dict);
 		if (pos < 0) break;
 		idict_pos_delete(dict, pos);
 	}
@@ -1751,7 +1751,7 @@ static int it_strcmpx(const ivalue_t *src, const ivalue_t *str, ilong start,
 	if (start > (ilong)it_size(src)) start = (ilong)it_size(src);
 
 	size = it_size(src) - start;
-	minsize = _imin(size, it_size(str));
+	minsize = (IUINT32)_imin((IUINT32)size, (IUINT32)it_size(str));
 
 	p1 = it_str(src) + start;
 	p2 = it_str(str);
@@ -2068,7 +2068,7 @@ ivalue_t *it_strappendl(ivalue_t *src, ilong val, int radix)
 {
 	char digit[32];
 	assert(it_type(src) == ITYPE_STR);
-	iltoa(val, digit, radix);
+	iltoa((long)val, digit, radix);
 	it_strcatc2(src, digit);
 	return src;
 }
@@ -2078,7 +2078,7 @@ ivalue_t *it_strappendul(ivalue_t *src, iulong val, int radix)
 {
 	char digit[32];
 	assert(it_type(src) == ITYPE_STR);
-	iultoa(val, digit, radix);
+	iultoa((unsigned long)val, digit, radix);
 	it_strcatc2(src, digit);
 	return src;
 }

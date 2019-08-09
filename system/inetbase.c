@@ -1494,7 +1494,7 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 
 	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
 	#ifdef AF_INET6
-		fd = socket(AF_INET6, SOCK_DGRAM, 0);
+		fd = (int)socket(AF_INET6, SOCK_DGRAM, 0);
 	#endif
 	#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
 		if (fd >= 0) {
@@ -1504,7 +1504,7 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 		}
 	#endif
 	}	else {
-		fd = socket(AF_INET, SOCK_DGRAM, 0);
+		fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
 	}
 
 	if (fd < 0) return -1;
@@ -1621,7 +1621,7 @@ static int isocket_pair_imp(int fds[2], int mode)
 	int sock[2] = { -1, -1 };
 	int listener;
 
-	if ((listener = socket(AF_INET, SOCK_STREAM, 0)) < 0) 
+	if ((listener = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0) 
 		return -1;
 	
 	addr1.sin_family = AF_INET;
@@ -1642,13 +1642,13 @@ static int isocket_pair_imp(int fds[2], int mode)
 	if (listen(listener, 1))
 		goto failed;
 
-	if ((sock[0] = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+	if ((sock[0] = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		goto failed;
 
 	if (iconnect(sock[0], (struct sockaddr*)&addr1, 0))
 		goto failed;
 
-	if ((sock[1] = accept(listener, 0, 0)) < 0)
+	if ((sock[1] = (int)accept(listener, 0, 0)) < 0)
 		goto failed;
 
 	if (ipeername(sock[0], (struct sockaddr*)&addr1, NULL))
@@ -6125,7 +6125,7 @@ static int inet_pton4x(const char *src, unsigned char *dst)
 
 	if (c != '\0' && !isspace(c)) return -1;
 
-	n = pp - parts + 1;
+	n = (int)(pp - parts + 1);
 	if (pton && n != 4) return -1;
 
 	switch (n) {
@@ -6212,7 +6212,7 @@ static int inet_pton6x(const char *src, unsigned char *dst)
 		*tp++ = (unsigned char) val & 0xff;
 	}
 	if (colonp != NULL) {
-		const int n = tp - colonp;
+		const int n = (int)(tp - colonp);
 		int i;
 		if (tp == endp) return -1;
 		for (i = 1; i <= n; i++) {

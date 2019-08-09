@@ -6,6 +6,7 @@
 // for more information, please see the readme file.
 //
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
+// Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
 //
 //=====================================================================
 #ifndef __ISECURE_H__
@@ -200,16 +201,16 @@ void HASH_SHA1_Final(HASH_SHA1_CTX *ctx, unsigned char digest[20]);
 char* hash_digest_to_string(const unsigned char *in, int size, char *out);
 
 // calculate md5sum and convert digests to string
-char* hash_md5sum(const void *in, size_t len, char *out);
+char* hash_md5sum(const void *in, unsigned int len, char *out);
 
 // calculate sha1sum and convert digests to string
-char* hash_sha1sum(const void *in, size_t len, char *out);
+char* hash_sha1sum(const void *in, unsigned int len, char *out);
 
 // calculate crc32 and return result
-IUINT32 hash_crc32(const void *in, size_t len);
+IUINT32 hash_crc32(const void *in, unsigned int len);
 
-#define cal_crc32 hash_crc32
-
+// sum all bytes together
+IUINT32 hash_checksum(const void *in, unsigned int len);
 
 
 //=====================================================================
@@ -264,6 +265,61 @@ void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
 void CRYPTO_XTEA_Encipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
 
 void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
+
+
+//=====================================================================
+// LCG: https://en.wikipedia.org/wiki/Linear_congruential_generator
+//=====================================================================
+
+// rand() in stdlib.h (c99), output range: 0 <= x <= 32767
+IUINT32 random_std_c99(IUINT32 *seed);
+
+// rand() in stdlib.h (msvc), output range: 0 <= x <= 32767
+IUINT32 random_std_msvc(IUINT32 *seed);
+
+// minstd_rand in C++, output range: 0 <= x < 0x7fffffff
+IUINT32 random_std_cpp(IUINT32 *seed);
+
+
+//=====================================================================
+// Statistically perfect random generator
+//=====================================================================
+typedef struct
+{
+	IUINT32 seed;      // random seed
+	IUINT32 size;      // array size
+	IUINT32 avail;     // available numbers
+	IUINT32 *state;    // states array
+}	RANDOM_BOX;
+
+
+// initialize random box
+void RANDOM_BOX_Init(RANDOM_BOX *box, IUINT32 *state, IUINT32 size);
+
+// change seed
+void RANDOM_BOX_Seed(RANDOM_BOX *box, IUINT32 seed);
+
+// next random number within 0 <= x < size
+IUINT32 RANDOM_BOX_Next(RANDOM_BOX *box);
+
+
+//=====================================================================
+// PCG: PCG is a family of simple fast statistically good algorithms
+//=====================================================================
+typedef struct
+{
+	IUINT64 state;    // RNG state.  All values are possible.
+	IUINT64 inc;      // Must *always* be odd.
+}	RANDOM_PCG;
+
+// initialize pcg 
+void RANDOM_PCG_Init(RANDOM_PCG *pcg, IUINT64 initstate, IUINT64 initseq);
+
+// next random number 
+IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg);
+
+// next random number within 0 <= x < bound
+IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound);
 
 
 #ifdef __cplusplus

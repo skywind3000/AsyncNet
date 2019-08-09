@@ -1113,7 +1113,7 @@ void *ib_tree_find(struct ib_tree *tree, const void *data)
 {
 	struct ib_node *n = tree->root.node;
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = tree->offset;
+	int offset = (int)(tree->offset);
 	while (n) {
 		void *nd = IB_NODE2DATA(n, offset);
 		int hr = compare(data, nd);
@@ -1135,7 +1135,7 @@ void *ib_tree_nearest(struct ib_tree *tree, const void *data)
 	struct ib_node *n = tree->root.node;
 	struct ib_node *p = NULL;
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = tree->offset;
+	int offset = (int)(tree->offset);
 	while (n) {
 		void *nd = IB_NODE2DATA(n, offset);
 		int hr = compare(data, nd);
@@ -1159,7 +1159,7 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 	struct ib_node *parent = NULL;
 	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = tree->offset;
+	int offset = (int)(tree->offset);
 	while (link[0]) {
 		void *pd;
 		int hr;
@@ -2138,7 +2138,7 @@ int ib_hash_compare_str(const void *key1, const void *key2)
 
 int ib_compare_bytes(const void *p1, size_t s1, const void *p2, size_t s2)
 {
-	int minsize = (s1 < s2)? s1 : s2;
+	size_t minsize = (s1 < s2)? s1 : s2;
 	int hr = memcmp(p1, p2, minsize);
 	if (hr == 0) {
 		if (s1 == s2) return 0;

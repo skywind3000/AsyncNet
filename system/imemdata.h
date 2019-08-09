@@ -1044,7 +1044,7 @@ static inline char *iencodes(char *p, const void *ptr, ilong size)
 static inline const char *idecodes(const char *p, void *ptr, ilong *size)
 {
 	unsigned short length;
-	long min = 0xffff;
+	ilong min = 0xffff;
 	p = idecode16u_lsb(p, &length);
 	if (size) {
 		if (*size > 0) min = *size;
@@ -1083,7 +1083,7 @@ static inline char *iencodev(char *p, const ivalue_t *v)
 		p = iencodes(p, it_str(v), it_size(v));
 		break;
 	case ITYPE_INT:
-		p = iencode32i_lsb(p, it_int(v));
+		p = iencode32i_lsb(p, (IINT32)it_int(v));
 		break;
 	case ITYPE_FLOAT:
 		p = iencodef_lsb(p, it_flt(v));

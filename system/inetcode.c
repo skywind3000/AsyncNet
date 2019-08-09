@@ -343,12 +343,12 @@ static int async_sock_try_send(CAsyncSock *asyncsock)
 	void *ptr;
 	char *flat;
 	long size;
-	int retval;
+	ilong retval;
 
 	if (asyncsock->state != ASYNC_SOCK_STATE_ESTAB) return 0;
 
 	while (1) {
-		size = ims_flat(&asyncsock->sendmsg, &ptr);
+		size = (long)ims_flat(&asyncsock->sendmsg, &ptr);
 		if (size <= 0) break;
 		flat = (char*)ptr;
 		retval = isend(asyncsock->fd, flat, size, 0);
@@ -357,7 +357,7 @@ static int async_sock_try_send(CAsyncSock *asyncsock)
 			retval = ierrno();
 			if (retval == IEAGAIN || retval == 0) break;
 			else {
-				asyncsock->error = retval;
+				asyncsock->error = (int)retval;
 				return -1;
 			}
 		}
@@ -399,7 +399,7 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 			for (start = 0, pos = 0; pos < retval; pos++) {
 				if (buffer[pos] == '\n') {
 					long x = pos - start + 1;
-					long y = asyncsock->linemsg.size;
+					long y = (long)(asyncsock->linemsg.size);
 					iencode32u_lsb(head, x + y + 4);
 					ims_write(&asyncsock->recvmsg, head, 4);
 					while (asyncsock->linemsg.size > 0) {
@@ -479,7 +479,7 @@ int async_sock_fd(const CAsyncSock *asyncsock)
 /* get how many bytes remain in the send buffer */
 long async_sock_remain(const CAsyncSock *asyncsock)
 {
-	return asyncsock->sendmsg.size;
+	return (long)asyncsock->sendmsg.size;
 }
 
 
@@ -1159,7 +1159,7 @@ static int async_core_node_active(CAsyncCore *core, long hid)
 static long _async_core_node_head(const CAsyncCore *core)
 {
 	const CAsyncSock *sock = NULL;
-	long index = imnode_head(core->nodes);
+	long index = (long)imnode_head(core->nodes);
 	if (index < 0) return -1;
 	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
 	return sock->hid;
@@ -1173,7 +1173,7 @@ static long _async_core_node_next(const CAsyncCore *core, long hid)
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
 	long index = ASYNC_CORE_HID_INDEX(hid);
 	if (sock == NULL) return -1;
-	index = imnode_next(core->nodes, index);
+	index = (long)imnode_next(core->nodes, index);
 	if (index < 0) return -1;
 	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
 	if (sock == NULL) {
@@ -1191,7 +1191,7 @@ static long _async_core_node_prev(const CAsyncCore *core, long hid)
 	const CAsyncSock *sock = async_core_node_get_const(core, hid);
 	long index = ASYNC_CORE_HID_INDEX(hid);
 	if (sock == NULL) return -1;
-	index = imnode_prev(core->nodes, index);
+	index = (long)imnode_prev(core->nodes, index);
 	if (index < 0) return -1;
 	sock = (const CAsyncSock*)IMNODE_DATA(core->nodes, index);
 	if (sock == NULL) {
@@ -1586,7 +1586,7 @@ static long _async_core_new_listen(CAsyncCore *core,
 
 	if (addrlen > 20) {
 	#ifdef AF_INET6
-		fd = socket(AF_INET6, SOCK_STREAM, 0);
+		fd = (int)socket(AF_INET6, SOCK_STREAM, 0);
 		#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
 		if (fd >= 0) {
 			unsigned long enable = 1;
@@ -1599,7 +1599,7 @@ static long _async_core_new_listen(CAsyncCore *core,
 	#endif
 		ipv6 = 1;
 	}	else {
-		fd = socket(AF_INET, SOCK_STREAM, 0);
+		fd = (int)socket(AF_INET, SOCK_STREAM, 0);
 		addrlen = sizeof(struct sockaddr_in);
 		ipv6 = 0;
 	}
@@ -2877,7 +2877,7 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 		*out++ = '=';
 	}
 	*out = '\0';
-	return saveout - out;
+	return (int)(saveout - out);
 };
 
 
@@ -3055,12 +3055,12 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		}	else {
 			sprintf(auth, "%s:%s", user, pass);
 			iproxy_base64((unsigned char*)auth, (unsigned char*)auth64, 
-				strlen(auth));
+				(int)strlen(auth));
 			sprintf(proxy->data, 
 			"CONNECT %s HTTP/1.0\r\nProxy-Authorization: Basic %s\r\n\r\n", 
 			addr, auth64);
 		}
-		proxy->totald = strlen(proxy->data);
+		proxy->totald = (int)strlen(proxy->data);
 		proxy->data[proxy->totald] = 0;
 		break;
 
@@ -3091,14 +3091,14 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		proxy->data[404] = 0;
 		proxy->data[405] = 3;
 		sprintf(addr, "%d.%d.%d.%d", ips[0], ips[1], ips[2], ips[3]);
-		proxy->data[406] = strlen(addr);
+		proxy->data[406] = (int)strlen(addr);
 		memcpy(proxy->data + 407, addr, strlen(addr));
 		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
 		iencode16u_lsb((char*)(proxy->data + 400), 
 			(unsigned short)(7 + strlen(addr)));
 		if (authent) {
-			i = strlen(user);
-			j = strlen(pass);
+			i = (int)strlen(user);
+			j = (int)strlen(pass);
 			proxy->data[702] = 1;
 			proxy->data[703] = i;
 			memcpy(proxy->data + 704, user, i);

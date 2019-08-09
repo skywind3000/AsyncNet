@@ -6,10 +6,12 @@
 // for more information, please see the readme file.
 //
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
+// Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
 //
 //=====================================================================
 #include "isecure.h"
 #include <stdlib.h>
+
 
 //=====================================================================
 // INLINE
@@ -539,20 +541,20 @@ char* hash_digest_to_string(const unsigned char *in, int size, char *out)
 }
 
 // calculate md5sum and convert digests to string
-char* hash_md5sum(const void *in, size_t len, char *out)
+char* hash_md5sum(const void *in, unsigned int len, char *out)
 {
 	static char text[48];
 	unsigned char digest[16];
 	HASH_MD5_CTX ctx;
 	HASH_MD5_Init(&ctx, 0);
-	HASH_MD5_Update(&ctx, in, len);
+	HASH_MD5_Update(&ctx, in, (unsigned int)len);
 	HASH_MD5_Final(&ctx, digest);
 	if (out == NULL) out = text;
 	return hash_digest_to_string(digest, 16, out);
 }
 
 // calculate sha1sum and convert digests to string
-char* hash_sha1sum(const void *in, size_t len, char *out)
+char* hash_sha1sum(const void *in, unsigned int len, char *out)
 {
 	static char text[48];
 	unsigned char digest[20];
@@ -605,16 +607,25 @@ IUINT32 crc_32_tab[] = { /* CRC polynomial 0xedb88320 */
 };
 
 // calculate crc32 and return result
-IUINT32 hash_crc32(const void *in, size_t len)
+IUINT32 hash_crc32(const void *in, unsigned int len)
 {
-	unsigned char* p = (unsigned char *)in;
+	const unsigned char* p = (const unsigned char *)in;
 	IUINT32 result = 0xffffffff;
-	size_t i = 0;
+	unsigned int i = 0;
 	for (i = 0; i < len; i++){
 		result = UPDC32(p[i], result);
 	}
 	result ^= 0xffffffff;  
 	return result;
+}
+
+// sum all bytes together
+IUINT32 hash_checksum(const void *in, unsigned int len)
+{
+	const unsigned char* p = (const unsigned char *)in;
+	IUINT32 checksum = 0;
+	for (; len > 0; len--, p++) checksum += *p;
+	return checksum;
 }
 
 
@@ -828,6 +839,131 @@ void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2])
 		v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + key[sum & 3]);
 	}
 	v[0]=v0; v[1]=v1;
+}
+
+
+//=====================================================================
+// LCG: https://en.wikipedia.org/wiki/Linear_congruential_generator
+//=====================================================================
+
+// rand() in stdlib.h (c99), output range: 0 <= x <= 32767
+IUINT32 random_std_c99(IUINT32 *seed) 
+{
+	seed[0] = seed[0] * 1103515245 + 12345;
+	return (seed[0] >> 16) & 0x7fff;
+}
+
+// rand() in stdlib.h (msvc), output range: 0 <= x <= 32767
+IUINT32 random_std_msvc(IUINT32 *seed) 
+{
+	seed[0] = seed[0] * 214013 + 2531011;
+	return (seed[0] >> 16) & 0x7fff;
+}
+
+// minstd_rand in C++, output range: 0 <= x < 0x7fffffff
+IUINT32 random_std_cpp(IUINT32 *seed) 
+{
+    const IUINT32 N = 0x7fffffff;
+    const IUINT32 G = 48271u;
+	IUINT32 div, rem, a, b;
+	if (seed[0] == 0) seed[0] = 11;
+    div = seed[0] / (N / G);  /* max : 2,147,483,646 / 44,488 = 48,271 */
+    rem = seed[0] % (N / G);  /* max : 2,147,483,646 % 44,488 = 44,487 */
+    a = rem * G;        /* max : 44,487 * 48,271 = 2,147,431,977 */
+    b = div * (N % G);  /* max : 48,271 * 3,399 = 164,073,129 */
+    seed[0] = (a > b) ? (a - b) : (a + (N - b));
+	return seed[0];
+}
+
+
+//=====================================================================
+// Statistically perfect random generator
+//=====================================================================
+
+void RANDOM_BOX_Init(RANDOM_BOX *box, IUINT32 *state, IUINT32 size)
+{
+	box->state = state;
+	box->size = size;
+	box->seed = 0;
+	box->avail = 0;
+	assert(size > 0);
+}
+
+
+// change seed
+void RANDOM_BOX_Seed(RANDOM_BOX *box, IUINT32 seed)
+{
+	box->seed = seed;
+}
+
+
+// next random number within 0 <= x < size
+IUINT32 RANDOM_BOX_Next(RANDOM_BOX *box)
+{
+	IUINT32 *state = box->state;
+	IUINT32 x, y;
+	if (box->avail == 0) {
+		box->avail = box->size;
+		for (x = 0; x < box->size; x++) 
+			state[x] = x;	
+	}
+	x = random_std_cpp(&(box->seed)) % box->avail;
+	y = state[x];
+	box->avail--;
+	state[x] = state[box->avail];
+	return y;
+}
+
+
+
+//=====================================================================
+// PCG: PCG is a family of simple fast statistically good algorithms
+//=====================================================================
+
+// static initializer
+const RANDOM_PCG RANDOM_PCG_INITIALIZER = {
+	0x853c49e6748fea9b, 0xda3e39cb94b95bdb
+};
+
+// initialize pcg 
+void RANDOM_PCG_Init(RANDOM_PCG *pcg, IUINT64 initstate, IUINT64 initseq)
+{
+	pcg->state = 0;
+	pcg->inc = (initseq << 1) | 1;
+	RANDOM_PCG_Next(pcg);
+	pcg->state += initstate;
+	RANDOM_PCG_Next(pcg);
+}
+
+
+// next random number 
+IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg)
+{
+	const IUINT64 multiplier = 6364136223846793005u;
+	IUINT64 state = pcg->state;
+	IUINT32 xorshifted, rot, irot;
+	pcg->state = state * multiplier + pcg->inc;
+    xorshifted = (IUINT32)(((state >> 18) ^ state) >> 27);
+    rot = (IUINT32)(state >> 59);
+	irot = (0xffffffff - rot) + 1;
+    return (xorshifted >> rot) | (xorshifted << (irot & 31));
+}
+
+
+// next random number within 0 <= x < bound
+IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound)
+{
+	IUINT32 threshold, hr = 0;
+	if (bound <= 1) return 0;
+	threshold = (((0xffffffff - bound)) + 1) % bound;
+	while (1) {
+        IUINT32 r = RANDOM_PCG_Next(pcg);
+        if (r >= threshold) {
+            hr = r % bound;
+			break;
+		}
+    }
+	return hr;
 }
 
 
