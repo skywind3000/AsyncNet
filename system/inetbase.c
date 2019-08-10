@@ -840,7 +840,7 @@ int ipollfd(int sock, int event, long millisec)
 		retval |= ISOCK_ESEND;
 	if ((event & ISOCK_ERROR) && (pfd.revents & POLLERR)) 
 		retval |= ISOCK_ERROR;
-	#elif defined(__AVM3__) 
+	#else
 	struct timeval tmx = { 0, 0 };
 	fd_set fdr, fdw, fde;
 	fd_set *pr = NULL, *pw = NULL, *pe = NULL;
@@ -866,27 +866,6 @@ int ipollfd(int sock, int event, long millisec)
 	if ((event & ISOCK_ERECV) && FD_ISSET(sock, &fdr)) retval |= ISOCK_ERECV;
 	if ((event & ISOCK_ESEND) && FD_ISSET(sock, &fdw)) retval |= ISOCK_ESEND;
 	if ((event & ISOCK_ERROR) && FD_ISSET(sock, &fde)) retval |= ISOCK_ERROR;
-	#else
-	struct timeval tmx = { 0, 0 };
-	union { void *ptr; fd_set *fds; } p[3];
-	int fdr[2], fdw[2], fde[2];
-
-	tmx.tv_sec = millisec / 1000;
-	tmx.tv_usec = (millisec % 1000) * 1000;
-	fdr[0] = fdw[0] = fde[0] = 1;
-	fdr[1] = fdw[1] = fde[1] = sock;
-
-	p[0].ptr = (event & ISOCK_ERECV)? fdr : NULL;
-	p[1].ptr = (event & ISOCK_ESEND)? fdw : NULL;
-	p[2].ptr = (event & ISOCK_ERROR)? fde : NULL;
-
-	retval = select( sock + 1, p[0].fds, p[1].fds, p[2].fds, 
-					(millisec >= 0)? &tmx : 0);
-	retval = 0;
-
-	if ((event & ISOCK_ERECV) && fdr[0]) retval |= ISOCK_ERECV;
-	if ((event & ISOCK_ESEND) && fdw[0]) retval |= ISOCK_ESEND;
-	if ((event & ISOCK_ERROR) && fde[0]) retval |= ISOCK_ERROR;
 	#endif
 
 	return retval;
@@ -1017,7 +996,8 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 		#elif defined(__AVM3__)
 		return sizeof(fd_set) * 3;
 		#else
-		return (count + 1) * sizeof(int) * 3;
+		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
+		return (int)((count * sizeof(SOCKET) + unit) * 3);
 		#endif
 	}	
 	else {
@@ -1104,27 +1084,29 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 
 		#else
 		struct timeval tmx = { 0, 0 };
-		int *fdr = (int*)workmem;
-		int *fdw = fdr + 1 + count;
-		int *fde = fdw + 1 + count;
+		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
+		size_t size = unit + sizeof(SOCKET) * count;
+		FD_SET *fdr = (FD_SET*)(((char*)workmem) + 0);
+		FD_SET *fdw = (FD_SET*)(((char*)workmem) + size);
+		FD_SET *fde = (FD_SET*)(((char*)workmem) + size * 2);
 		void *dr, *dw, *de;
 		int maxfd = 0;
 		int j;
 
-		fdr[0] = fdw[0] = fde[0] = 0;
+		fdr->fd_count = fdw->fd_count = fde->fd_count = 0;
 
 		for (i = 0; i < count; i++) {
 			int event = events[i];
 			int fd = fds[i];
-			if (event & ISOCK_ERECV) fdr[++fdr[0]] = fd;
-			if (event & ISOCK_ESEND) fdw[++fdw[0]] = fd;
-			if (event & ISOCK_ERROR) fde[++fde[0]] = fd;
+			if (event & ISOCK_ERECV) fdr->fd_array[(fdr->fd_count)++] = fd;
+			if (event & ISOCK_ESEND) fdw->fd_array[(fdw->fd_count)++] = fd;
+			if (event & ISOCK_ERROR) fde->fd_array[(fde->fd_count)++] = fd;
 			if (fd > maxfd) maxfd = fd;
 		}
 
-		dr = fdr[0]? fdr : NULL;
-		dw = fdw[0]? fdw : NULL;
-		de = fde[0]? fde : NULL;
+		dr = fdr->fd_count? fdr : NULL;
+		dw = fdw->fd_count? fdw : NULL;
+		de = fde->fd_count? fde : NULL;
 
 		tmx.tv_sec = millisec / 1000;
 		tmx.tv_usec = (millisec % 1000) * 1000;
@@ -1137,18 +1119,27 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 			int fd = fds[i];
 			int revent = 0;
 			if (event & ISOCK_ERECV) {
-				for (j = 0; j < fdr[0]; j++) {
-					if (fdr[j + 1] == fd) { revent |= ISOCK_ERECV; break; }
+				for (j = 0; j < (int)fdr->fd_count; j++) {
+					if (fdr->fd_array[j] == (SOCKET)fd) { 
+						revent |= ISOCK_ERECV; 
+						break; 
+					}
 				}
 			}
 			if (event & ISOCK_ESEND) {
-				for (j = 0; j < fdw[0]; j++) {
-					if (fdw[j + 1] == fd) { revent |= ISOCK_ESEND; break; }
+				for (j = 0; j < (int)fdw->fd_count; j++) {
+					if (fdw->fd_array[j + 1] == (SOCKET)fd) { 
+						revent |= ISOCK_ESEND; 
+						break; 
+					}
 				}
 			}
 			if (event & ISOCK_ERROR) {
-				for (j = 0; j < fde[0]; j++) {
-					if (fde[j + 1] == fd) { revent |= ISOCK_ERROR; break; }
+				for (j = 0; j < (int)fde->fd_count; j++) {
+					if (fde->fd_array[j] == (SOCKET)fd) { 
+						revent |= ISOCK_ERROR; 
+						break; 
+					}
 				}
 			}
 			revents[i] = revent & event;
@@ -1726,6 +1717,9 @@ int isocket_pair(int fds[2], int mode)
 #endif
 
 
+#ifndef IPOLL_DRIVER_DEFINED
+#define IPOLL_DRIVER_DEFINED
+
 struct IPOLL_DRIVER
 {
 	int pdsize;								/* poll descriptor size */
@@ -1742,6 +1736,8 @@ struct IPOLL_DRIVER
 	int (*poll_wait)(ipolld ipd, int timeval);			
 	int (*poll_event)(ipolld ipd, int *fd, int *event, void **udata);
 };
+
+#endif
 
 /* current poll device */
 struct IPOLL_DRIVER IPOLLDRV;	
@@ -1803,6 +1799,9 @@ extern struct IPOLL_DRIVER IPOLL_WINCP;
 #ifdef IHAVE_RTSIG
 extern struct IPOLL_DRIVER IPOLL_RTSIG;
 #endif
+#ifdef IHAVE_POLLEXT
+extern struct IPOLL_DRIVER IPOLL_POLLEXT;
+#endif
 
 static struct IPOLL_DRIVER *ipoll_list[] = {
 #ifdef IHAVE_SELECT
@@ -1828,6 +1827,9 @@ static struct IPOLL_DRIVER *ipoll_list[] = {
 #endif
 #ifdef IHAVE_WINCP
 	&IPOLL_WINCP,
+#endif
+#ifdef IHAVE_POLLEXT
+	&IPOLL_POLLEXT,
 #endif
 	NULL
 };
