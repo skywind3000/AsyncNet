@@ -3091,7 +3091,7 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		proxy->data[404] = 0;
 		proxy->data[405] = 3;
 		sprintf(addr, "%d.%d.%d.%d", ips[0], ips[1], ips[2], ips[3]);
-		proxy->data[406] = (int)strlen(addr);
+		proxy->data[406] = (char)(((int)strlen(addr)) & 0x7f);
 		memcpy(proxy->data + 407, addr, strlen(addr));
 		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
 		iencode16u_lsb((char*)(proxy->data + 400), 
