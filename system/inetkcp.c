@@ -620,7 +620,7 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 			ikcp_parse_ack(kcp, sn);
 			ikcp_shrink_buf(kcp);
 			if (ikcp_canlog(kcp, IKCP_LOG_IN_ACK)) {
-				ikcp_log(kcp, IKCP_LOG_IN_DATA, 
+				ikcp_log(kcp, IKCP_LOG_IN_ACK, 
 					"input ack: sn=%lu rtt=%ld rto=%ld", sn, 
 					(long)itimediff(kcp->current, ts),
 					(long)kcp->rx_rto);
@@ -685,7 +685,11 @@ int ikcp_input(ikcpcb *kcp, const char *data, long size)
 				if (kcp->incr < mss) kcp->incr = mss;
 				kcp->incr += (mss * mss) / kcp->incr + (mss / 16);
 				if ((kcp->cwnd + 1) * mss <= kcp->incr) {
+				#if 1
+					kcp->cwnd = (kcp->incr + mss - 1) / ((mss > 0)? mss : 1);
+				#else
 					kcp->cwnd++;
+				#endif
 				}
 			}
 			if (kcp->cwnd > kcp->rmt_wnd) {
