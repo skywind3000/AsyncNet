@@ -339,7 +339,8 @@ int itcp_setbuf(itcpcb *tcp, long bufsize)
 	assert(bufsize > 0);
 	assert(tcp->rbuf && tcp->sbuf);
 
-	dsize = _imax(IRING_DSIZE(&tcp->rcache), IRING_DSIZE(&tcp->scache));
+	dsize = _imax((IUINT32)IRING_DSIZE(&tcp->rcache), 
+		(IUINT32)IRING_DSIZE(&tcp->scache));
 	if (bufsize < (long)dsize) return -1;
 
 	if (bufsize < 1024) bufsize = 1024;
@@ -503,7 +504,7 @@ static long itcp_send_queue(itcpcb *tcp, const char *data, int len, int ctl)
 	if (len > 0) {
 		#ifdef ITCP_CIRCLE
 		int retval;
-		retval = iring_put(&tcp->scache, tcp->slen, data, len);
+		retval = (int)iring_put(&tcp->scache, tcp->slen, data, len);
 		assert(retval == len);
 		#else
 		memcpy(tcp->sbuf + tcp->slen, data, len);
@@ -541,7 +542,7 @@ static int itcp_send_seg(itcpcb *tcp, ISEGOUT *seg)
 
 		#ifdef ITCP_CIRCLE
 		buffer = tcp->buffer + IHEADER_SIZE;
-		result = iring_get(&tcp->scache, seg->seq - tcp->snd_una, buffer, 
+		result = (int)iring_get(&tcp->scache, seg->seq - tcp->snd_una, buffer, 
 			ntransmit);
 		assert(result == (int)ntransmit);
 		result = itcp_output(tcp, seq, flags, NULL, ntransmit);
@@ -1113,7 +1114,7 @@ int itcp_process(itcpcb *tcp, ISEGMENT *seg)
 			IUINT32 offset = seg->seq - tcp->rcv_nxt;
 			#ifdef ITCP_CIRCLE
 			int retval;
-			retval = iring_put(&tcp->rcache, tcp->rlen + offset, 
+			retval = (int)iring_put(&tcp->rcache, tcp->rlen + offset, 
 				seg->data, seg->len);
 			assert(retval == (int)seg->len);
 			#else

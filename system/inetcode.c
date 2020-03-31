@@ -239,9 +239,9 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 		return -2;
 	}
 
-	ienable(asyncsock->fd, ISOCK_NOBLOCK);
-	ienable(asyncsock->fd, ISOCK_UNIXREUSE);
-	ienable(asyncsock->fd, ISOCK_CLOEXEC);
+	isocket_enable(asyncsock->fd, ISOCK_NOBLOCK);
+	isocket_enable(asyncsock->fd, ISOCK_UNIXREUSE);
+	isocket_enable(asyncsock->fd, ISOCK_CLOEXEC);
 
 	if (iconnect(asyncsock->fd, remote, addrlen) != 0) {
 		int hr = ierrno();
@@ -295,9 +295,9 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
 	asyncsock->fd = sock;
 	asyncsock->error = 0;
 
-	ienable(asyncsock->fd, ISOCK_NOBLOCK);
-	ienable(asyncsock->fd, ISOCK_UNIXREUSE);
-	ienable(asyncsock->fd, ISOCK_CLOEXEC);
+	isocket_enable(asyncsock->fd, ISOCK_NOBLOCK);
+	isocket_enable(asyncsock->fd, ISOCK_UNIXREUSE);
+	isocket_enable(asyncsock->fd, ISOCK_CLOEXEC);
 
 	asyncsock->state = ASYNC_SOCK_STATE_ESTAB;
 
@@ -758,8 +758,8 @@ int async_sock_nodelay(CAsyncSock *asyncsock, int nodelay)
 {
 	assert(asyncsock);
 	if (asyncsock->fd < 0) return 0;
-	if (nodelay) ienable(asyncsock->fd, ISOCK_NODELAY);
-	else idisable(asyncsock->fd, ISOCK_NODELAY);
+	if (nodelay) isocket_enable(asyncsock->fd, ISOCK_NODELAY);
+	else isocket_disable(asyncsock->fd, ISOCK_NODELAY);
 	return 0;
 }
 
@@ -930,8 +930,8 @@ CAsyncCore* async_core_new(int flags)
 	#ifdef __unix
 		#ifndef __AVM2__
 		pipe(core->xfd);
-		ienable(core->xfd[0], ISOCK_NOBLOCK);
-		ienable(core->xfd[1], ISOCK_NOBLOCK);
+		isocket_enable(core->xfd[0], ISOCK_NOBLOCK);
+		isocket_enable(core->xfd[1], ISOCK_NOBLOCK);
 		#endif
 	#else
 		if (isocket_pair(core->xfd, 1) != 0) {
@@ -1434,7 +1434,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 
 	async_sock_assign(sock, fd, head);
 
-	ienable(fd, ISOCK_CLOEXEC);
+	isocket_enable(fd, ISOCK_CLOEXEC);
 
 	sock->limited = limited;
 	sock->maxsize = maxsize;
@@ -1510,7 +1510,7 @@ static long _async_core_new_assign(CAsyncCore *core, int fd,
 	int ipv6 = 0;
 	char name[128];
 
-	if (ienable(fd, ISOCK_NOBLOCK) != 0) {
+	if (isocket_enable(fd, ISOCK_NOBLOCK) != 0) {
 		return -1;
 	}
 
@@ -1609,25 +1609,25 @@ static long _async_core_new_listen(CAsyncCore *core,
 	
 	if (flag & 0x80) {
 		if (flag & ISOCK_REUSEADDR) {
-			ienable(fd, ISOCK_REUSEADDR);		
+			isocket_enable(fd, ISOCK_REUSEADDR);		
 		}	else {
-			idisable(fd, ISOCK_REUSEADDR);
+			isocket_disable(fd, ISOCK_REUSEADDR);
 		}
 		if (flag & ISOCK_REUSEPORT) {
-			ienable(fd, ISOCK_REUSEPORT);
+			isocket_enable(fd, ISOCK_REUSEPORT);
 		}	else {
-			idisable(fd, ISOCK_REUSEPORT);
+			isocket_disable(fd, ISOCK_REUSEPORT);
 		}
 		if (flag & ISOCK_UNIXREUSE) {
-			ienable(fd, ISOCK_UNIXREUSE);
+			isocket_enable(fd, ISOCK_UNIXREUSE);
 		}	else {
-			idisable(fd, ISOCK_UNIXREUSE);
+			isocket_disable(fd, ISOCK_UNIXREUSE);
 		}
 	}	else {
-		ienable(fd, ISOCK_UNIXREUSE);
+		isocket_enable(fd, ISOCK_UNIXREUSE);
 	}
 
-	ienable(fd, ISOCK_CLOEXEC);
+	isocket_enable(fd, ISOCK_CLOEXEC);
 
 	if (ibind(fd, addr, addrlen) != 0) {
 		iclose(fd);
@@ -2391,30 +2391,30 @@ static int _async_core_option(CAsyncCore *core, long hid,
 	switch (opt) {
 	case ASYNC_CORE_OPTION_NODELAY:
 		if (value == 0) {
-			hr = idisable(sock->fd, ISOCK_NODELAY);
+			hr = isocket_disable(sock->fd, ISOCK_NODELAY);
 		}	else {
-			hr = ienable(sock->fd, ISOCK_NODELAY);
+			hr = isocket_enable(sock->fd, ISOCK_NODELAY);
 		}
 		break;
 	case ASYNC_CORE_OPTION_REUSEADDR:
 		if (value == 0) {
-			hr = idisable(sock->fd, ISOCK_REUSEADDR);
+			hr = isocket_disable(sock->fd, ISOCK_REUSEADDR);
 		}	else {
-			hr = ienable(sock->fd, ISOCK_REUSEADDR);
+			hr = isocket_enable(sock->fd, ISOCK_REUSEADDR);
 		}
 		break;
 	case ASYNC_CORE_OPTION_REUSEPORT:
 		if (value == 0) {
-			hr = idisable(sock->fd, ISOCK_REUSEPORT);
+			hr = isocket_disable(sock->fd, ISOCK_REUSEPORT);
 		}	else {
-			hr = ienable(sock->fd, ISOCK_REUSEPORT);
+			hr = isocket_enable(sock->fd, ISOCK_REUSEPORT);
 		}
 		break;
 	case ASYNC_CORE_OPTION_UNIXREUSE:
 		if (value == 0) {
-			hr = idisable(sock->fd, ISOCK_UNIXREUSE);
+			hr = isocket_disable(sock->fd, ISOCK_UNIXREUSE);
 		}	else {
-			hr = ienable(sock->fd, ISOCK_UNIXREUSE);
+			hr = isocket_enable(sock->fd, ISOCK_UNIXREUSE);
 		}
 		break;
 	case ASYNC_CORE_OPTION_KEEPALIVE:
@@ -3091,7 +3091,7 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 		proxy->data[404] = 0;
 		proxy->data[405] = 3;
 		sprintf(addr, "%d.%d.%d.%d", ips[0], ips[1], ips[2], ips[3]);
-		proxy->data[406] = (char)(((int)strlen(addr)) & 0x7f);
+		proxy->data[406] = (signed char)((int)strlen(addr));
 		memcpy(proxy->data + 407, addr, strlen(addr));
 		memcpy(proxy->data + 407 + strlen(addr), &(endpoint->sin_port), 2);
 		iencode16u_lsb((char*)(proxy->data + 400), 

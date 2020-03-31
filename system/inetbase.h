@@ -581,12 +581,6 @@ int ipeername(int sock, struct sockaddr *addr, int *addrlen);
 /* Basic Function Definition                                         */
 /*===================================================================*/
 
-/* enable option */
-int ienable(int fd, int mode);
-
-/* disable option */
-int idisable(int fd, int mode);
-
 /* poll event */
 int ipollfd(int sock, int event, long millisec);
 
@@ -670,6 +664,15 @@ void ikmset(void *ikmalloc_func, void *ikfree_func);
 
 /* start network */
 int isocket_init(void);
+
+/* socket option */
+int isocket_option(int fd, int option, int enable);
+
+/* enable option */
+int isocket_enable(int fd, int mode);
+
+/* enable option */
+int isocket_disable(int fd, int mode);
 
 /* open a dgram */
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags);

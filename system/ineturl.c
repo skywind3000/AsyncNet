@@ -79,8 +79,8 @@ int ihttpsock_connect(IHTTPSOCK *httpsock, const struct sockaddr *remote)
 	ims_clear(&httpsock->recvmsg);
 	httpsock->sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (httpsock->sock < 0) return -2;
-	ienable(httpsock->sock, ISOCK_NOBLOCK);
-	ienable(httpsock->sock, ISOCK_REUSEADDR);
+	isocket_enable(httpsock->sock, ISOCK_NOBLOCK);
+	isocket_enable(httpsock->sock, ISOCK_REUSEADDR);
 
 #if 0
 	iconnect(httpsock->sock, remote);
@@ -139,8 +139,8 @@ int ihttpsock_assign(IHTTPSOCK *httpsock, int sock)
 	ims_clear(&httpsock->recvmsg);
 	httpsock->sock = sock;
 	if (httpsock->sock < 0) return -2;
-	ienable(httpsock->sock, ISOCK_NOBLOCK);
-	ienable(httpsock->sock, ISOCK_REUSEADDR);
+	isocket_enable(httpsock->sock, ISOCK_NOBLOCK);
+	isocket_enable(httpsock->sock, ISOCK_REUSEADDR);
 	httpsock->state = IHTTPSOCK_STATE_CONNECTED;
 	return 0;
 }

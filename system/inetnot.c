@@ -673,7 +673,7 @@ static int async_notify_sid_get(CAsyncNotify *notify, int sid,
 		if (size <= 0) size = sizeof(struct sockaddr_in);
 		if (size < length) return -2;
 		memcpy(remote, text, length);
-		return length;
+		return (int)length;
 	}
 	return -1;
 }
@@ -686,7 +686,7 @@ int async_notify_sid_list(CAsyncNotify *notify, int *sids, int maxsize)
 	int hr = 0;
 	ilong pos;
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	size = notify->sid2addr->size;
+	size = (int)notify->sid2addr->size;
 	if (sids == NULL) {
 		hr = size;
 	}	
@@ -1147,7 +1147,7 @@ static void async_notify_cmd_login(CAsyncNotify *notify, CAsyncNode *node)
 	md5src[32] = 0;
 	seconds = (long)ts;
 
-	size = it_size(&notify->token);
+	size = (int)it_size(&notify->token);
 	memcpy(data + 20, it_str(&notify->token), size);
 	
 	memset(md5dst, 0, 33);
@@ -1503,7 +1503,7 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 	itimeofday(&seconds, NULL);
 	async_notify_encode_64(data + 12, (IINT64)seconds);
 
-	keysize = it_size(&notify->token);
+	keysize = (int)it_size(&notify->token);
 	memcpy(data + 20, it_str(&notify->token), keysize);
 
 	// calculate hash signature
@@ -1562,7 +1562,7 @@ int async_notify_send(CAsyncNotify *notify, int sid, short cmd,
 		if (notify->evtmask & ASYNC_NOTIFY_EVT_ERROR) {
 			const char *msg = "can not get connection for this sid";
 			async_notify_msg_push(notify, ASYNC_NOTIFY_EVT_ERROR,
-				-1, hr, msg, strlen(msg));
+				-1, hr, msg, (int)strlen(msg));
 		}
 		hr = hid;
 	}

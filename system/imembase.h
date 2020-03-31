@@ -459,6 +459,13 @@ void ib_array_remove(ib_array *array, size_t index);
 void ib_array_insert_before(ib_array *array, size_t index, void *item);
 void* ib_array_pop_at(ib_array *array, size_t index);
 void ib_array_for_each(ib_array *array, void (*iterator)(void *item));
+void ib_array_reverse(ib_array *array);
+
+#define ib_array_obj(array, type, index) \
+	((type)ib_array_index((array), (index)))
+
+#define ib_array_obj_const(array, type, index) \
+	((type)ib_array_const_index((array), (index)))
 
 void ib_array_sort(ib_array *array, 
 		int (*compare)(const void*, const void*));
@@ -686,6 +693,14 @@ ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 		const char *src, int size);
 
 int ib_string_compare(const struct ib_string *a, const struct ib_string *b);
+
+int ib_string_find(const ib_string *str, const char *src, int len, int start);
+int ib_string_find_c(const ib_string *str, char ch, int start);
+
+ib_array* ib_string_split(const ib_string *str, const char *sep, int len);
+ib_array* ib_string_split_c(const ib_string *str, char sep);
+
+ib_string* ib_string_strip(ib_string *str, const char *seps);
 
 
 /*--------------------------------------------------------------------*/

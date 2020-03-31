@@ -703,119 +703,6 @@ int ipeername(int sock, struct sockaddr *addr, int *addrlen)
 /* Basic Function Definition                                         */
 /*===================================================================*/
 
-/* enable option */
-int ienable(int fd, int mode)
-{
-	long value = 1;
-	long retval = 0;
-
-	switch (mode)
-	{
-	case ISOCK_NOBLOCK:
-		retval = iioctl(fd, FIONBIO, (unsigned long*)(void*)&value);
-		break;
-	case ISOCK_REUSEADDR:
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
-			(char*)&value, sizeof(value));
-		break;
-	case ISOCK_REUSEPORT:
-		#ifdef SO_REUSEPORT
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEPORT, 
-			(char*)&value, sizeof(value));
-		#else
-		retval = -10000;
-		#endif
-		break;
-	case ISOCK_UNIXREUSE:
-		#ifdef __unix
-		value = 1;
-		#else
-		value = 0;
-		#endif
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
-			(char*)&value, sizeof(value));
-		break;
-	case ISOCK_NODELAY:
-		#ifndef __AVM3__
-		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
-			(char*)&value, sizeof(value));
-		#endif
-		break;
-	case ISOCK_NOPUSH:
-		#ifdef TCP_NOPUSH
-		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NOPUSH, 
-			(char*)&value, sizeof(value));
-		#else
-		retval = -1000;
-		#endif
-		break;
-	case ISOCK_CLOEXEC:
-		#ifdef FD_CLOEXEC
-		value = fcntl(fd, F_GETFD);
-		retval = fcntl(fd, F_SETFD, FD_CLOEXEC | value);
-		#else
-		retval = -1000;
-		#endif
-		break;
-	}
-
-	return retval;
-}
-
-/* disable option */
-int idisable(int fd, int mode)
-{
-	long value = 0;
-	long retval = 0;
-
-	switch (mode)
-	{
-	case ISOCK_NOBLOCK:
-		retval = iioctl(fd, FIONBIO, (unsigned long*)&value);
-		break;
-	case ISOCK_REUSEADDR:
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
-				(char*)&value, sizeof(value));
-		break;
-	case ISOCK_REUSEPORT:
-		#ifdef SO_REUSEPORT
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEPORT, 
-			(char*)&value, sizeof(value));
-		#else
-		retval = -10000;
-		#endif
-		break;
-	case ISOCK_UNIXREUSE:
-		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
-			(char*)&value, sizeof(value));
-		break;
-	case ISOCK_NODELAY:
-		#ifndef __AVM3__
-		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
-				(char*)&value, sizeof(value));
-		#endif
-		break;
-	case ISOCK_NOPUSH:
-		#ifdef TCP_NOPUSH
-		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NOPUSH, 
-				(char*)&value, sizeof(value));
-		#else
-		retval = -1000;
-		#endif
-		break;
-	case ISOCK_CLOEXEC:
-		#ifdef FD_CLOEXEC
-		value = fcntl(fd, F_GETFD);
-		value &= ~FD_CLOEXEC;
-		retval = fcntl(fd, F_SETFD, value);
-		#else
-		retval = -1000;
-		#endif
-		break;
-	}
-	return retval;
-}
-
 /* poll event */
 int ipollfd(int sock, int event, long millisec)
 {
@@ -1477,6 +1364,83 @@ int isocket_init(void)
 	return retval;
 }
 
+/* socket option */
+int isocket_option(int fd, int option, int enable)
+{
+	long value = (enable)? 1 : 0;
+	long retval = 0;
+
+	switch (option)
+	{
+	case ISOCK_NOBLOCK:
+		retval = iioctl(fd, FIONBIO, (unsigned long*)(void*)&value);
+		break;
+	case ISOCK_REUSEADDR:
+		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
+			(char*)&value, sizeof(value));
+		break;
+	case ISOCK_REUSEPORT:
+		#ifdef SO_REUSEPORT
+		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEPORT, 
+			(char*)&value, sizeof(value));
+		#else
+		retval = -10000;
+		#endif
+		break;
+	case ISOCK_UNIXREUSE:
+		if (enable) {
+			#ifdef __unix
+			value = 1;
+			#else
+			value = 0;
+			#endif
+		}
+		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
+			(char*)&value, sizeof(value));
+		break;
+	case ISOCK_NODELAY:
+		#ifndef __AVM3__
+		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NODELAY, 
+			(char*)&value, sizeof(value));
+		#endif
+		break;
+	case ISOCK_NOPUSH:
+		#ifdef TCP_NOPUSH
+		retval = isetsockopt(fd, (int)IPPROTO_TCP, TCP_NOPUSH, 
+			(char*)&value, sizeof(value));
+		#else
+		retval = -1000;
+		#endif
+		break;
+	case ISOCK_CLOEXEC:
+		#ifdef FD_CLOEXEC
+		value = fcntl(fd, F_GETFD);
+		if (enable) {
+			retval = FD_CLOEXEC | value;
+		}	else {
+			value &= ~FD_CLOEXEC;
+		}
+		retval = fcntl(fd, F_SETFD, value);
+		#else
+		retval = -1000;
+		#endif
+		break;
+	}
+
+	return retval;
+}
+
+/* enable option */
+int isocket_enable(int fd, int mode)
+{
+	return isocket_option(fd, mode, 1);
+}
+
+/* disable option */
+int isocket_disable(int fd, int mode)
+{
+	return isocket_option(fd, mode, 0);
+}
 
 /* open a dgram */
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
@@ -1501,7 +1465,7 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 	if (fd < 0) return -1;
 
 	if ((flags & 0x100) == 0) {
-		ienable(fd, ISOCK_CLOEXEC);
+		isocket_enable(fd, ISOCK_CLOEXEC);
 	}
 
 	if (ibind(fd, addr, addrlen) != 0) {
@@ -1539,27 +1503,27 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 #endif
 
 	if ((flags & 512) == 0) {
-		ienable(fd, ISOCK_NOBLOCK);
+		isocket_enable(fd, ISOCK_NOBLOCK);
 	}
 
 	if (flags & 0x80) {
 		if (flags & ISOCK_REUSEADDR) {
-			ienable(fd, ISOCK_REUSEADDR);		
+			isocket_enable(fd, ISOCK_REUSEADDR);		
 		}	else {
-			idisable(fd, ISOCK_REUSEADDR);
+			isocket_disable(fd, ISOCK_REUSEADDR);
 		}
 		if (flags & ISOCK_REUSEPORT) {
-			ienable(fd, ISOCK_REUSEPORT);
+			isocket_enable(fd, ISOCK_REUSEPORT);
 		}	else {
-			idisable(fd, ISOCK_REUSEPORT);
+			isocket_disable(fd, ISOCK_REUSEPORT);
 		}
 		if (flags & ISOCK_UNIXREUSE) {
-			ienable(fd, ISOCK_UNIXREUSE);
+			isocket_enable(fd, ISOCK_UNIXREUSE);
 		}	else {
-			idisable(fd, ISOCK_UNIXREUSE);
+			isocket_disable(fd, ISOCK_UNIXREUSE);
 		}
 	}	else {
-		ienable(fd, ISOCK_UNIXREUSE);
+		isocket_enable(fd, ISOCK_UNIXREUSE);
 	}
 
 	return fd;
@@ -1615,6 +1579,9 @@ static int isocket_pair_imp(int fds[2], int mode)
 	if ((listener = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0) 
 		return -1;
 	
+	memset(&addr1, 0, sizeof(addr1));
+	memset(&addr2, 0, sizeof(addr2));
+
 	addr1.sin_family = AF_INET;
 	addr1.sin_port = 0;
 
@@ -1636,8 +1603,15 @@ static int isocket_pair_imp(int fds[2], int mode)
 	if ((sock[0] = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		goto failed;
 
-	if (iconnect(sock[0], (struct sockaddr*)&addr1, 0))
-		goto failed;
+	isocket_enable(sock[0], ISOCK_NOBLOCK);
+
+	if (iconnect(sock[0], (struct sockaddr*)&addr1, 0)) {
+		if (ierrno() != IEAGAIN) {
+			goto failed;
+		}
+	}
+
+	isocket_disable(sock[0], ISOCK_NOBLOCK);
 
 	if ((sock[1] = (int)accept(listener, 0, 0)) < 0)
 		goto failed;
@@ -1655,8 +1629,8 @@ static int isocket_pair_imp(int fds[2], int mode)
 	iclose(listener);
 
 	if (mode & 1) {
-		ienable(sock[0], ISOCK_CLOEXEC);
-		ienable(sock[1], ISOCK_CLOEXEC);
+		isocket_enable(sock[0], ISOCK_CLOEXEC);
+		isocket_enable(sock[1], ISOCK_CLOEXEC);
 	}
 
 	fds[0] = sock[0];

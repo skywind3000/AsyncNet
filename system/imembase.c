@@ -532,11 +532,6 @@ ib_array *ib_array_new(void (*destroy_func)(void*))
 
 void ib_array_delete(ib_array *array)
 {
-	array->items = (void**)array->vec.data;
-}
-
-void ib_array_release(ib_array *array)
-{
 	if (array->fn_destroy) {
 		size_t n = array->size;
 		size_t i;
@@ -678,6 +673,20 @@ void* ib_array_pop_at(ib_array *array, size_t index)
 		assert(hr == 0);
 	}
 	return item;
+}
+
+void ib_array_reverse(ib_array *array)
+{
+	if (array->size > 0) {
+		void **items = array->items;
+		size_t size = array->size;
+		size_t i, j;
+		for (i = 0, j = size - 1; i < j; i++, j--) {
+			void *tmp = items[i];
+			items[i] = items[j];
+			items[j] = tmp;
+		}
+	}
 }
 
 void ib_array_sort(ib_array *array, 
@@ -1509,6 +1518,136 @@ ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 	return str;
 }
 
+
+int ib_string_find(const ib_string *str, const char *src, int len, int start)
+{
+	char *text = str->ptr;
+	int pos = (start < 0)? 0 : start;
+	int length = (len >= 0)? len : ((int)strlen(src));
+	int endup = str->size - length;
+	char ch;
+	if (length <= 0) return pos;
+	for (ch = src[0]; pos <= endup; pos++) {
+		if (text[pos] == ch) {
+			if (memcmp(text + pos, src, length) == 0)
+				return pos;
+		}
+	}
+	return -1;
+}
+
+int ib_string_find_c(const ib_string *str, char ch, int start)
+{
+	const char *text = str->ptr;
+	int pos = (start < 0)? 0 : start;
+	int endup = str->size;
+	for (; pos < endup; pos++) {
+		if (text[pos] == ch) return pos;
+	}
+	return -1;
+}
+
+ib_array* ib_string_split(const ib_string *str, const char *sep, int len)
+{
+	if (len == 0) {
+		return NULL;
+	}
+	else {
+		ib_array *array = ib_array_new((void (*)(void*))ib_string_delete);
+		int start = 0;
+		len = (len >= 0)? len : ((int)strlen(sep));
+		while (1) {
+			int pos = ib_string_find(str, sep, len, start);
+			if (pos < 0) {
+				ib_string *newstr = ib_string_new();
+				ib_string_assign_size(newstr, str->ptr + start,
+						str->size - start);
+				ib_array_push(array, newstr);
+				break;
+			}
+			else {
+				ib_string* newstr = ib_string_new();
+				ib_string_assign_size(newstr, str->ptr + start, pos - start);
+				start = pos + len;
+				ib_array_push(array, newstr);
+			}
+		}
+		return array;
+	}
+}
+
+ib_array* ib_string_split_c(const ib_string *str, char sep)
+{
+	if (str == NULL) {
+		return NULL;
+	}
+	else {
+		ib_array *array = ib_array_new((void (*)(void*))ib_string_delete);
+		int start = 0;
+		while (1) {
+			int pos = ib_string_find_c(str, sep, start);
+			if (pos < 0) {
+				ib_string *newstr = ib_string_new();
+				ib_string_assign_size(newstr, str->ptr + start, 
+						str->size - start);
+				ib_array_push(array, newstr);
+				break;
+			}
+			else {
+				ib_string *newstr = ib_string_new();
+				ib_string_assign_size(newstr, str->ptr + start, pos - start);
+				start = pos + 1;
+				ib_array_push(array, newstr);
+			}
+		}
+		return array;
+	}
+}
+
+ib_string* ib_string_strip(ib_string *str, const char *seps)
+{
+	const char *ptr = str->ptr;
+	const char *endup = str->ptr + str->size;
+	int off, pos;
+	for (; ptr < endup; ptr++) {
+		const char *sep = seps;
+		int match = 0;
+		for (; sep[0]; sep++) {
+			if (ptr[0] == sep[0]) {
+				match = 1;
+				break;
+			}
+		}
+		if (match == 0) break;
+	}
+	off = (int)(ptr - str->ptr);
+	if (off > 0) {
+		ib_string_erase(str, 0, off);
+	}
+	ptr = str->ptr;
+	pos = str->size;
+	for (; pos > 0; pos--) {
+		const char *sep = seps;
+		int match = 0;
+		for (; sep[0]; sep++) {
+			if (ptr[pos - 1] == sep[0]) {
+				match = 1;
+				break;
+			}
+		}
+		if (match == 0) break;
+	}
+	ib_string_resize(str, pos);
+	return str;
+}
+
+ib_string* ib_string_replace_size(ib_string *str, int pos, int size, 
+		const char *src, int len)
+{
+	ib_string_erase(str, pos, size);
+	ib_string_insert(str, pos, src, len);
+	return str;
+}
 
 
 /*--------------------------------------------------------------------*/
