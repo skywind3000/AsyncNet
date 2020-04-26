@@ -808,7 +808,7 @@ static inline char *iencode16u_lsb(char *p, unsigned short w)
 	*(unsigned char*)(p + 0) = (w & 255);
 	*(unsigned char*)(p + 1) = (w >> 8);
 #else
-	*(unsigned short*)(p) = w;
+	memcpy(p, &w, 2);
 #endif
 	p += 2;
 	return p;
@@ -821,7 +821,7 @@ static inline const char *idecode16u_lsb(const char *p, unsigned short *w)
 	*w = *(const unsigned char*)(p + 1);
 	*w = *(const unsigned char*)(p + 0) + (*w << 8);
 #else
-	*w = *(const unsigned short*)p;
+	memcpy(w, p, 2);
 #endif
 	p += 2;
 	return p;
@@ -831,7 +831,7 @@ static inline const char *idecode16u_lsb(const char *p, unsigned short *w)
 static inline char *iencode16u_msb(char *p, unsigned short w)
 {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	*(unsigned short*)(p) = w;
+	memcpy(p, &w, 2);
 #else
 	*(unsigned char*)(p + 0) = (w >> 8);
 	*(unsigned char*)(p + 1) = (w & 255);
@@ -844,7 +844,7 @@ static inline char *iencode16u_msb(char *p, unsigned short w)
 static inline const char *idecode16u_msb(const char *p, unsigned short *w)
 {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	*w = *(const unsigned short*)p;
+	memcpy(w, p, 2);
 #else
 	*w = *(const unsigned char*)(p + 0);
 	*w = *(const unsigned char*)(p + 1) + (*w << 8);
@@ -862,7 +862,7 @@ static inline char *iencode32u_lsb(char *p, IUINT32 l)
 	*(unsigned char*)(p + 2) = (unsigned char)((l >> 16) & 0xff);
 	*(unsigned char*)(p + 3) = (unsigned char)((l >> 24) & 0xff);
 #else
-	*(IUINT32*)p = l;
+	memcpy(p, &l, 4);
 #endif
 	p += 4;
 	return p;
@@ -877,7 +877,7 @@ static inline const char *idecode32u_lsb(const char *p, IUINT32 *l)
 	*l = *(const unsigned char*)(p + 1) + (*l << 8);
 	*l = *(const unsigned char*)(p + 0) + (*l << 8);
 #else 
-	*l = *(const IUINT32*)p;
+	memcpy(l, p, 4);
 #endif
 	p += 4;
 	return p;
@@ -887,7 +887,7 @@ static inline const char *idecode32u_lsb(const char *p, IUINT32 *l)
 static inline char *iencode32u_msb(char *p, IUINT32 l)
 {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	*(IUINT32*)p = l;
+	memcpy(p, &l, 4);
 #else
 	*(unsigned char*)(p + 0) = (unsigned char)((l >> 24) & 0xff);
 	*(unsigned char*)(p + 1) = (unsigned char)((l >> 16) & 0xff);
@@ -902,7 +902,7 @@ static inline char *iencode32u_msb(char *p, IUINT32 l)
 static inline const char *idecode32u_msb(const char *p, IUINT32 *l)
 {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	*l = *(const IUINT32*)p;
+	memcpy(l, p, 4);
 #else 
 	*l = *(const unsigned char*)(p + 0);
 	*l = *(const unsigned char*)(p + 1) + (*l << 8);
@@ -1015,22 +1015,20 @@ static inline const char *idecodef_lsb(const char *p, float *f)
 /* encode float */
 static inline char *iencodef_msb(char *p, float f)
 {
-	IUINT32 *buf;
-	void *ptr = &f;
-	buf = (IUINT32*)ptr;
-	return iencode32u_msb(p, *buf);
+	union { IUINT32 intpart; float floatpart; } vv;
+	vv.floatpart = f;
+	return iencode32u_msb(p, vv.intpart);
 }
 
 /* decode float */
 static inline const char *idecodef_msb(const char *p, float *f)
 {
-	IUINT32 buf;
-	void *ptr;
-	p = idecode32u_msb(p, (IUINT32*)&buf);
-	ptr = &buf;
-	*f = *(float*)ptr;
+	union { IUINT32 intpart; float floatpart; } vv;
+	p = idecode32u_msb(p, &vv.intpart);
+	*f = vv.floatpart;
 	return p;
 }
+
 
 /* encode string (string = ptr + size) */
 static inline char *iencodes(char *p, const void *ptr, ilong size)
