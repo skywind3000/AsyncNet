@@ -686,6 +686,9 @@ int isocket_set_buffer(int sock, long recvbuf_size, long sendbuf_size);
 /* create socket pair */
 int isocket_pair(int fds[2], int cloexec);
 
+/* try can listen on windows firewall */
+int isocket_try_firewall(void);
+
 
 /*===================================================================*/
 /* Cross-Platform Poll Interface                                     */

@@ -1569,7 +1569,7 @@ int isocket_tcp_estab(int sock)
 
 
 /* socketpair */
-static int isocket_pair_imp(int fds[2], int mode)
+int isocket_pair_imp(int fds[2], int mode, int timeout)
 {
 	struct sockaddr_in addr1 = { 0 };
 	struct sockaddr_in addr2;
@@ -1613,8 +1613,19 @@ static int isocket_pair_imp(int fds[2], int mode)
 
 	isocket_disable(sock[0], ISOCK_NOBLOCK);
 
-	if ((sock[1] = (int)accept(listener, 0, 0)) < 0)
-		goto failed;
+	if (timeout >= 0) {
+		isocket_enable(listener, ISOCK_NOBLOCK);
+		ipollfd(listener, IPOLL_IN, timeout);
+
+		if ((sock[1] = (int)accept(listener, 0, 0)) < 0)
+			goto failed;
+
+		isocket_disable(listener, ISOCK_NOBLOCK);
+	}	
+	else {
+		if ((sock[1] = (int)accept(listener, 0, 0)) < 0) 
+			goto failed;
+	}
 
 	if (ipeername(sock[0], (struct sockaddr*)&addr1, NULL))
 		goto failed;
@@ -1646,11 +1657,28 @@ failed:
 }
 
 
+/* create socket pair */
 int isocket_pair(int fds[2], int mode)
 {
-	if (isocket_pair_imp(fds, mode) == 0) return 0;
-	if (isocket_pair_imp(fds, mode) == 0) return 0;
-	if (isocket_pair_imp(fds, mode) == 0) return 0;
+	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
+	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
+	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
+	return -1;
+}
+
+
+/* try can listen on windows firewall */
+int isocket_try_firewall(void)
+{
+	int i;
+	for (i = 0; i < 2; i++) {
+		int fds[2];
+		if (isocket_pair_imp(fds, 1, 150) == 0) {
+			iclose(fds[0]);
+			iclose(fds[1]);
+			return 0;
+		}
+	}
 	return -1;
 }
 
