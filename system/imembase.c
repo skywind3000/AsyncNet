@@ -1149,7 +1149,7 @@ void *ib_tree_nearest(struct ib_tree *tree, const void *data)
 		void *nd = IB_NODE2DATA(n, offset);
 		int hr = compare(data, nd);
 		p = n;
-		if (n == 0) return nd;
+		if (hr == 0) return nd;
 		else if (hr < 0) {
 			n = n->left;
 		}
