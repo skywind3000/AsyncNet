@@ -345,6 +345,7 @@ static void itimer_evt_cb(void *p)
 		itimer_evt_stop(mgr, evt);
 	}
 	evt->running = 1;
+#if 0
 	for (; count > 0; count--) {
 		if (evt->callback && evt->running) {
 			evt->callback(evt->data, evt->user);
@@ -352,6 +353,15 @@ static void itimer_evt_cb(void *p)
 			break;
 		}
 	}
+#else
+	// previous implementation above will repeatly invoke timer callback
+	// for time compensation, that's no meaning in most cases.
+	// compensation should be done outside here when needed.
+	// therefore, multiple timer chances will be merged into once here.
+	if (count > 0 && evt->callback) {
+		evt->callback(evt->data, evt->user);
+	}
+#endif
 	evt->running = 0;
 }
 
