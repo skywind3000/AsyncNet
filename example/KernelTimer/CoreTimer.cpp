@@ -16,13 +16,13 @@
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-Timer::Timer()
+Timer::Timer(Scheduler *sched)
 {
-	_sched = NULL;
-	_inited = false;
-	_cb = NULL;
+	_sched = sched;
+	callback = NULL;
 	user = NULL;
-	itimer_evt_init(&_evt, callback, this, NULL);
+	timestamp = 0;
+	itimer_evt_init(&_evt, evt_callback, this, NULL);
 }
 
 
@@ -33,29 +33,24 @@ Timer::~Timer()
 {
 	stop();
 	user = NULL;
+	callback = NULL;
+	_sched = NULL;
 }
 
-
-//---------------------------------------------------------------------
-// initialize scheduler and callback
-//---------------------------------------------------------------------
-void Timer::init(Scheduler *sched, TimerCallback cb)
-{
-	stop();
-	_sched = sched;
-	_cb = cb;
-	_inited = true;
-}
 
 
 //---------------------------------------------------------------------
 // callback
 //---------------------------------------------------------------------
-void Timer::callback(void *obj, void *user)
+void Timer::evt_callback(void *obj, void *user)
 {
 	Timer *self = (Timer*)obj;
-	if (self->_cb) {
-		self->_cb(self);
+	if (self->callback) {
+		if (self->_sched) {
+			// 更新标准时间戳
+			self->timestamp = self->_sched->_mgr.current;
+		}
+		self->callback(self);
 	}
 }
 
@@ -65,9 +60,8 @@ void Timer::callback(void *obj, void *user)
 //---------------------------------------------------------------------
 bool Timer::start(uint32_t period, int repeat)
 {
-	assert(_inited == true);
 	assert(_sched != NULL);
-	if (_inited == false || _sched == NULL) {
+	if (_sched == NULL) {
 		return false;
 	}
 	if (_sched->_inited == false) {
@@ -83,7 +77,7 @@ bool Timer::start(uint32_t period, int repeat)
 //---------------------------------------------------------------------
 void Timer::stop()
 {
-	assert(_inited == true);
+	assert(_sched != NULL);
 	itimer_evt_stop(&(_sched->_mgr), &_evt);
 }
 
@@ -93,10 +87,19 @@ void Timer::stop()
 //---------------------------------------------------------------------
 bool Timer::is_running() const
 {
-	if (_inited) {
+	if (_sched) {
 		return itimer_evt_status(&_evt)? true : false;
 	}
 	return false;
+}
+
+
+//---------------------------------------------------------------------
+// 返回还剩多少次调用
+//---------------------------------------------------------------------
+int Timer::remain() const
+{
+	return _evt.remain;
 }
 
 
@@ -108,6 +111,7 @@ Scheduler::Scheduler()
 	_inited = false;
 	itimer_mgr_init(&_mgr, 0, 10);
 }
+
 
 //---------------------------------------------------------------------
 // dtor

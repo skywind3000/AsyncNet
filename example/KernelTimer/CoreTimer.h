@@ -20,45 +20,54 @@
 //---------------------------------------------------------------------
 // Declaration
 //---------------------------------------------------------------------
-class Scheduler;
-class Timer;
+class Scheduler;		// 时钟管理器，管理 itimer_mgr;
+class Timer;			// 封装 itimer_evt
 
 
 //---------------------------------------------------------------------
 // Callback
 //---------------------------------------------------------------------
-typedef std::function<void(Timer*)> TimerCallback;
+typedef std::function<void(Timer*)> OnTimer;
 
 
 //---------------------------------------------------------------------
-// Timer
+// Timer - 封装 itimer_evt，要点是独立操作 start/stop 以及析构时 stop
+// 每个 Entity/Node 之类的对象都会有本地的 timer，那么他们析构后，
+// 需要 RAII 确保调用 stop 移除 itimer_mgr 的调度队列。
 //---------------------------------------------------------------------
 class Timer
 {
 public:
 	virtual ~Timer();
-	Timer();
+	Timer(Scheduler *sched);
 
 public:
 
-	void init(Scheduler *sched, TimerCallback cb);
-
+	// 之所以把 start/stop 之类的操作放在具体的 timer 里，是因为
+	// 这类操作相对频繁，可以不需要管 scheduler 到底在哪里。
+	// Timer 会作为参数传递到 callback 里，callback 操作停止之类的
+	// 直接操作就行了，不用再去引用 scheduler.
 	bool start(uint32_t period, int repeat = 0);
 
 	void stop();
 
 	bool is_running() const;
 
+	// 返回 repeat 调用时还剩多少次调用，0 的话证明最后一次，
+	// 如果是 -1 的话，代表无限循环，用于 callback 中检查是否是
+	// 最后一次。
+	int remain() const;
+
 public:
-	void *user;
+	OnTimer callback;		// 时钟回调函数，需要设置
+	uint32_t timestamp;		// 标准时间戳，内部工作用的
+	void *user;				// 用户随意设置的指针
 
 protected:
-	static void callback(void *obj, void *user);
+	static void evt_callback(void *obj, void *user);
 
 protected:
 	Scheduler *_sched;
-	bool _inited;
-	TimerCallback _cb;
 	itimer_evt _evt;
 };
 
@@ -74,6 +83,8 @@ public:
 
 public:
 
+	// 因为初始化时需要最初的时间戳 current，不方便在构造里做
+	// 因为可能构造时还无从得知第一个 timestamp，所以拿出来。
 	void init(uint32_t current, uint32_t interval = 5);
 
 	void update(uint32_t current);
