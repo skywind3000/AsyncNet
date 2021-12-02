@@ -345,7 +345,7 @@ static void itimer_evt_cb(void *p)
 		itimer_evt_stop(mgr, evt);
 	}
 	evt->running = 1;
-#ifndef ITIMER_COMBINE
+#ifndef ITIMER_INPRECISE
 	for (; count > 0; count--) {
 		if (evt->remain > 0) {
 			evt->remain--;
