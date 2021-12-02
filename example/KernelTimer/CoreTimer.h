@@ -76,6 +76,8 @@ public:
 
 	void init(uint32_t current, uint32_t interval = 5);
 
+	void update(uint32_t current);
+
 private:
 	friend Timer;
 	bool _inited;
