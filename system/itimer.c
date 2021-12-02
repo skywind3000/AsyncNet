@@ -347,6 +347,9 @@ static void itimer_evt_cb(void *p)
 	evt->running = 1;
 #ifndef ITIMER_COMBINE
 	for (; count > 0; count--) {
+		if (evt->remain > 0) {
+			evt->remain--;
+		}
 		if (evt->callback && evt->running) {
 			evt->callback(evt->data, evt->user);
 		}	else {
@@ -376,6 +379,7 @@ void itimer_evt_init(itimer_evt *evt, void (*fn)(void *data, void *user),
 	evt->slap = 0;
 	evt->repeat = 0;
 	evt->running = 0;
+	evt->remain = 0;
 }
 
 // destroy timer event
@@ -405,6 +409,7 @@ void itimer_evt_start(itimer_mgr *mgr, itimer_evt *evt,
 	evt->repeat = repeat;
 	evt->slap = mgr->current + period;
 	evt->mgr = mgr;
+	evt->remain = (repeat > 0)? repeat : -1;
 	expires = (evt->slap - mgr->current + interval - 1) / interval;
 	if (expires >= 0x70000000) expires = 0x70000000;
 	itimer_node_add(&mgr->core, &evt->node, mgr->jiffies + expires);
@@ -418,6 +423,7 @@ void itimer_evt_stop(itimer_mgr *mgr, itimer_evt *evt)
 		itimer_node_del(&evt->mgr->core, &evt->node);
 		evt->mgr = NULL;
 	}
+	evt->remain = 0;
 	evt->running = 0;
 }
 

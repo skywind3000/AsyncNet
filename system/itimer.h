@@ -288,6 +288,7 @@ struct itimer_evt
 	IUINT32 slap;
 	int repeat;
 	int running;
+	int remain;
 	void (*callback)(void *data, void *user);
 	void *data;
 	void *user;
