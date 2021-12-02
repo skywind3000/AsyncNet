@@ -82,8 +82,11 @@ public:
 
 	void update(uint32_t current);
 
+	void reset();
+
 private:
 	friend Timer;
+	uint32_t _interval;
 	itimer_mgr _mgr;
 };
 

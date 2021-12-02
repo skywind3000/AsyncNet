@@ -105,6 +105,7 @@ int Timer::remain() const
 Scheduler::Scheduler(uint32_t interval)
 {
 	itimer_mgr_init(&_mgr, interval);
+	_interval = interval;
 }
 
 
@@ -125,5 +126,14 @@ void Scheduler::update(uint32_t current)
 	itimer_mgr_run(&_mgr, current);
 }
 
+
+//---------------------------------------------------------------------
+// 
+//---------------------------------------------------------------------
+void Scheduler::reset()
+{
+	itimer_mgr_destroy(&_mgr);
+	itimer_mgr_init(&_mgr, _interval);
+}
 
 
