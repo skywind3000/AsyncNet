@@ -76,19 +76,14 @@ class Scheduler
 {
 public:
 	virtual ~Scheduler();
-	Scheduler();
+	Scheduler(uint32_t interval = 5);
 
 public:
-
-	// 因为初始化时需要最初的时间戳 current，不方便在构造里做
-	// 因为可能构造时还无从得知第一个 timestamp，所以拿出来。
-	void init(uint32_t current, uint32_t interval = 5);
 
 	void update(uint32_t current);
 
 private:
 	friend Timer;
-	bool _inited;
 	itimer_mgr _mgr;
 };
 

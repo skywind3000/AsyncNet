@@ -38,7 +38,6 @@ Timer::~Timer()
 }
 
 
-
 //---------------------------------------------------------------------
 // callback
 //---------------------------------------------------------------------
@@ -62,9 +61,6 @@ bool Timer::start(uint32_t period, int repeat)
 {
 	assert(_sched != NULL);
 	if (_sched == NULL) {
-		return false;
-	}
-	if (_sched->_inited == false) {
 		return false;
 	}
 	itimer_evt_start(&(_sched->_mgr), &_evt, period, repeat);
@@ -99,17 +95,16 @@ bool Timer::is_running() const
 //---------------------------------------------------------------------
 int Timer::remain() const
 {
-	return _evt.remain;
+	return _evt.repeat;
 }
 
 
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-Scheduler::Scheduler()
+Scheduler::Scheduler(uint32_t interval)
 {
-	_inited = false;
-	itimer_mgr_init(&_mgr, 0, 5);
+	itimer_mgr_init(&_mgr, interval);
 }
 
 
@@ -119,19 +114,6 @@ Scheduler::Scheduler()
 Scheduler::~Scheduler()
 {
 	itimer_mgr_destroy(&_mgr);
-}
-
-
-//---------------------------------------------------------------------
-// init
-//---------------------------------------------------------------------
-void Scheduler::init(uint32_t current, uint32_t interval)
-{
-	if (_inited) {
-		itimer_mgr_destroy(&_mgr);
-	}
-	itimer_mgr_init(&_mgr, current, interval);
-	_inited = true;
 }
 
 

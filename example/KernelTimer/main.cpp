@@ -34,7 +34,6 @@ private:
 
 int main()
 {
-	sched.init(timeGetTime(), 5);
 	Node node;
 	while (1) {
 		Sleep(10);
