@@ -24,7 +24,7 @@ public:
 	}
 
 	void on_timer(Timer *timer) {
-		printf("ping down-count: %d\n", timer->remain());
+		printf("ping remain: %d  ts: %d\n", timer->remain(), timer->timestamp);
 	}
 
 private:
