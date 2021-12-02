@@ -344,8 +344,8 @@ static void itimer_evt_cb(void *p)
 	}	else {
 		itimer_evt_stop(mgr, evt);
 	}
+#if 0
 	evt->running = 1;
-#ifndef ITIMER_INPRECISE
 	for (; count > 0; count--) {
 		if (evt->remain > 0) {
 			evt->remain--;
@@ -356,6 +356,7 @@ static void itimer_evt_cb(void *p)
 			break;
 		}
 	}
+	evt->running = 0;
 #else
 	// time compensation could be done outside here when needed.
 	// enable ITIMER_COMBINE to merge multiple calling into once.
@@ -363,7 +364,6 @@ static void itimer_evt_cb(void *p)
 		evt->callback(evt->data, evt->user);
 	}
 #endif
-	evt->running = 0;
 }
 
 // initialize timer event
