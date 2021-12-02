@@ -18,13 +18,13 @@ public:
 		};
 
 		// 第二种写法 std::function 直接指向成员函数
-		timer_ping.callback = std::bind(Node::on_timer, this, std::placeholders::_1);
+		timer_ping.callback = std::bind(&Node::on_timer, this, std::placeholders::_1);
 
 		timer_ping.start(1000, 5);
 	}
 
 	void on_timer(Timer *timer) {
-		printf("timer remain: %d\n", timer->remain());
+		printf("ping down-count: %d\n", timer->remain());
 	}
 
 private:
