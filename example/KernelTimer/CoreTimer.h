@@ -25,12 +25,6 @@ class Timer;			// 封装 itimer_evt
 
 
 //---------------------------------------------------------------------
-// Callback
-//---------------------------------------------------------------------
-typedef std::function<void(Timer*)> OnTimer;
-
-
-//---------------------------------------------------------------------
 // Timer - 封装 itimer_evt，要点是独立操作 start/stop 以及析构时 stop
 // 每个 Entity/Node 之类的对象都会有本地的 timer，那么他们析构后，
 // 需要 RAII 确保调用 stop 移除 itimer_mgr 的调度队列。
@@ -44,7 +38,7 @@ public:
 public:
 
 	// 之所以把 start/stop 之类的操作放在具体的 timer 里，是因为
-	// 这类操作相对频繁，可以不需要管 scheduler 到底在哪里。
+	// 启停操作相对频繁，使用时无需频繁引用 scheduler。
 	// Timer 会作为参数传递到 callback 里，callback 操作停止之类的
 	// 直接操作就行了，不用再去引用 scheduler.
 	bool start(uint32_t period, int repeat = 0);
@@ -54,11 +48,14 @@ public:
 	bool is_running() const;
 
 	// 返回 repeat 调用时还剩多少次调用，0 的话证明最后一次，
-	// 如果是 -1 的话，代表无限循环，用于 callback 中检查是否是
-	// 最后一次。
+	// 如果是 -1 的话，代表无限循环，方便 callback 中检查是否是
+	// 最后一次调用。
 	int remain() const;
 
 public:
+	// 回调函数定义
+	typedef std::function<void(Timer*)> OnTimer;
+
 	OnTimer callback;		// 时钟回调函数，需要设置
 	uint32_t timestamp;		// 标准时间戳，内部工作用的
 	void *user;				// 用户随意设置的指针
