@@ -109,7 +109,7 @@ int Timer::remain() const
 Scheduler::Scheduler()
 {
 	_inited = false;
-	itimer_mgr_init(&_mgr, 0, 10);
+	itimer_mgr_init(&_mgr, 0, 5);
 }
 
 
@@ -140,9 +140,7 @@ void Scheduler::init(uint32_t current, uint32_t interval)
 //---------------------------------------------------------------------
 void Scheduler::update(uint32_t current)
 {
-	if (_inited) {
-		itimer_mgr_run(&_mgr, current);
-	}
+	itimer_mgr_run(&_mgr, current);
 }
 
 
