@@ -26,8 +26,8 @@ class Timer;			// 封装 itimer_evt
 
 //---------------------------------------------------------------------
 // Timer - 封装 itimer_evt，要点是独立操作 start/stop 以及析构时 stop
-// 每个 Entity/Node 之类的对象都会有本地的 timer，那么他们析构后，
-// 需要 RAII 确保调用 stop 移除 itimer_mgr 的调度队列。
+// 每个 Entity/Node 之类的对象内都会有多个本地的 timer 实例，那么析构
+// 时需要 RAII 确保调用 stop 移除 itimer_mgr 的调度队列。
 //---------------------------------------------------------------------
 class Timer
 {
