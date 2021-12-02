@@ -326,6 +326,8 @@ void itimer_evt_start(itimer_mgr *mgr, itimer_evt *evt,
 // stop timer
 void itimer_evt_stop(itimer_mgr *mgr, itimer_evt *evt);
 
+// returns 0 for stopped and 1 for running
+int itimer_evt_status(const itimer_evt *evt);
 
 
 #ifdef __cplusplus
