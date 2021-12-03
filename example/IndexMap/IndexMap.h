@@ -160,6 +160,7 @@ inline void IndexMap::grow() {
 		assert(*(node->it) == node);
 		_num_free++;
 	}
+	_capacity = newcap;
 }
 
 
@@ -179,7 +180,7 @@ int32_t IndexMap::alloc() {
 	node->it = _used_list.end();
 	node->it--;
 	assert(*(node->it) == node);
-	node->state = NS_FREE;
+	node->state = NS_USED;
 	_num_used++;
 	_num_free--;
 	int32_t version = index_to_version(node->index);
