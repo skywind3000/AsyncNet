@@ -61,6 +61,15 @@ public:
 
 	inline void free(int32_t index);
 
+	inline void* get(int32_t index);
+	inline const void* get(int32_t index) const;
+
+	inline void set(int32_t index, void *obj);
+	inline bool contains(int32_t index);
+
+	inline void* & operator[](int32_t index);
+	inline const void* operator[](int32_t index) const;
+
 	inline int capacity() const { return _capacity; }
 	inline int num_used() const { return _num_used; }
 	inline int num_free() const { return _num_free; }
@@ -82,6 +91,7 @@ private:
 	int _num_used;
 	int _num_free;
 	IndexNode **_nodes;
+	void *_dummy;
 	std::vector<IndexNode*> _array;
 	std::list<IndexNode*> _free_list;
 	std::list<IndexNode*> _used_list;
@@ -97,6 +107,7 @@ inline IndexMap::IndexMap() {
 	_capacity = 0;
 	_num_used = 0;
 	_num_free = 0;
+	_dummy = NULL;
 	_nodes = NULL;
 }
 
@@ -243,6 +254,53 @@ int32_t IndexMap::index_prev(int32_t index) const {
 	if (it == _used_list.begin()) return -1;
 	it--;
 	return (*it)->index;
+}
+
+
+inline void* IndexMap::get(int32_t index) {
+	const void *obj = static_cast<const IndexMap&>(*this).get(index);
+	return const_cast<void*>(obj);
+}
+
+inline const void* IndexMap::get(int32_t index) const {
+	const IndexNode *node = index_to_node(index);
+	if (node == NULL) {
+		assert(node);
+		return NULL;
+	}
+	return node->obj;
+}
+
+inline void IndexMap::set(int32_t index, void *obj) {
+	IndexNode *node = index_to_node(index);
+	if (node == NULL) {
+		assert(node);
+		return;
+	}
+	node->obj = obj;
+}
+
+inline bool IndexMap::contains(int32_t index) {
+	IndexNode *node = index_to_node(index);
+	return (node != NULL)? true : false;
+}
+
+inline void* & IndexMap::operator[](int32_t index) {
+	IndexNode *node = index_to_node(index);
+	if (node == NULL) {
+		assert(node);
+		return _dummy;
+	}
+	return node->obj;
+}
+
+inline const void* IndexMap::operator[](int32_t index) const {
+	const IndexNode *node = index_to_node(index);
+	if (node == NULL) {
+		assert(node);
+		return _dummy;
+	}
+	return node->obj;
 }
 
 
