@@ -189,8 +189,20 @@ inline void IndexMap::free(int32_t index)
 	IndexNode *node = index_to_node(index);
 	if (node == NULL) {
 		assert(node);
+		return;
 	}
-
+	if (node->state != NS_USED) {
+		assert(node->state == NS_USED);
+		return;
+	}
+	_used_list.erase(node->it);
+	_free_list.push_back(node);
+	node->it = _free_list.end();
+	node->it--;
+	assert(*(node->it) == node);
+	_num_used--;
+	_num_free++;
+	node->state = NS_FREE;
 }
 
 
