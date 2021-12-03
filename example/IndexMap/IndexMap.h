@@ -192,6 +192,7 @@ int32_t IndexMap::alloc() {
 	node->it--;
 	assert(*(node->it) == node);
 	node->state = NS_USED;
+	node->obj = NULL;
 	_num_used++;
 	_num_free--;
 	int32_t version = index_to_version(node->index);
@@ -221,6 +222,7 @@ inline void IndexMap::free(int32_t index)
 	_num_used--;
 	_num_free++;
 	node->state = NS_FREE;
+	node->obj = NULL;
 }
 
 int32_t IndexMap::index_first() const {
@@ -288,7 +290,7 @@ inline bool IndexMap::contains(int32_t index) {
 inline void* & IndexMap::operator[](int32_t index) {
 	IndexNode *node = index_to_node(index);
 	if (node == NULL) {
-		assert(node);
+		assert(node != NULL);
 		return _dummy;
 	}
 	return node->obj;
