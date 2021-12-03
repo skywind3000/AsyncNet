@@ -58,7 +58,7 @@ public:
 
 	inline int32_t alloc();
 
-	inline void free(int32_t id);
+	inline void free(int32_t index);
 
 	inline int capacity() const { return _capacity; }
 	inline int num_used() const { return _num_used; }
@@ -156,7 +156,8 @@ inline void IndexMap::grow() {
 	}
 }
 
-// 
+
+// alloc
 int32_t IndexMap::alloc() {
 	if (num_free() == 0) {
 		grow();
@@ -180,6 +181,16 @@ int32_t IndexMap::alloc() {
 	version = (version + 1) & INDEX_ID_MASK;
 	node->index = (id << INDEX_ID_SHIFT) | version;
 	return node->index;
+}
+
+
+inline void IndexMap::free(int32_t index)
+{
+	IndexNode *node = index_to_node(index);
+	if (node == NULL) {
+		assert(node);
+	}
+
 }
 
 
