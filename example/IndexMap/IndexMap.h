@@ -9,6 +9,7 @@
 #ifndef _INDEX_MAP_H_
 #define _INDEX_MAP_H_
 
+#include <iterator>
 #include <stddef.h>
 #include <stdint.h>
 #include <assert.h>
@@ -63,6 +64,11 @@ public:
 	inline int capacity() const { return _capacity; }
 	inline int num_used() const { return _num_used; }
 	inline int num_free() const { return _num_free; }
+
+	int32_t index_first() const;
+	int32_t index_last() const;
+	int32_t index_next(int32_t index) const;
+	int32_t index_prev(int32_t index) const;
 
 private:
 	inline int32_t index_to_version(int32_t index) const;
@@ -203,6 +209,39 @@ inline void IndexMap::free(int32_t index)
 	_num_used--;
 	_num_free++;
 	node->state = NS_FREE;
+}
+
+int32_t IndexMap::index_first() const {
+	std::list<IndexNode*>::const_iterator it = _used_list.begin();
+	if (it == _used_list.end()) return -1;
+	return (*it)->index;
+}
+
+int32_t IndexMap::index_last() const {
+	std::list<IndexNode*>::const_iterator it = _used_list.end();
+	if (it == _used_list.begin()) return -1;
+	it--;
+	return (*it)->index;
+}
+
+int32_t IndexMap::index_next(int32_t index) const {
+	const IndexNode *node = index_to_node(index);
+	if (node == NULL) return -1;
+	if (node->state != NS_USED) return -1;
+	std::list<IndexNode*>::const_iterator it = node->it;
+	it++;
+	if (it == _used_list.end()) return -1;
+	return (*it)->index;
+}
+
+int32_t IndexMap::index_prev(int32_t index) const {
+	const IndexNode *node = index_to_node(index);
+	if (node == NULL) return -1;
+	if (node->state != NS_USED) return -1;
+	std::list<IndexNode*>::const_iterator it = node->it;
+	if (it == _used_list.begin()) return -1;
+	it--;
+	return (*it)->index;
 }
 
 
