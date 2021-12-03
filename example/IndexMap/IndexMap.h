@@ -58,19 +58,23 @@ public:
 
 	inline int32_t alloc();
 
-	inline void free(int32_t id);
+	inline void free(int32_t index);
 
 	inline int capacity() const { return _capacity; }
-	inline int num_used() const { return _capacity - _available; }
-	inline int num_avail() const { return _available; }
+	inline int num_used() const { return _num_used; }
+	inline int num_free() const { return _num_free; }
 
 private:
 	inline void grow();
-	inline index2id();
+	inline int32_t index_to_id(int32_t index) const;
+	inline int32_t index_to_version(int32_t index) const;
+	inline IndexNode* node_get(int32_t index);
+	inline const IndexNode* node_get(int32_t index) const;
 
 private:
 	int _capacity;
-	int _available;
+	int _num_free;
+	int _num_used;
 	std::vector<IndexNode*> _array;
 	std::list<IndexNode*> _free_list;
 	std::list<IndexNode*> _used_list;
@@ -84,7 +88,8 @@ private:
 // ctor
 inline IndexMap::IndexMap() {
 	_capacity = 0;
-	_available = 0;
+	_num_free = 0;
+	_num_used = 0;
 }
 
 // dtor
@@ -104,6 +109,30 @@ inline IndexMap::~IndexMap() {
 	assert(_used_list.size() == 0);
 }
 
+inline int32_t IndexMap::index_to_id(int32_t index) const {
+	return index >> INDEX_ID_SHIFT;
+}
+
+inline int32_t IndexMap::index_to_version(int32_t index) const {
+	return index & INDEX_ID_MASK;
+}
+
+inline const IndexNode* IndexMap::node_get(int32_t index) const {
+	int32_t id = index_to_id(index);
+	if (id < 0 || id >= _capacity) return NULL;
+	const IndexNode *node = _array[id];
+	if (node->index != index) return NULL;
+	return node;
+}
+
+inline IndexNode* IndexMap::node_get(int32_t index) {
+	int32_t id = index_to_id(index);
+	if (id < 0 || id >= _capacity) return NULL;
+	IndexNode *node = _array[id];
+	if (node->index != index) return NULL;
+	return node;
+}
+
 // grow
 inline void IndexMap::grow() {
 	int newcap = (_capacity < 8)? 8 : _capacity * 2;
@@ -118,19 +147,45 @@ inline void IndexMap::grow() {
 		node->it = _free_list.end();
 		node->it--;
 		assert(*(node->it) == node);
-		_available++;
+		_num_free++;
 	}
 }
 
-// 
+
+// alloc
 int32_t IndexMap::alloc() {
-	if (num_avail() == 0) {
+	if (num_free() == 0) {
 		grow();
 	}
 	if (num_used() * 2 >= _capacity) {
 		grow();
 	}
-	assert(_available > 0);
+	assert(_num_free > 0);
+	std::list<IndexNode*>::iterator it = _free_list.begin();
+	IndexNode *node = *it;
+	_free_list.erase(it);
+	_used_list.push_back(node);
+	node->it = _used_list.end();
+	node->it--;
+	assert(*(node->it) == node);
+	_num_free--;
+	_num_used++;
+	node->state = NS_USED;
+	int32_t id = index_to_id(node->index);
+	int32_t version = index_to_version(node->index);
+	version = (version + 1) & INDEX_ID_MASK;
+	node->index = (id << INDEX_ID_SHIFT) | version;
+	return node->index;
+}
+
+
+inline void IndexMap::free(int32_t index)
+{
+	IndexNode *node = node_get(index);
+	if (node == NULL) {
+		assert(node);
+	}
+
 }
 
 
