@@ -5,7 +5,7 @@
 #include "../../system/itimer.c"
 #include "CoreTimer.cpp"
 
-Scheduler sched;
+Scheduler sched(1);
 
 class Node
 {
