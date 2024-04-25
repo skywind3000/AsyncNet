@@ -7,6 +7,8 @@
  *
  **********************************************************************/
 #include "inetcode.h"
+#include "imemdata.h"
+#include "inetbase.h"
 
 #ifdef __unix
 #include <netdb.h>
@@ -117,8 +119,17 @@ int isocket_update_address(int resolvname)
 #endif
 
 #ifndef ASYNC_SOCK_MAXSIZE
-#define ASYNC_SOCK_MAXSIZE 0x800000
+#define ASYNC_SOCK_MAXSIZE 0x400000
 #endif
+
+#ifndef ASYNC_SOCK_HIWATER
+#define ASYNC_SOCK_HIWATER 0x8000
+#endif
+
+#ifndef ASYNC_SOCK_LOWATER
+#define ASYNC_SOCK_LOWATER 0x4000
+#endif
+
 
 /* create a new asyncsock */
 void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
@@ -142,6 +153,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->maxsize = ASYNC_SOCK_MAXSIZE;
 	asyncsock->limited = -1;
 	asyncsock->ipv6 = 0;
+	asyncsock->afunix = 0;
 	asyncsock->mask = 0;
 	asyncsock->error = 0;
 	asyncsock->flags = 0;
@@ -149,6 +161,12 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->object = NULL;
 	asyncsock->exitcode = 0;
 	asyncsock->closing = 0;
+	asyncsock->protocol = -1;
+	asyncsock->manual_hiwater = ASYNC_SOCK_HIWATER;
+	asyncsock->manual_lowater = ASYNC_SOCK_LOWATER;
+	asyncsock->socket_init_proc = NULL;
+	asyncsock->socket_init_user = NULL;
+	asyncsock->socket_init_code = -1;
 	ilist_init(&asyncsock->node);
 	ilist_init(&asyncsock->pending);
 	ims_init(&asyncsock->linemsg, nodes, 0, 0);
@@ -189,6 +207,9 @@ void async_sock_destroy(CAsyncSock *asyncsock)
 	asyncsock->rc4_send_y = -1;
 	asyncsock->rc4_recv_x = -1;
 	asyncsock->rc4_recv_y = -1;
+	asyncsock->socket_init_proc = NULL;
+	asyncsock->socket_init_user = NULL;
+	asyncsock->socket_init_code = -1;
 }
 
 
@@ -196,11 +217,13 @@ void async_sock_destroy(CAsyncSock *asyncsock)
 int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 	int addrlen, int header)
 {
+	int bindlocal = 0;
+
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
 
 	asyncsock->fd = -1;
 	asyncsock->state = ASYNC_SOCK_STATE_CLOSED;
-	asyncsock->header = (header < 0 || header > ITMH_LINESPLIT)? 0 : header;
+	asyncsock->header = (header < 0 || header > ITMH_MANUAL)? 0 : header;
 	asyncsock->error = 0;
 
 	ims_clear(&asyncsock->linemsg);
@@ -221,17 +244,32 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 	asyncsock->rc4_send_y = -1;
 	asyncsock->rc4_recv_x = -1;
 	asyncsock->rc4_recv_y = -1;
-	
+
+	if (addrlen < 0) {
+		addrlen = -addrlen;
+		addrlen = (addrlen < 4)? 0 : addrlen;
+		bindlocal = 1;
+	}
+
+	asyncsock->ipv6 = 0;
+	asyncsock->afunix = 0;
+
 	if (addrlen <= 20) {
 		asyncsock->fd = isocket(AF_INET, SOCK_STREAM, 0);
-		asyncsock->ipv6 = 0;
 	}	else {
-	#ifdef AF_INET6
-		asyncsock->fd = isocket(AF_INET6, SOCK_STREAM, 0);
-	#else
 		asyncsock->fd = -1;
+	#ifdef AF_INET6
+		if (remote->sa_family == AF_INET6) {
+			asyncsock->fd = isocket(AF_INET6, SOCK_STREAM, 0);
+			asyncsock->ipv6 = 1;
+		}
 	#endif
-		asyncsock->ipv6 = 1;
+	#ifdef AF_UNIX
+		if (remote->sa_family == AF_UNIX) {
+			asyncsock->fd = isocket(AF_UNIX, SOCK_STREAM, 0);
+			asyncsock->afunix = 1;
+		}
+	#endif
 	}
 
 	if (asyncsock->fd < 0) {
@@ -239,9 +277,40 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 		return -2;
 	}
 
+	if (asyncsock->socket_init_proc) {
+		if (asyncsock->socket_init_proc(
+				asyncsock->socket_init_user, 
+				asyncsock->socket_init_code, 
+				asyncsock->fd) != 0) {
+			return -3;
+		}
+	}
+
 	isocket_enable(asyncsock->fd, ISOCK_NOBLOCK);
 	isocket_enable(asyncsock->fd, ISOCK_UNIXREUSE);
 	isocket_enable(asyncsock->fd, ISOCK_CLOEXEC);
+
+	if (bindlocal) {
+		const struct sockaddr *binding = NULL;
+		int bindsize = 0;
+		if (asyncsock->ipv6 == 0 && asyncsock->afunix == 0) {
+			binding = (const struct sockaddr*)
+				(((const struct sockaddr_in*)remote) + 1);
+			bindsize = (int)sizeof(struct sockaddr_in);
+		}
+		else {
+			binding = (const struct sockaddr*)
+				(((const char *)remote) + addrlen);
+			bindsize = addrlen;
+		}
+		if (ibind(asyncsock->fd, binding, bindsize) != 0) {
+			int hr = ierrno();
+			iclose(asyncsock->fd);
+			asyncsock->fd = -1;
+			asyncsock->error = hr;
+			return -4;
+		}
+	}
 
 	if (iconnect(asyncsock->fd, remote, addrlen) != 0) {
 		int hr = ierrno();
@@ -257,7 +326,7 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 			iclose(asyncsock->fd);
 			asyncsock->fd = -1;
 			asyncsock->error = hr;
-			return -3;
+			return -5;
 		}
 	}
 
@@ -267,7 +336,7 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 }
 
 /* assign a new socket */
-int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
+int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab)
 {
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
 	asyncsock->fd = -1;
@@ -295,11 +364,23 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header)
 	asyncsock->fd = sock;
 	asyncsock->error = 0;
 
+	if (asyncsock->socket_init_proc) {
+		if (asyncsock->socket_init_proc(
+				asyncsock->socket_init_user, 
+				asyncsock->socket_init_code, 
+				asyncsock->fd) != 0) {
+			return -1;
+		}
+	}
+
 	isocket_enable(asyncsock->fd, ISOCK_NOBLOCK);
 	isocket_enable(asyncsock->fd, ISOCK_UNIXREUSE);
 	isocket_enable(asyncsock->fd, ISOCK_CLOEXEC);
 
 	asyncsock->state = ASYNC_SOCK_STATE_ESTAB;
+
+	if (estab == 0) 
+		asyncsock->state = ASYNC_SOCK_STATE_CONNECTING;
 
 	return 0;
 }
@@ -373,8 +454,20 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 	long bufsize = asyncsock->bufsize;
 	int retval;
 	if (asyncsock->state == ASYNC_SOCK_STATE_CLOSED) return 0;
+	if (asyncsock->header == ITMH_MANUAL) {
+		if ((long)asyncsock->recvmsg.size >= asyncsock->manual_hiwater) {
+			return 0;
+		}
+	}
 	while (1) {
-		retval = irecv(asyncsock->fd, buffer, bufsize, 0);
+		long require = bufsize;
+		if (asyncsock->header == ITMH_MANUAL) {
+			long remain = (long)asyncsock->recvmsg.size;
+			long canrecv = asyncsock->manual_hiwater - remain;
+			if (remain >= asyncsock->manual_hiwater) break;
+			if (require > canrecv) require = canrecv;
+		}
+		retval = irecv(asyncsock->fd, buffer, require, 0);
 		if (retval < 0) {
 			retval = ierrno();
 			if (retval == IEAGAIN || retval == 0) break;
@@ -417,7 +510,7 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 				ims_write(&asyncsock->linemsg, &buffer[start], pos - start);
 			}
 		}
-		if (retval < bufsize) break;
+		if (retval < require) break;
 	}
 	return 0;
 }
@@ -438,7 +531,7 @@ int async_sock_update(CAsyncSock *asyncsock, int what)
 		hr = async_sock_try_connect(asyncsock);
 		if (hr != 0) return hr;
 	}
-	return 0;
+	return hr;
 }
 
 /* process */
@@ -476,27 +569,33 @@ int async_sock_fd(const CAsyncSock *asyncsock)
 	return asyncsock->fd;
 }
 
-/* get how many bytes remain in the send buffer */
+/* get how many bytes remain in the recv buffer */
 long async_sock_remain(const CAsyncSock *asyncsock)
+{
+	return (long)asyncsock->recvmsg.size;
+}
+
+/* get how many bytes remain in the send buffer */
+long async_sock_pending(const CAsyncSock *asyncsock)
 {
 	return (long)asyncsock->sendmsg.size;
 }
 
 
 /* header size */
-static const int async_sock_head_len[15] = 
-	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0, 4 };
+static const int async_sock_head_len[16] = 
+	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0, 4, 0 };
 
 /* header increasement */
-static const int async_sock_head_inc[15] = 
-	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0, 0 };
+static const int async_sock_head_inc[16] = 
+	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0, 0, 0 };
 
 /* peek size */
-static inline IUINT32
+static inline long
 async_sock_read_size(const CAsyncSock *asyncsock)
 {
 	unsigned char dsize[4];
-	IUINT32 len;
+	long len;
 	IUINT8 len8;
 	IUINT16 len16;
 	IUINT32 len32;
@@ -509,14 +608,17 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	hdrlen = async_sock_head_len[asyncsock->header];
 	hdrinc = async_sock_head_inc[asyncsock->header];
 
-	if (asyncsock->header == ITMH_RAWDATA) {
-		len = (unsigned long)asyncsock->recvmsg.size;
+	if (asyncsock->header == ITMH_MANUAL) {
+		return (long)asyncsock->recvmsg.size;
+	}
+	else if (asyncsock->header == ITMH_RAWDATA) {
+		len = (long)asyncsock->recvmsg.size;
 		if (len > ASYNC_SOCK_BUFSIZE) return ASYNC_SOCK_BUFSIZE;
 		return (long)len;
 	}
 
 	len = (unsigned short)ims_peek(&asyncsock->recvmsg, dsize, hdrlen);
-	if (len < (unsigned long)hdrlen) return 0;
+	if (len < (long)hdrlen) return 0;
 
 	if (asyncsock->header <= ITMH_EBYTEMSB) {
 		header = (asyncsock->header < 6)? 
@@ -528,35 +630,35 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	switch (header) {
 	case ITMH_WORDLSB: 
 		idecode16u_lsb((char*)dsize, &len16); 
-		len = len16;
+		len = (IUINT16)len16;
 		break;
 	case ITMH_WORDMSB:
 		idecode16u_msb((char*)dsize, &len16); 
-		len = len16;
+		len = (IUINT16)len16;
 		break;
 	case ITMH_DWORDLSB:
 		idecode32u_lsb((char*)dsize, &len32);
-		len = len32;
+		len = (long)len32;
 		break;
 	case ITMH_DWORDMSB:
 		idecode32u_msb((char*)dsize, &len32);
-		len = len32;
+		len = (long)len32;
 		break;
 	case ITMH_BYTELSB:
 		idecode8u((char*)dsize, &len8);
-		len = len8;
+		len = (IUINT8)len8;
 		break;
 	case ITMH_BYTEMSB:
 		idecode8u((char*)dsize, &len8);
-		len = len8;
+		len = (IUINT8)len8;
 		break;
 	case ITMH_DWORDMASK:
 		idecode32u_lsb((char*)dsize, &len32);
-		len = len32 & 0xffffff;
+		len = (long)(len32 & 0xffffff);
 		break;
 	case ITMH_LINESPLIT:
 		idecode32u_lsb((char*)dsize, &len32);
-		len = len32;
+		len = (long)len32;
 		break;
 	}
 
@@ -635,7 +737,9 @@ long async_sock_send_vector(CAsyncSock *asyncsock,
 			&asyncsock->rc4_send_y, head, head, hdrlen);
 	}
 
-	ims_write(&asyncsock->sendmsg, head, hdrlen);
+	if (hdrlen > 0) {
+		ims_write(&asyncsock->sendmsg, head, hdrlen);
+	}
 
 	for (i = 0; i < count; i++) {
 		if (asyncsock->rc4_send_x < 0 || asyncsock->rc4_send_y < 0) {
@@ -670,7 +774,7 @@ long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[],
 	const long veclen[], int count)
 {
 	long hdrlen, remain, size = 0;
-	IUINT32 len;
+	long len;
 	int i;
 
 	assert(asyncsock);
@@ -681,13 +785,24 @@ long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[],
 
 	len = async_sock_read_size(asyncsock);
 	if (len <= 0) return -1;
-	if ((long)len < hdrlen) return -3;
-	if ((long)len > asyncsock->maxsize) return -4;
+	if (len < hdrlen) return -3;
+	if (asyncsock->header != ITMH_MANUAL) {
+		if (len > (long)asyncsock->maxsize) return -4;
+	}
 	if (asyncsock->recvmsg.size < (iulong)len) return -1;
 	if (vecptr == NULL) return len - hdrlen;
-	if ((long)len > size + hdrlen) return -2;
+	if (len > size + hdrlen) {
+		if (asyncsock->header == ITMH_MANUAL) {
+			len = size + hdrlen;
+		}
+		else {
+			return -2;
+		}
+	}
 
-	ims_drop(&asyncsock->recvmsg, hdrlen);
+	if (hdrlen > 0) {
+		ims_drop(&asyncsock->recvmsg, hdrlen);
+	}
 
 	len -= hdrlen;
 	remain = len;
@@ -725,8 +840,23 @@ long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size)
 	void*vecptr[1];
 	long veclen[1];
 
+	if (asyncsock->header == ITMH_MANUAL) {
+		if (ptr == NULL) {
+			return (long)asyncsock->recvmsg.size;
+		}
+		if (size < 0) {
+			size = -size;
+			return (long)ims_peek(&asyncsock->recvmsg, ptr, size);
+		}
+		return (long)ims_read(&asyncsock->recvmsg, ptr, size);
+	}
+
 	if (ptr == NULL) {
 		return async_sock_recv_vector(asyncsock, NULL, NULL, 0);
+	}
+
+	if (size < 0) {
+		return -10;
 	}
 
 	vecptr[0] = ptr;
@@ -806,6 +936,8 @@ struct CAsyncCore
 	int nolock;
 	int flags;
 	int dispatch;
+	int backlog;
+	void *parent;
 	IMUTEX_TYPE lock;
 	IMUTEX_TYPE xmtx;
 	IMUTEX_TYPE xmsg;
@@ -814,6 +946,9 @@ struct CAsyncCore
 	IUINT32 timeout;
 	struct ILISTHEAD pending;
 	CAsyncValidator validator;
+	CAsyncFilter (*factory)(struct CAsyncCore*, long, int, void**);
+	int (*socket_init_proc)(void *, int, int);
+	void *socket_init_user;
 };
 
 
@@ -913,7 +1048,11 @@ CAsyncCore* async_core_new(int flags)
 	core->maxsize = ASYNC_SOCK_MAXSIZE;
 	core->limited = 0;
 	core->flags = 0;
+	core->backlog = 1024;
 	core->dispatch = 0;
+
+	core->parent = NULL;
+	core->factory = NULL;
 
 	core->xfd[0] = -1;
 	core->xfd[1] = -1;
@@ -959,6 +1098,9 @@ CAsyncCore* async_core_new(int flags)
 			ipoll_add(core->pfd, fd, IPOLL_IN | IPOLL_ERR, core);
 		}
 	}
+
+	core->socket_init_proc = NULL;
+	core->socket_init_user = NULL;
 
 	return core;
 }
@@ -1362,37 +1504,54 @@ static int async_core_node_mask(CAsyncCore *core, CAsyncSock *sock,
 /*-------------------------------------------------------------------*/
 /* new accept                                                        */
 /*-------------------------------------------------------------------*/
+static void _async_core_filter(CAsyncCore *core, long hid, 
+	CAsyncFilter filter, void *object);
+
 static long async_core_accept(CAsyncCore *core, long listen_hid)
 {
 	CAsyncSock *sock = async_core_node_get(core, listen_hid);
-	struct sockaddr_in remote4;
-#ifdef AF_INET6
-	struct sockaddr_in6 remote6;
-#endif
 	struct sockaddr *remote;
+	isockaddr_union rmt;
 	long hid, limited, maxsize;
+	long hiwater, lowater;
 	int fd = -1;
 	int addrlen = 0;
 	int head = 0;
+	int protocol;
+	int afunix = 0;
+	int ipv6 = 0;
 	int hr;
 
 	if (sock == NULL) return -1;
 
-	if (sock->mode == ASYNC_CORE_NODE_LISTEN4) {
-		addrlen = sizeof(remote4);
-		remote = (struct sockaddr*)&remote4;
-		fd = iaccept(sock->fd, remote, &addrlen);
+	if (sock->mode == ASYNC_CORE_NODE_LISTEN) {
+		ipv6 = sock->ipv6;
+		afunix = sock->ipv6;
+		remote = (struct sockaddr*)&rmt.address;
+		if (sock->ipv6 == 0 && sock->afunix == 0) {
+			addrlen = sizeof(rmt.in4);
+			fd = iaccept(sock->fd, remote, &addrlen);
+		}
+		else if (sock->afunix == 0 && sock->ipv6) {
+		#ifdef AF_INET6
+			addrlen = sizeof(rmt.in6);
+			fd = iaccept(sock->fd, remote, &addrlen);
+		#endif
+		}
+		else if (sock->afunix) {
+		#ifdef AF_UNIX
+			#ifdef __unix
+			addrlen = sizeof(rmt.inu);
+			#else
+			addrlen = sizeof(rmt.inx);
+			#endif
+			fd = iaccept(sock->fd, remote, &addrlen);
+		#endif
+		}
+		else {
+			return -2;
+		}
 	}	
-	else if (sock->mode == ASYNC_CORE_NODE_LISTEN6) {
-	#ifdef AF_INET6
-		addrlen = sizeof(remote6);
-		remote = (struct sockaddr*)&remote6;
-		fd = iaccept(sock->fd, remote, &addrlen);
-	#endif
-	}
-	else {
-		return -2;
-	}
 
 	if (fd < 0) {
 		return -3;
@@ -1411,6 +1570,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 		}
 	}
 
+	protocol = sock->protocol;
+
 	hid = async_core_node_new(core);
 
 	if (hid < 0) {
@@ -1421,6 +1582,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	head = sock->header;
 	limited = sock->limited;
 	maxsize = sock->maxsize;
+	hiwater = sock->manual_hiwater;
+	lowater = sock->manual_lowater;
 
 	sock = async_core_node_get(core, hid);
 
@@ -1430,22 +1593,44 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	}
 
 	sock->mode = ASYNC_CORE_NODE_IN;
-	sock->ipv6 = (addrlen == sizeof(remote4))? 0 : 1;
+	sock->ipv6 = ipv6;
+	sock->afunix = afunix;
 
-	async_sock_assign(sock, fd, head);
+	sock->socket_init_proc = core->socket_init_proc;
+	sock->socket_init_user = core->socket_init_user;
+	sock->socket_init_code = ASYNC_CORE_NODE_IN;
+
+	/* assign fd to CAsyncSock */
+	if (async_sock_assign(sock, fd, head, 1) != 0) {
+		async_core_node_delete(core, hid);
+		return -7;
+	}
 
 	isocket_enable(fd, ISOCK_CLOEXEC);
 
 	sock->limited = limited;
 	sock->maxsize = maxsize;
-	
+	sock->manual_hiwater = hiwater;
+	sock->manual_lowater = lowater;
+
 	hr = ipoll_add(core->pfd, fd, IPOLL_IN | IPOLL_ERR, sock);
 	if (hr != 0) {
 		async_core_node_delete(core, hid);
-		return -7;
+		return -8;
 	}
 
 	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
+
+	if (protocol >= 0) {
+		sock->protocol = protocol;
+		if (core->factory != NULL) {
+			CAsyncFilter filter;
+			void *object;
+			filter = (CAsyncFilter)core->factory(core, 
+					hid, protocol, &object);
+			_async_core_filter(core, hid, filter, object);
+		}
+	}
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
 		listen_hid, remote, addrlen);
@@ -1473,6 +1658,10 @@ static long _async_core_new_connect(CAsyncCore *core,
 		assert(sock);
 		abort();
 	}
+
+	sock->socket_init_proc = core->socket_init_proc;
+	sock->socket_init_user = core->socket_init_user;
+	sock->socket_init_code = ASYNC_CORE_NODE_OUT;
 
 	if (async_sock_connect(sock, addr, addrlen, header) != 0) {
 		async_sock_close(sock);
@@ -1506,20 +1695,31 @@ static long _async_core_new_assign(CAsyncCore *core, int fd,
 	CAsyncSock *sock;
 	long hid;
 	int hr;
-	int size = 64;
+	int size = 0;
 	int ipv6 = 0;
-	char name[128];
+	int afunix = 0;
+	char name[256];
+	struct sockaddr *uname = (struct sockaddr*)name;
 
 	if (isocket_enable(fd, ISOCK_NOBLOCK) != 0) {
 		return -1;
 	}
 
-	if (isockname(fd, (struct sockaddr*)name, &size) == 0) {
-		if ((size_t)size > sizeof(struct sockaddr_in)) {
+	size = (int)sizeof(name);
+
+	if (isockname(fd, uname, &size) == 0) {
+	#ifdef AF_INET6
+		if (uname->sa_family == AF_INET6) {
 			ipv6 = 1;
 		}
+	#endif
+	#ifdef AF_UNIX
+		if (uname->sa_family == AF_UNIX) {
+			afunix = 1;
+		}
+	#endif
 	}	else {
-		memset(name, 0, 64);
+		memset(uname, 0, sizeof(name));
 		size = sizeof(struct sockaddr_in);
 		if (estab) {
 			return -2;
@@ -1550,24 +1750,32 @@ static long _async_core_new_assign(CAsyncCore *core, int fd,
 		abort();
 	}
 
-	async_sock_assign(sock, fd, header);
+	sock->socket_init_proc = core->socket_init_proc;
+	sock->socket_init_user = core->socket_init_user;
+	sock->socket_init_code = ASYNC_CORE_NODE_ASSIGN;
+
+	if (async_sock_assign(sock, fd, header, estab) != 0) {
+		async_core_node_delete(core, hid);
+		return -3;
+	}
+
 	sock->ipv6 = ipv6;
+	sock->afunix = afunix;
 
 	hr = ipoll_add(core->pfd, sock->fd, IPOLL_OUT | IPOLL_ERR, sock);
 	if (hr != 0) {
 		async_core_node_delete(core, hid);
-		return -3;
+		return -4;
 	}
 
 	async_core_node_mask(core, sock, IPOLL_OUT | IPOLL_IN | IPOLL_ERR, 0);
 	sock->mode = ASYNC_CORE_NODE_ASSIGN;
 
-	if (ipeername(fd, (struct sockaddr*)(name + 64), &size) == 0) {
-		memcpy(name, name + 64, 64);
-	}
+	size = (int)sizeof(name);
+	ipeername(sock->fd, uname, &size);
 
 	async_core_msg_push(core, ASYNC_CORE_EVT_NEW, hid, 
-		0, name, size);
+		0, uname, size);
 
 	return hid;
 }
@@ -1580,30 +1788,46 @@ static long _async_core_new_listen(CAsyncCore *core,
 	const struct sockaddr *addr, int addrlen, int header)
 {
 	CAsyncSock *sock;
-	int fd, ipv6 = 0;
+	int fd, ipv6 = 0, afunix = 0;
 	int hr, flag = 0;
 	long hid;
 
 	if (addrlen > 20) {
-	#ifdef AF_INET6
-		fd = (int)socket(AF_INET6, SOCK_STREAM, 0);
-		#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
-		if (fd >= 0) {
-			unsigned long enable = 1;
-			isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
-				(const char*)&enable, sizeof(enable));
-		}
-		#endif
-	#else
 		fd = -1;
+	#ifdef AF_INET6
+		if (addr->sa_family == AF_INET6) {
+			fd = (int)socket(AF_INET6, SOCK_STREAM, 0);
+			#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+			if (fd >= 0) {
+				unsigned long enable = 1;
+				isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+					(const char*)&enable, sizeof(enable));
+			}
+			#endif
+			ipv6 = 1;
+		}
 	#endif
-		ipv6 = 1;
+	#ifdef AF_UNIX
+		if (addr->sa_family == AF_UNIX) {
+			fd = (int)socket(AF_UNIX, SOCK_STREAM, 0);
+			afunix = 1;
+		}
+	#endif
 	}	else {
 		fd = (int)socket(AF_INET, SOCK_STREAM, 0);
 		addrlen = sizeof(struct sockaddr_in);
 		ipv6 = 0;
 	}
+
 	if (fd < 0) return -1;
+
+	if (core->socket_init_proc) {
+		if (core->socket_init_proc(core->socket_init_user, 
+					ASYNC_CORE_NODE_LISTEN, fd) != 0) {
+			iclose(fd);
+			return -2;
+		}
+	}
 
 	flag = (header >> 8) & 0xff;
 	
@@ -1631,19 +1855,19 @@ static long _async_core_new_listen(CAsyncCore *core,
 
 	if (ibind(fd, addr, addrlen) != 0) {
 		iclose(fd);
-		return -2;
+		return -3;
 	}
 
-	if (listen(fd, 20) != 0) {
+	if (listen(fd, core->backlog) != 0) {
 		iclose(fd);
-		return -3;
+		return -4;
 	}
 
 	hid = async_core_node_new(core);
 
 	if (hid < 0) {
 		iclose(fd);
-		return -4;
+		return -5;
 	}
 
 	sock = async_core_node_get(core, hid);
@@ -1652,19 +1876,22 @@ static long _async_core_new_listen(CAsyncCore *core,
 		assert(sock != NULL);
 		async_core_node_delete(core, hid);
 		iclose(fd);
-		return -5;
+		return -6;
 	}
 
-	async_sock_assign(sock, fd, 0);
+	async_sock_assign(sock, fd, 0, 1);
 
 	hr = ipoll_add(core->pfd, sock->fd, IPOLL_IN | IPOLL_ERR, sock);
 	if (hr != 0) {
 		async_core_node_delete(core, hid);
-		return -6;
+		return -7;
 	}
 
+	sock->mode = ASYNC_CORE_NODE_LISTEN;
+	sock->ipv6 = ipv6;
+	sock->afunix = afunix;
+
 	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
-	sock->mode = ipv6? ASYNC_CORE_NODE_LISTEN6 : ASYNC_CORE_NODE_LISTEN4;
 
 	if (!ilist_is_empty(&sock->node)) {
 		ilist_del(&sock->node);
@@ -1690,8 +1917,27 @@ static long _async_core_new_dgram(CAsyncCore *core,
 	int fd, hr, flag = 0;
 	long hid;
 
+#ifdef AF_INET6
+	struct sockaddr_in6 local;
+#else
+	struct sockaddr_in local;
+#endif
+
 	flag = (mode >> 8) & 0xff;
-	fd = isocket_udp_open(addr, addrlen, flag);
+
+	if (addr != NULL) {
+		fd = isocket_udp_open(addr, addrlen, flag);
+	}	
+	else {
+		fd = addrlen;
+		if ((flag & 0x100) == 0) {
+			isocket_enable(fd, ISOCK_CLOEXEC);
+		}
+		isocket_udp_init(fd, flag);
+		addr = (struct sockaddr*)&local;
+		addrlen = (int)sizeof(local);
+		isockname(fd, (struct sockaddr*)&local, &addrlen);
+	}
 
 	if (fd < 0) return fd;
 
@@ -1828,7 +2074,7 @@ static void async_core_event_close(CAsyncCore *core,
 		ipoll_del(core->pfd, sock->fd);
 	}
 	async_sock_close(sock);
-	async_core_msg_push(core, ASYNC_CORE_EVT_LEAVE, sock->hid,
+	async_core_msg_push(core, ASYNC_CORE_EVT_CLOSE, sock->hid,
 		sock->tag, data, sizeof(IUINT32) * 2);
 	async_core_node_delete(core, sock->hid);
 }
@@ -1907,8 +2153,7 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			continue;
 		}
 		if ((event & IPOLL_IN) || (event & IPOLL_ERR)) {
-			if (sock->mode == ASYNC_CORE_NODE_LISTEN4 ||
-				sock->mode == ASYNC_CORE_NODE_LISTEN6) {
+			if (sock->mode == ASYNC_CORE_NODE_LISTEN) {
 				async_core_accept(core, sock->hid);
 			}	
 			else {
@@ -1927,7 +2172,27 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 				if (needclose == 0) {
 					async_core_node_active(core, sock->hid);
 				}
-				while (needclose == 0) {
+				if (needclose == 0 && sock->header == ITMH_MANUAL) {
+					long remain = (long)sock->recvmsg.size;
+					if (remain >= sock->manual_hiwater) {
+						if (sock->mask & IPOLL_IN) {
+							int disable = IPOLL_IN | IPOLL_ERR;
+							async_core_node_mask(core, sock, 0, disable);
+						}
+					}
+					if (sock->filter == NULL) {
+						async_core_msg_push(core, ASYNC_CORE_EVT_DATA,
+							sock->hid, sock->tag, core->buffer, 0);
+					}
+					else {
+						CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+						core->dispatch = 1;
+						filter(core, sock->object, sock->hid,
+							ASYNC_CORE_FILTER_INPUT, core->buffer, 0);
+						core->dispatch = 0;
+					}
+				}
+				while (needclose == 0 && sock->header != ITMH_MANUAL) {
 					long size = async_sock_recv(sock, NULL, 0);
 					if (size < 0) {	/* not enough data or size error */
 						if (size == -3 || size == -4) {	/* size error */
@@ -1962,7 +2227,8 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 			}
 		}
 		if ((event & IPOLL_OUT) && needclose == 0) {
-			if (sock->mode == ASYNC_CORE_NODE_OUT) {
+			if (sock->mode == ASYNC_CORE_NODE_OUT ||
+				sock->mode == ASYNC_CORE_NODE_ASSIGN) {
 				if (sock->state == ASYNC_SOCK_STATE_CONNECTING) {
 					int hr = 0, done = 0;
 					int error = 0, len = sizeof(int);
@@ -1991,13 +2257,25 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 					code = 2005;
 				}
 			}
-			if (sock->sendmsg.size == 0 && sock->fd >= 0 && !needclose) {
-				if (sock->mask & IPOLL_OUT) {
-					async_core_node_mask(core, sock, 0, IPOLL_OUT);
-					if (sock->flags & ASYNC_CORE_FLAG_PROGRESS) {
+			if (sock->fd >= 0 && !needclose) {
+				if (sock->flags & ASYNC_CORE_FLAG_PROGRESS ||
+					sock->header == ITMH_MANUAL) {
+					if (sock->filter == NULL) {
 						async_core_msg_push(core, ASYNC_CORE_EVT_PROGRESS,
 							sock->hid, sock->tag, core->buffer, 0);
 					}
+					else {
+						CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+						core->dispatch = 1;
+						filter(core, sock->object, sock->hid,
+							ASYNC_CORE_FILTER_PROGRESS, core->buffer, 0);
+						core->dispatch = 0;
+					}
+				}
+			}
+			if (sock->sendmsg.size == 0 && sock->fd >= 0 && !needclose) {
+				if (sock->mask & IPOLL_OUT) {
+					async_core_node_mask(core, sock, 0, IPOLL_OUT);
 				}
 			}
 		}
@@ -2210,7 +2488,7 @@ int async_core_notify(CAsyncCore *core)
 	if (core->xfd[ASYNC_CORE_PIPE_FLAG] == 0) {
 		if (fd >= 0) {
 			char dummy = 1;
-			int hr = 0;
+			hr = 0;
 		#ifdef __unix
 			#ifndef __AVM2__
 			hr = write(fd, &dummy, 1);
@@ -2255,14 +2533,60 @@ int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
 
 
 /*-------------------------------------------------------------------*/
-/* queue an ASYNC_CORE_EVT_PUSH event and wake async_core_wait up    */
+/* queue an ASYNC_CORE_EVT_POST event and wake async_core_wait up    */
 /*-------------------------------------------------------------------*/
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
 	const void *data, long size)
 {
-	async_core_push(core, ASYNC_CORE_EVT_PUSH, wparam, lparam, data, size);
+	async_core_push(core, ASYNC_CORE_EVT_POST, wparam, lparam, data, size);
 	async_core_notify(core);
 	return 0;
+}
+
+/*-------------------------------------------------------------------*/
+/* fetch data in manual mode (head is ITMH_MANUAL), size < 0 for     */
+/* peek, returns remain data size only if data == NULL.              */
+/*-------------------------------------------------------------------*/
+static long _async_core_fetch(CAsyncCore *core, long hid, 
+	void *data, long size)
+{
+	CAsyncSock *sock = async_core_node_get(core, hid);
+	long hr = 0;
+	if (sock == NULL) return -1;
+	if (data == NULL) return (long)sock->recvmsg.size;
+	if (sock->header != ITMH_MANUAL) return -2;
+	hr = async_sock_recv(sock, data, size);
+	if ((sock->mask & IPOLL_IN) == 0) {
+		long remain = (long)sock->recvmsg.size;
+		if (remain <= sock->manual_lowater) {
+			if (remain < sock->manual_hiwater) {
+				/* event recover */
+				async_core_node_mask(core, sock, 
+						IPOLL_IN | IPOLL_ERR, 0);
+			}
+		}
+	}
+	return hr;
+}
+
+long async_core_fetch(CAsyncCore *core, long hid, void *data, long size)
+{
+	CAsyncSock *sock = NULL;
+	long hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get(core, hid);
+	if (sock == NULL || sock->filter == NULL) {
+		hr = _async_core_fetch(core, hid, data, size);
+	}
+	else {
+		CAsyncFilter filter = ASYNC_CORE_FILTER(sock);
+		core->dispatch = 1;
+		hr = filter(core, sock->object, hid, 
+				ASYNC_CORE_FILTER_FETCH, data, size);
+		core->dispatch = 0;
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 
@@ -2305,8 +2629,20 @@ void async_core_set_tag(CAsyncCore *core, long hid, long tag)
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* get send queue size */
+/* get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL) */
 long async_core_remain(const CAsyncCore *core, long hid)
+{
+	const CAsyncSock *sock;
+	long size = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	sock = async_core_node_get_const(core, hid);
+	if (sock != NULL) size = (long)sock->recvmsg.size;
+	ASYNC_CORE_CRITICAL_END(core);
+	return size;
+}
+
+/* get send queue size: how many bytes are waiting to be sent */
+long async_core_pending(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock;
 	long size = -1;
@@ -2318,12 +2654,11 @@ long async_core_remain(const CAsyncCore *core, long hid)
 }
 
 /* setup filter */
-void async_core_filter(CAsyncCore *core, long hid, 
+static void _async_core_filter(CAsyncCore *core, long hid, 
 	CAsyncFilter filter, void *object)
 {
 	CAsyncSock *sock;
 	if (core->dispatch) return;
-	ASYNC_CORE_CRITICAL_BEGIN(core);
 	sock = async_core_node_get(core, hid);
 	if (sock) {
 		if (sock->filter) {
@@ -2345,6 +2680,14 @@ void async_core_filter(CAsyncCore *core, long hid,
 	}	else {
 		filter(core, object, hid, ASYNC_CORE_FILTER_RELEASE, NULL, 0);
 	}
+}
+
+/* setup filter */
+void async_core_filter(CAsyncCore *core, long hid, 
+	CAsyncFilter filter, void *object)
+{
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	_async_core_filter(core, hid, filter, object);
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
@@ -2374,8 +2717,97 @@ int async_core_dispatch(CAsyncCore *core, long hid, int cmd,
 	case ASYNC_CORE_DISPATCH_CLOSE:
 		_async_core_close(core, hid, (int)size);
 		break;
+	case ASYNC_CORE_DISPATCH_FETCH:
+		_async_core_fetch(core, hid, (void*)ptr, size);
+		break;
+	case ASYNC_CORE_DISPATCH_HEADER: 
+		return sock->header;
 	}
 	return 0;
+}
+
+/* read/write registry */
+void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr)
+{
+	void *hr = NULL;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	switch (op) {
+	case ASYNC_CORE_REG_GET_PARENT:
+		hr = core->parent;
+		break;
+	case ASYNC_CORE_REG_SET_PARENT:
+		core->parent = ptr;
+		break;
+	case ASYNC_CORE_REG_GET_FACTORY:
+		hr = core->factory;
+		break;
+	case ASYNC_CORE_REG_SET_FACTORY:
+		core->factory = (CAsyncFactory)ptr;
+		break;
+	}
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+/* setup protocol */
+static int _async_core_protocol(CAsyncCore *core, long hid, int protocol)
+{
+	CAsyncSock *sock;
+	if (core == NULL) return -1;
+	if (core->factory == NULL) return -2;
+	sock = async_core_node_get(core, hid);
+	if (sock == NULL) return -3;
+	sock->protocol = protocol;
+	if (sock->mode == ASYNC_CORE_NODE_IN ||
+		sock->mode == ASYNC_CORE_NODE_OUT ||
+		sock->mode == ASYNC_CORE_NODE_ASSIGN) {
+		void *object = NULL;
+		CAsyncFilter filter = (CAsyncFilter)core->factory(core, 
+				hid, protocol, &object);
+		_async_core_filter(core, hid, filter, object);
+	}
+	return 0;
+}
+
+/* setup protocol */
+int async_core_protocol(CAsyncCore *core, long hid, int protocol)
+{
+	int hr = -1;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_protocol(core, hid, protocol);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+/* global configuration */
+static int _async_core_setting(CAsyncCore *core, int config, long value)
+{
+	int hr = -1;
+	switch (config) {
+	case ASYNC_CORE_SETTING_MAXSIZE:
+		core->maxsize = value;
+		hr = 0;
+		break;
+	case ASYNC_CORE_SETTING_LIMIT:
+		core->limited = value;
+		hr = 0;
+		break;
+	case ASYNC_CORE_SETTING_BACKLOG:
+		core->backlog = (int)value;
+		hr = 0;
+		break;
+	}
+	return hr;
+}
+
+/* global configuration */
+int async_core_setting(CAsyncCore *core, int config, long value)
+{
+	int hr = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_setting(core, config, value);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
 }
 
 /* set connection socket option */
@@ -2486,9 +2918,21 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			hr = -30;
 		}
 		break;
+	case ASYNC_CORE_OPTION_PAUSEREAD:
+		if (sock->mode == ASYNC_CORE_NODE_IN || 
+			sock->mode == ASYNC_CORE_NODE_OUT ||
+			sock->mode == ASYNC_CORE_NODE_ASSIGN) {
+			if (value) {
+				sock->mask &= ~((int)IPOLL_IN);
+			}
+			else {
+				sock->mask |= IPOLL_IN;
+			}
+			hr = ipoll_set(core->pfd, sock->fd, sock->mask);
+		}
+		break;
 	case ASYNC_CORE_OPTION_SHUTDOWN:
-		if (sock->mode != ASYNC_CORE_NODE_LISTEN4 && 
-			sock->mode != ASYNC_CORE_NODE_LISTEN6 && 
+		if (sock->mode != ASYNC_CORE_NODE_LISTEN && 
 			sock->mode != ASYNC_CORE_NODE_DGRAM) {
 			if (sock->sendmsg.size > 0) {
 				if (sock->fd >= 0) {
@@ -2502,8 +2946,27 @@ static int _async_core_option(CAsyncCore *core, long hid,
 			}
 		}
 		break;
-	case ASYNC_CORE_OPTION_GETHEADER:
+	case ASYNC_CORE_OPTION_GET_HEADER:
 		hr = sock->header;
+		break;
+	case ASYNC_CORE_OPTION_GET_PROTOCOL:
+		hr = sock->protocol;
+		break;
+	case ASYNC_CORE_OPTION_HIWATER:
+		if (sock->header == ITMH_MANUAL) {
+			sock->manual_hiwater = (long)value;
+			hr = 0;
+		}	else {
+			hr = -1;
+		}
+		break;
+	case ASYNC_CORE_OPTION_LOWATER:
+		if (sock->header == ITMH_MANUAL) {
+			sock->manual_lowater = (long)value;
+			hr = 0;
+		}	else {
+			hr = -1;
+		}
 		break;
 	}
 	return hr;
@@ -2523,11 +2986,17 @@ static long _async_core_status(CAsyncCore *core, long hid, int opt)
 	case ASYNC_CORE_STATUS_STATE:
 		hr = sock->state;
 		break;
+	case ASYNC_CORE_STATUS_ESTAB:
+		hr = isocket_tcp_estab(sock->fd);
+		break;
 	case ASYNC_CORE_STATUS_IPV6:
 		hr = sock->ipv6;
 		break;
-	case ASYNC_CORE_STATUS_ESTAB:
-		hr = isocket_tcp_estab(sock->fd);
+	case ASYNC_CORE_STATUS_AFUNIX:
+		hr = sock->afunix;
+		break;
+	case ASYNC_CORE_STATUS_ERROR:
+		hr = sock->error;
 		break;
 	}
 
@@ -2669,6 +3138,56 @@ long async_core_nfds(const CAsyncCore *core)
 	ASYNC_CORE_CRITICAL_END(core);
 	return count;
 }
+
+/* memory information */
+static long _async_core_info(const CAsyncCore *core, int info)
+{
+	long hr = 0;
+	switch (info) {
+	case ASYNC_CORE_INFO_NFDS:
+		hr = core->count;
+		break;
+	case ASYNC_CORE_INFO_NODE_USED:
+		hr = (long)core->nodes->node_used;
+		break;
+	case ASYNC_CORE_INFO_NODE_MAX:
+		hr = (long)core->nodes->node_max;
+		break;
+	case ASYNC_CORE_INFO_NODE_MEMORY:
+		hr = (long)core->nodes->total_mem;
+		break;
+	case ASYNC_CORE_INFO_CACHE_USED:
+		hr = (long)core->cache->node_used;
+		break;
+	case ASYNC_CORE_INFO_CACHE_MAX:
+		hr = (long)core->cache->node_max;
+		break;
+	case ASYNC_CORE_INFO_CACHE_MEMORY:
+		hr = (long)core->cache->total_mem;
+		break;
+	}
+	return hr;
+}
+
+/* memory information */
+long async_core_info(const CAsyncCore *core, int info)
+{
+	long hr = 0;
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	hr = _async_core_info(core, info);
+	ASYNC_CORE_CRITICAL_END(core);
+	return hr;
+}
+
+/* setup socket init hook */
+void async_core_install(CAsyncCore *core, CAsyncSocketInit proc, void *user)
+{
+	ASYNC_CORE_CRITICAL_BEGIN(core);
+	core->socket_init_proc = proc;
+	core->socket_init_user = user;
+	ASYNC_CORE_CRITICAL_END(core);
+}
+
 
 
 /*===================================================================*/
@@ -3345,7 +3864,7 @@ void ifix_interval_running(IUINT32 *time, long interval)
 	long sub;
 	current = iclock();
 	sub = itimediff(current, *time);
-	if ( sub < interval) {
+	if (sub < interval) {
 		isleep(interval-sub);
 	}
 	*time += interval;

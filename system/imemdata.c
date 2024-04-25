@@ -631,235 +631,141 @@ int idict_del_i(idict_t *dict, ilong key)
  **********************************************************************/
 
 /* init circle cache */
-void iring_init(struct IRING *cache, void *buffer, ilong size)
+void iring_init(struct IRING *ring, void *buffer, ilong capacity)
 {
-	cache->data = (char*)buffer;
-	cache->size = size;
-	cache->head = 0;
-	cache->tail = 0;
+	ring->data = (char*)buffer;
+	ring->capacity = capacity;
+	ring->head = 0;
 }
 
-/* return data size */
-ilong iring_dsize(const struct IRING *cache)
+/* return head position */
+ilong iring_head(const struct IRING *ring)
 {
-	assert(cache);
-	return IRING_DSIZE(cache);
+	assert(ring);
+	return ring->head;
 }
 
-/* return free size */
-ilong iring_fsize(const struct IRING *cache)
+/* calculate new position within the range of [0, capacity) */
+ilong iring_modulo(const struct IRING *ring, ilong offset)
 {
-	assert(cache);
-	return IRING_FSIZE(cache);
-}
-
-/* write */
-ilong iring_write(struct IRING *cache, const void *data, ilong size)
-{
-	char *lptr = (char*)data;
-	ilong dsize, dfree, half;
-
-	dsize = IRING_DSIZE(cache);
-	dfree = (cache->size - dsize) - 1;
-	if (dfree <= 0) return 0;
-
-	size = (size < dfree)? size : dfree;
-	half = (cache->size - cache->head);
-
-	if (lptr != NULL) {
-		if (half >= size) {
-			memcpy(cache->data + cache->head, lptr, (size_t)size);
-		} else {
-			memcpy(cache->data + cache->head, lptr, (size_t)half);
-			memcpy(cache->data, lptr + half, (size_t)(size - half));
-		}
-	}
-
-	cache->head += size;
-	if (cache->head >= cache->size) cache->head -= cache->size;
-
-	return size;
-}
-
-/* peek */
-ilong iring_peek(const struct IRING *cache, void *data, ilong size)
-{
-	char *lptr = (char*)data;
-	ilong dsize, half;
-
-	dsize = IRING_DSIZE(cache);
-	if (dsize <= 0) return 0;
-
-	size = (size < dsize)? size : dsize;
-	half = cache->size - cache->tail;
-
-	if (half >= size) {
-		memcpy(lptr, cache->data + cache->tail, (size_t)size);
-	}	else {
-		memcpy(lptr, cache->data + cache->tail, (size_t)half);
-		memcpy(lptr + half, cache->data, (size_t)(size - half));
-	}
-
-	return size;
-}
-
-/* read */
-ilong iring_read(struct IRING *cache, void *data, ilong size)
-{
-	ilong nsize;
-	
-	nsize = iring_peek(cache, data, size);
-	if (nsize <= 0) return nsize;
-
-	cache->tail += nsize;
-	if (cache->tail >= cache->size) cache->tail -= cache->size;
-
-	return nsize;
-}
-
-/* drop */
-ilong iring_drop(struct IRING *cache, ilong size)
-{
-	ilong dsize;
-
-	dsize = IRING_DSIZE(cache);
-	if (dsize <= 0) return 0;
-
-	size = (size < dsize)? size : dsize;
-	cache->tail += size;
-	if (cache->tail >= cache->size) cache->tail -= cache->size;
-
-	return size;
-}
-
-/* get flat ptr and size */
-ilong iring_flat(const struct IRING *cache, void **pointer)
-{
-	ilong dsize, half;
-
-	dsize = IRING_DSIZE(cache);
-	if (dsize <= 0) return 0;
-
-	half = cache->size - cache->tail;
-	if (pointer) *pointer = (void*)(cache->data + cache->tail);
-
-	return (half <= dsize)? half : dsize;
-}
-
-/* put data to given pos */
-ilong iring_put(struct IRING *cache, ilong pos, const void *data, ilong len)
-{
-	char *lptr = (char*)data;
-	ilong dsize, nsize, size;
-	ilong tail, half;
-
-	assert(pos >= 0 && len >= 0);
-
-	nsize = pos + len;
-	dsize = IRING_DSIZE(cache);
-
-	if (nsize > cache->size - 1) 
-		nsize = cache->size - 1;
-
-	if (nsize <= pos) 
+	ilong cap = ring->capacity;
+	if (cap == 0) {
 		return 0;
-
-	size = nsize - pos;
-
-	if (nsize > dsize) {
-		cache->head += nsize - dsize;
-		if (cache->head >= cache->size) 
-			cache->head -= cache->size;
 	}
-
-	dsize = IRING_DSIZE(cache);
-	assert(dsize >= nsize);
-
-	tail = cache->tail + pos;
-	if (tail >= cache->size) tail -= cache->size;
-
-	half = cache->size - tail;
-
-	if (lptr != NULL) {
-		if (half >= size) {
-			memcpy(cache->data + tail, lptr, (size_t)size);
-		} else {
-			memcpy(cache->data + tail, lptr, (size_t)half);
-			memcpy(cache->data, lptr + half, (size_t)(size - half));
+	if (offset >= 0) {
+		if (offset >= cap) {
+			offset -= cap;
+			offset = (offset < cap)? offset : (offset % cap);
+			if (offset >= cap) 
+				offset %= cap;
 		}
+		return offset;
 	}
-
-	return size;
+	else {
+		offset = -offset;
+		if (offset >= cap) {
+			offset -= cap;
+			offset = (offset < cap)? offset : (offset % cap);
+		}
+		return cap - offset;
+	}
 }
 
-/* get data from given pos */
-ilong iring_get(const struct IRING *cache, ilong pos, void *data, ilong len)
+/* move head forward */
+ilong iring_advance(struct IRING *ring, ilong offset)
 {
-	char *lptr = (char*)data;
-	ilong dsize, nsize, size;
-	ilong tail, half;
+	ilong cap = ring->capacity;
+	if (cap <= 0) {
+		return ring->head;
+	}
+	ring->head = iring_modulo(ring, ring->head + offset);
+	return ring->head;
+}
 
-	assert(pos >= 0 && len >= 0);
-
-	nsize = pos + len;
-	dsize = IRING_DSIZE(cache);
-
-	if (nsize > dsize) 
-		nsize = dsize;
-
-	if (nsize <= pos) 
+/* fetch data from position */
+ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len)
+{
+	char *lptr = (char*)ptr;
+	ilong cap = ring->capacity;
+	ilong offset = iring_modulo(ring, ring->head + pos);
+	ilong half = cap - offset;
+	if (cap <= 0) {
 		return 0;
-
-	size = nsize - pos;
-
-	tail = cache->tail + pos;
-	if (tail >= cache->size) tail -= cache->size;
-
-	half = cache->size - tail;
-
-	if (half >= size) {
-		memcpy(lptr, cache->data + tail, (size_t)size);
-	}	else {
-		memcpy(lptr, cache->data + tail, (size_t)half);
-		memcpy(lptr + half, cache->data, (size_t)(size - half));
 	}
-
-	return size;
+	len = (len < cap)? len : cap;
+	if (half >= len) {
+		memcpy(lptr, ring->data + offset, (size_t)len);
+	}	else {
+		memcpy(lptr, ring->data + offset, (size_t)half);
+		memcpy(lptr + half, ring->data, (size_t)(len - half));
+	}
+	return len;
 }
 
-
-/* swap buffer ptr: returns 0 for successful, -1 for size error */
-int iring_swap(struct IRING *cache, void *buffer, ilong size)
+/* store data to position */
+ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len)
 {
-	ilong dsize;
-
-	dsize = IRING_DSIZE(cache);
-	if (dsize + 1 > size) return -1;
-	iring_read(cache, buffer, dsize);
-	cache->data = (char*)buffer;
-	cache->size = size;
-	cache->head = dsize;
-	cache->tail = 0;
-	return 0;
+	const char *lptr = (const char*)ptr;
+	ilong cap = ring->capacity;
+	ilong offset = iring_modulo(ring, ring->head + pos);
+	ilong half = cap - offset;
+	if (cap <= 0) {
+		return 0;
+	}
+	len = (len < cap)? len : cap;
+	if (half >= len) {
+		memcpy(ring->data + offset, lptr, (size_t)len);
+	}	else {
+		memcpy(ring->data + offset, lptr, (size_t)half);
+		memcpy(ring->data, lptr + half, (size_t)(len - half));
+	}
+	return len;
 }
 
-/* ring buffer ptr info */
-ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2, 
-	ilong *s2)
+/* fill data into position */
+ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len)
 {
-	ilong dsize = IRING_DSIZE(ring);
-	if (ring->tail + dsize <= ring->size) {
-		p1[0] = ring->data + ring->tail;
-		s1[0] = dsize;
-		p2[0] = NULL;
-		s2[0] = 0;
-	}	else {
-		p1[0] = ring->data + ring->tail;
-		s1[0] = ring->size - ring->tail;
-		p2[0] = ring->data;
-		s2[0] = ring->head;
+	ilong cap = ring->capacity;
+	ilong offset = iring_modulo(ring, ring->head + pos);
+	ilong half = cap - offset;
+	if (cap <= 0) {
+		return 0;
 	}
-	return dsize;
+	len = (len < cap)? len : cap;
+	if (half >= len) {
+		memset(ring->data + offset, ch, (size_t)len);
+	}	else {
+		memset(ring->data + offset, ch, (size_t)half);
+		memset(ring->data, ch, (size_t)(len - half));
+	}
+	return len;
+}
+
+/* flat memory */
+ilong iring_flat(const struct IRING *ring, void **pointer)
+{
+	if (pointer) pointer[0] = (void*)(ring->data + ring->head);
+	return ring->capacity - ring->head;
+}
+
+/* swap internal buffer */
+void iring_swap(struct IRING *ring, void *buffer, ilong capacity)
+{
+	ilong size = (ring->capacity < capacity)? ring->capacity : capacity;
+	iring_read(ring, 0, buffer, size);
+	ring->data = (char*)buffer;
+	ring->capacity = capacity;
+	ring->head = 0;
+}
+
+void iring_ptrs(struct IRING *ring, void **p1, ilong *s1, 
+	void **p2, ilong *s2)
+{
+	ilong half = ring->capacity - ring->head;
+	p1[0] = ring->data + ring->head;
+	s1[0] = half;
+	p2[0] = ring->data;
+	s2[0] = ring->head;
 }
 
 
@@ -1180,9 +1086,9 @@ int istrncasecmp(char* s1, char* s2, size_t num)
 /* strsep */
 char *istrsep(char **stringp, const char *delim)
 {
-	register char *s;
-	register const char *spanp;
-	register int c, sc;
+	char *s;
+	const char *spanp;
+	int c, sc;
 	char *tok;
 
 	if ((s = *stringp) == NULL)

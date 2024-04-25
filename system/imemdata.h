@@ -1282,22 +1282,12 @@ static inline IUINT32 iexbyte32(IUINT32 dword)
  **********************************************************************/
 struct IRING			/* ci-buffer type */
 {
-	char*data;			/* memory address */
-	ilong size;			/* total mem-size */
-	ilong head;			/* write pointer. */
-	ilong tail;			/* read pointer.. */
+	char *data;			/* buffer ptr */
+	ilong capacity;		/* buffer capacity */
+	ilong head;			/* read ptr */
 };
 
 typedef struct IRING iring_t;
-
-
-/**********************************************************************
- * Macros Definition
- **********************************************************************/
-#define IRING_DSIZE(c) (((c)->head >= (c)->tail)?  \
-                         ((c)->head - (c)->tail):   \
-                         (((c)->size - (c)->tail) + (c)->head))
-#define IRING_FSIZE(c) (((c)->size - IRING_DSIZE(c)) - 1)
 
 
 /**********************************************************************
@@ -1305,44 +1295,26 @@ typedef struct IRING iring_t;
  **********************************************************************/
 
 /* init circle cache */
-void iring_init(struct IRING *cache, void *buffer, ilong size);
+void iring_init(struct IRING *ring, void *buffer, ilong capacity);
 
-/* get data size */
-ilong iring_dsize(const struct IRING *cache);
+/* move head forward */
+ilong iring_advance(struct IRING *ring, ilong offset);
 
-/* get free space size */
-ilong iring_fsize(const struct IRING *cache);
+/* fetch data from given position */
+ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len);
 
-/* write data into cache */
-ilong iring_write(struct IRING *cache, const void *data, ilong size);
+/* store data to certain position */
+ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len);
 
-/* read data and drop them from cache */
-ilong iring_read(struct IRING *cache, void *data, ilong size);
+/* get flat ptr and returns flat size */
+ilong iring_flat(const struct IRING *ring, void **pointer);
 
-/* peek data from cache (no drop data) */
-ilong iring_peek(const struct IRING *cache, void *data, ilong size);
+/* fill data into position */
+ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len);
 
-/* drop data from cache */
-ilong iring_drop(struct IRING *cache, ilong size);
+/* swap internal buffer */
+void iring_swap(struct IRING *ring, void *buffer, ilong capacity);
 
-/* clear cache */
-void iring_clear(struct IRING *cached);
-
-/* get flat ptr and size */
-ilong iring_flat(const struct IRING *cache, void **pointer);
-
-/* put data to given position */
-ilong iring_put(struct IRING *cache, ilong pos, const void *data, ilong len);
-
-/* get data from given position */
-ilong iring_get(const struct IRING *cache, ilong pos, void *data, ilong len);
-
-/* swap buffer ptr: returns 0 for successful, -1 for size error */
-int iring_swap(struct IRING *cache, void *buffer, ilong size);
-
-/* ring buffer ptr info: returns data size */
-ilong iring_ptr(struct IRING *ring, char **p1, ilong *s1, char **p2, 
-	ilong *s2);
 
 
 /**********************************************************************
@@ -1728,6 +1700,21 @@ static inline IUINT32 icrypt_checksum(const void *src, ilong size) {
 	for (; size > 0; ptr++, size--) 
 		checksum += ptr[0];
 	return checksum;
+}
+
+static inline void icrypt_xor_str(const void *src, void *dst, 
+		ilong size, const unsigned char *mask, int msize) {
+	const unsigned char *ptr = (const unsigned char*)src;
+	unsigned char *out = (unsigned char*)dst;
+	const unsigned char *mptr = mask;
+	const unsigned char *mend = mask + msize;
+	for (; size > 0; ptr++, out++, size--) {
+		out[0] = ptr[0] ^ mptr[0];
+		mptr++;
+		if (mptr >= mend) {
+			mptr = mask;
+		}
+	}
 }
 
 

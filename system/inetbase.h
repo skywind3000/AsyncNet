@@ -52,6 +52,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/un.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -436,6 +437,9 @@ IINT64 iclock64(void);
 /* real time usec (1/1000000 sec) clock */
 IINT64 iclockrt(void);
 
+/* real time nsec (1/1000000000 sec) clock */
+IINT64 iclock_nano(int monotonic);
+
 /* global millisecond clock value, updated by itimeofday */
 volatile extern IINT64 itimeclock;
 
@@ -659,6 +663,23 @@ void ikmset(void *ikmalloc_func, void *ikfree_func);
 
 
 /*===================================================================*/
+/* System Features                                                   */
+/*===================================================================*/
+
+/* set bits defined in IFEATURE_XXX to enable features */
+extern int _initialize_feature;
+
+/* check if a feature is enabled */
+#define IFEATURE_HAS(what) (((_initialize_feature) & (what))? 1 : 0)
+
+/* available features */
+#define IFEATURE_VISTA_RWLOCK    1    /* win: vista native rwlock */
+#define IFEATURE_VISTA_COND      2    /* win: vista native condition var */
+#define IFEATURE_AFUNIX_PAIR     4    /* win: win10 afunix socket-pair */
+#define IFEATURE_LARGE_FDSET     8    /* win: use WSELECT in ipoll */
+
+
+/*===================================================================*/
 /* Simple Assistant Function                                         */
 /*===================================================================*/
 
@@ -673,6 +694,9 @@ int isocket_enable(int fd, int mode);
 
 /* enable option */
 int isocket_disable(int fd, int mode);
+
+/* initialize udp socket */
+int isocket_udp_init(int fd, int flags);
 
 /* open a dgram */
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags);
@@ -690,6 +714,7 @@ int isocket_pair(int fds[2], int cloexec);
 int isocket_try_firewall(void);
 
 
+
 /*===================================================================*/
 /* Cross-Platform Poll Interface                                     */
 /*===================================================================*/
@@ -701,7 +726,8 @@ int isocket_try_firewall(void);
 #define IDEVICE_DEVPOLL		5
 #define IDEVICE_POLLSET		6
 #define IDEVICE_RTSIG		7
-#define IDEVICE_WINCP		8
+#define IDEVICE_WSELECT		8
+#define IDEVICE_WINCP		9
 
 #ifndef IPOLL_IN
 #define IPOLL_IN	1
@@ -722,6 +748,9 @@ int ipoll_init(int device);
 
 /* quit poll device */
 int ipoll_quit(void);
+
+/* install external driver */
+int ipoll_install(int pdsize, void **driver);
 
 /* name of poll device */
 const char *ipoll_name(void);
@@ -940,6 +969,22 @@ iulong iposix_sem_peek(iPosixSemaphore *sem, iulong count,
 iulong iposix_sem_value(iPosixSemaphore *sem);
 
 
+/*====================================================================*/
+/* Cross-Platform High Resolution Clock                               */
+/*====================================================================*/
+#define IPOSIX_CLOCK_REALTIME          0
+#define IPOSIX_CLOCK_REALTIME_COARSE   1
+#define IPOSIX_CLOCK_MONOTONIC         2
+#define IPOSIX_CLOCK_MONOTONIC_COARSE  3
+
+
+/* high resolution clock, returns nanosecond */
+void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec);
+
+/* returns 64bit nanosecond */
+IINT64 iposix_clock_nanosec(int clock_id);
+
+
 /*===================================================================*/
 /* DateTime Cross-Platform Interface                                 */
 /*===================================================================*/
@@ -977,6 +1022,52 @@ int isockaddr_pton(int af, const char *src, void *dst);
 /* convert network format to presentation format */
 /* another inet_ntop, supports AF_INET/AF_INET6 */
 const char *isockaddr_ntop(int af, const void *src, char *dst, size_t size);
+
+
+
+/*===================================================================*/
+/* AF_UNIX address manipulation                                      */
+/*===================================================================*/
+#define _I_UNIX_PATH_MAX 108
+struct sockaddr_unx {
+	short sun_family;	/* ADDRESS_FAMILY */
+	char sun_path[_I_UNIX_PATH_MAX];
+};
+
+/* address union */
+typedef union {
+	struct sockaddr address;
+	struct sockaddr_in in4;
+#ifdef AF_INET6
+	struct sockaddr_in6 in6;
+#endif
+#ifdef AF_UNIX
+	struct sockaddr_unx inx;
+	#ifdef __unix
+	struct sockaddr_un inu;
+	#endif
+#endif
+}   isockaddr_union;
+
+
+#if defined(AF_UNIX) && defined(_WIN32)
+#define ISOCKADDR_UN_SIZE sizeof(struct sockaddr_unx)
+#elif defined(AF_UNIX)
+#define ISOCKADDR_UN_SIZE sizeof(struct sockaddr_un)
+#else
+#define ISOCKADDR_UN_SIZE 0
+#endif
+
+
+/* set filename to a af_unix address */
+void isockaddr_afunix_set(isockaddr_union *su, const char *filename);
+
+/* get filename from a af_unix address */
+const char *isockaddr_afunix_get(const isockaddr_union *su);
+
+/* convert to string, buffer size must >= 256 */
+char *isockaddr_union_string(const isockaddr_union *su, char *text);
+
 
 
 

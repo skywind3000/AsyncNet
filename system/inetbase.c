@@ -213,17 +213,18 @@ static void itimeofday_default(long *sec, long *usec)
 void itimeofday(long *sec, long *usec)
 {
 	static volatile int inited = 0;
+	volatile int *once = &inited;
 	IINT64 value;
 	long s, u;
 	itimeofday_default(&s, &u);
 	value = ((IINT64)s) * 1000 + (u / 1000);
 	itimeclock = value;
-	if (inited == 0) {
+	if (*once == 0) {
 		IMUTEX_TYPE *lock = internal_mutex_get(0);
 		IMUTEX_LOCK(lock);
-		if (inited == 0) {
+		if (*once == 0) {
 			itimestart = itimeclock;
-			inited = 1;
+			*once = 1;
 		}
 		IMUTEX_UNLOCK(lock);
 	}
@@ -257,7 +258,7 @@ IINT64 iclockrt(void)
 #ifndef _WIN32
 	struct timespec ts;
 	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
-		#ifdef ICLOCK_TYPE_REALTIME
+		#if defined(ICLOCK_TYPE_REALTIME) || (!defined(CLOCK_MONOTONIC))
 		clock_gettime(CLOCK_REALTIME, &ts);
 		#else
 		clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -276,6 +277,15 @@ IINT64 iclockrt(void)
 #endif
 	return current;
 }
+
+/* real time nsec (1/1000000000 sec) clock */
+IINT64 iclock_nano(int monotonic)
+{
+	int clock_id = IPOSIX_CLOCK_REALTIME;
+	if (monotonic) clock_id = IPOSIX_CLOCK_MONOTONIC;
+	return iposix_clock_nanosec(clock_id);
+}
+
 
 
 /*===================================================================*/
@@ -389,10 +399,11 @@ static IMUTEX_TYPE* internal_mutex_ptr(const void *ptr)
 static int internal_atomic_exchange(int *ptr, int value)
 {
 	IMUTEX_TYPE *lock = internal_mutex_ptr(ptr);
+	volatile int *lptr = (volatile int*)ptr;
 	int oldvalue = 0;
 	IMUTEX_LOCK(lock);
-	oldvalue = ptr[0];
-	ptr[0] = value;
+	oldvalue = lptr[0];
+	lptr[0] = value;
 	IMUTEX_UNLOCK(lock);
 	return oldvalue;
 }
@@ -401,23 +412,25 @@ static int internal_atomic_exchange(int *ptr, int value)
 static int internal_atomic_cmpxchg(int *ptr, int value, int compare)
 {
 	IMUTEX_TYPE *lock = internal_mutex_ptr(ptr);
+	volatile int *lptr = (volatile int*)ptr;
 	int oldvalue = 0;
 	IMUTEX_LOCK(lock);
-	oldvalue = ptr[0];
-	if (ptr[0] == compare) {
-		ptr[0] = value;
+	oldvalue = lptr[0];
+	if (lptr[0] == compare) {
+		lptr[0] = value;
 	}
 	IMUTEX_UNLOCK(lock);
 	return oldvalue;
 }
 
 /* get value */
-static int internal_atomic_get(int *ptr)
+static int internal_atomic_get(const int *ptr)
 {
 	IMUTEX_TYPE *lock = internal_mutex_ptr(ptr);
+	volatile const int *lptr = (volatile const int*)ptr;
 	int value;
 	IMUTEX_LOCK(lock);
-	value = ptr[0];
+	value = lptr[0];
 	IMUTEX_UNLOCK(lock);
 	return value;
 }
@@ -518,6 +531,9 @@ int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 #ifdef _WIN32
 	unsigned char remote[32];
 #endif
+	if (addr == NULL) {
+		return (int)accept(sock, NULL, NULL);
+	}
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
 	}
@@ -821,15 +837,26 @@ char *ierrstr(int errnum, char *msg, int size)
 	#ifdef __unix
 	strncpy(lptr, strerror(errnum), length);
 	#elif (!defined(_XBOX))
-	LPVOID lpMessageBuf;
+	LPVOID lpMessageBuf = NULL;
 	fd_set fds;
 	FD_ZERO(&fds);
 	FD_CLR(0, &fds);
-	size = (long)FormatMessage( 
+	FormatMessage( 
 		FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
 		NULL, errnum, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), 
 		(LPTSTR) &lpMessageBuf, 0, NULL);
-	strncpy(lptr, (char*)lpMessageBuf, length);
+	lptr[0] = 0;
+	if (lpMessageBuf != NULL) {
+		int len, i;
+		strncpy(lptr, (char*)lpMessageBuf, length);
+		len = (int)strlen(lptr);
+		for (i = len - 1; i > 0; i--) {
+			if (lptr[i] != '\n' && lptr[i] != '\r') break;
+		}
+		if (i >= 0 && i < len) {
+			lptr[i] = 0;
+		}
+	}
 	LocalFree(lpMessageBuf);
 	#else
 	sprintf(buffer, "XBOX System Error Code: %d", errnum);
@@ -884,7 +911,8 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 		return sizeof(fd_set) * 3;
 		#else
 		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
-		return (int)((count * sizeof(SOCKET) + unit) * 3);
+		size_t size = count * sizeof(SOCKET) + unit + 8;
+		return (int)(size * 3);
 		#endif
 	}	
 	else {
@@ -972,7 +1000,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 		#else
 		struct timeval tmx = { 0, 0 };
 		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
-		size_t size = unit + sizeof(SOCKET) * count;
+		size_t size = count * sizeof(SOCKET) + unit + 8;
 		FD_SET *fdr = (FD_SET*)(((char*)workmem) + 0);
 		FD_SET *fdw = (FD_SET*)(((char*)workmem) + size);
 		FD_SET *fde = (FD_SET*)(((char*)workmem) + size * 2);
@@ -1015,7 +1043,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 			}
 			if (event & ISOCK_ESEND) {
 				for (j = 0; j < (int)fdw->fd_count; j++) {
-					if (fdw->fd_array[j + 1] == (SOCKET)fd) { 
+					if (fdw->fd_array[j] == (SOCKET)fd) { 
 						revent |= ISOCK_ESEND; 
 						break; 
 					}
@@ -1056,20 +1084,34 @@ int ipollfds(const int *fds, const int *events, int *revents, int count,
 	return ret;
 }
 
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+static BOOL GetVersionEx2(LPOSVERSIONINFOA lpVersionInformation)
+{
+	BOOL (WINAPI *pGetVersionExA)(LPOSVERSIONINFOA) = NULL;
+	HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+	if (hKernel32 == NULL) return FALSE;
+	pGetVersionExA = (BOOL (WINAPI *)(LPOSVERSIONINFOA))
+		GetProcAddress(hKernel32, "GetVersionExA");
+	if (pGetVersionExA == NULL) return FALSE;
+	return pGetVersionExA(lpVersionInformation);
+}
+#endif
+
 /* ikeepalive: tcp keep alive option */
 int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 {
 	int enable = (keepcnt < 0 || keepidle < 0 || keepintvl < 0)? 0 : 1;
-	unsigned long value;
+	unsigned long value = 0;
 
 #if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
 	#define _SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR, 4)
 	unsigned long keepalive[3], oldkeep[3];
-	OSVERSIONINFO info;
+	OSVERSIONINFOA info;
 	int candoit = 0;
 
+	memset(&info, 0, sizeof(info));
 	info.dwOSVersionInfoSize = sizeof(info);
-	GetVersionEx(&info);
+	GetVersionEx2(&info);
 
 	if (info.dwPlatformId == VER_PLATFORM_WIN32_NT) {
 		if ((info.dwMajorVersion == 5 && info.dwMinorVersion >= 1) ||
@@ -1084,7 +1126,7 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 
 	if (candoit && enable) {
 		int ret = 0;
-		keepalive[0] = enable? 1 : 0;
+		keepalive[0] = 1;
 		keepalive[1] = ((unsigned long)keepidle) * 1000;
 		keepalive[2] = ((unsigned long)keepintvl) * 1000;
 		ret = WSAIoctl((unsigned int)sock, _SIO_KEEPALIVE_VALS, 
@@ -1111,6 +1153,7 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
 #else
+	value = value + 1;
 	return -1;
 #endif
 
@@ -1323,6 +1366,19 @@ void ikmset(void *ikmalloc_fn_ptr, void *ikfree_fn_ptr)
 
 
 /*===================================================================*/
+/* System Features                                                   */
+/*===================================================================*/
+
+/* can be changed via predefined macro */
+#ifndef _INITIALIZE_FEATURE
+#define _INITIALIZE_FEATURE  0
+#endif
+
+/* set bits defined in IFEATURE_XXX to enable features */
+int _initialize_feature = _INITIALIZE_FEATURE;
+
+
+/*===================================================================*/
 /* Simple Assistant Function                                         */
 /*===================================================================*/
 
@@ -1442,37 +1498,9 @@ int isocket_disable(int fd, int mode)
 	return isocket_option(fd, mode, 0);
 }
 
-/* open a dgram */
-int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
+/* init a udp socket */
+int isocket_udp_init(int fd, int flags)
 {
-	int fd = -1;
-
-	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
-	#ifdef AF_INET6
-		fd = (int)socket(AF_INET6, SOCK_DGRAM, 0);
-	#endif
-	#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
-		if (fd >= 0) {
-			unsigned long enable = 1;
-			isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
-				(const char*)&enable, sizeof(enable));
-		}
-	#endif
-	}	else {
-		fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
-	}
-
-	if (fd < 0) return -1;
-
-	if ((flags & 0x100) == 0) {
-		isocket_enable(fd, ISOCK_CLOEXEC);
-	}
-
-	if (ibind(fd, addr, addrlen) != 0) {
-		iclose(fd);
-		return -2;
-	}
-
 #if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
 	#define _SIO_UDP_CONNRESET_ _WSAIOW(IOC_VENDOR, 12)
 	{
@@ -1502,6 +1530,10 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 	}
 #endif
 
+	if ((flags & 0x100) == 0) {
+		isocket_enable(fd, ISOCK_CLOEXEC);
+	}
+
 	if ((flags & 512) == 0) {
 		isocket_enable(fd, ISOCK_NOBLOCK);
 	}
@@ -1525,6 +1557,51 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 	}	else {
 		isocket_enable(fd, ISOCK_UNIXREUSE);
 	}
+
+	return fd;
+}
+
+/* open a dgram */
+int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
+{
+	int fd = -1;
+
+	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
+	#ifdef AF_INET6
+		if (addr->sa_family == AF_INET6) {
+			fd = (int)socket(AF_INET6, SOCK_DGRAM, 0);
+			#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+			if (fd >= 0) {
+				unsigned long enable = 1;
+				isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+					(const char*)&enable, sizeof(enable));
+			}
+			#endif
+		}
+	#endif
+	#ifdef AF_UNIX
+		if (addr->sa_family == AF_UNIX) {
+			fd = (int)socket(AF_UNIX, SOCK_DGRAM, 0);
+		}
+	#endif
+	}	else {
+		fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
+	}
+
+	if (fd < 0) return -1;
+
+	if ((flags & 0x100) == 0) {
+		isocket_enable(fd, ISOCK_CLOEXEC);
+	}
+
+	if (addr != NULL) {
+		if (ibind(fd, addr, addrlen) != 0) {
+			iclose(fd);
+			return -2;
+		}
+	}
+
+	isocket_udp_init(fd, flags);
 
 	return fd;
 }
@@ -1569,7 +1646,7 @@ int isocket_tcp_estab(int sock)
 
 
 /* socketpair */
-int isocket_pair_imp(int fds[2], int mode, int timeout)
+int isocket_pair_compat(int fds[2], int mode, int timeout)
 {
 	struct sockaddr_in addr1 = { 0 };
 	struct sockaddr_in addr2;
@@ -1657,12 +1734,157 @@ failed:
 }
 
 
+/* use af_unix on windows 10 */
+#if defined(_WIN32) && defined(AF_UNIX)
+int isocket_pair_afunix(SOCKET fds[2], int mode)
+{
+	SOCKET listener = INVALID_SOCKET;
+	int bind_try = 0;
+
+	#define _P_UNIX_PATH_MAX 108
+	struct _isockaddr_unx {
+		short sun_family;	/* ADDRESS_FAMILY */
+		char sun_path[_P_UNIX_PATH_MAX + 108];
+	} a;
+
+	socklen_t addrlen = sizeof(a);
+
+	fds[0] = INVALID_SOCKET;
+	fds[1] = INVALID_SOCKET;
+
+	listener = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (listener == INVALID_SOCKET) 
+		return -1;
+
+	for (; ; ) {
+		LARGE_INTEGER ticks;
+		int n = 0;
+		int c = 0;
+		memset(&a, 0, sizeof(a));
+		a.sun_family = AF_UNIX;
+		switch (bind_try++) {
+		case 0:
+			n = GetTempPathA(_P_UNIX_PATH_MAX, a.sun_path);
+			break;
+		case 1:
+			n = GetWindowsDirectoryA(a.sun_path, _P_UNIX_PATH_MAX);
+		#ifdef IHAVE_SNPRINTF
+			n += snprintf(a.sun_path + n, _P_UNIX_PATH_MAX - n, "\\Temp\\");
+		#else
+			n += sprintf(a.sun_path + n, "\\Temp\\");
+		#endif
+			break;
+		case 2:
+		#ifdef IHAVE_SNPRINTF
+			n = snprintf(a.sun_path, _P_UNIX_PATH_MAX, "C:\\Temp\\");
+		#else
+			n = sprintf(a.sun_path, "C:\\Temp\\");
+		#endif
+			break;
+		case 3:
+			n = 0;
+			break;
+		case 4:
+			goto fallback;
+		}
+		for (c = 0; c < 64; c++) {
+			DWORD attr = 0;
+			QueryPerformanceCounter(&ticks);
+		#ifdef IHAVE_SNPRINTF
+			snprintf(a.sun_path + n, _P_UNIX_PATH_MAX - n,
+				"afu-%lx%08lx-%lx-%x.$$$", ticks.HighPart, 
+				(LONG)ticks.LowPart, GetCurrentProcessId(), c + 1);
+		#else
+			sprintf(a.sun_path + n, 
+				"afu-%lx%08lx-%lx-%x.$$$", ticks.HighPart, 
+				(LONG)ticks.LowPart, GetCurrentProcessId(), c + 1);
+		#endif
+			attr = GetFileAttributesA(a.sun_path);
+			if (attr == ((DWORD)-1)) {
+				break;
+			}
+		}
+		if (bind(listener, (struct sockaddr*)&a, addrlen) != SOCKET_ERROR)
+			break;
+	}
+
+#undef _P_UNIX_PATH_MAX
+
+	if (listen(listener, 1) == SOCKET_ERROR)
+		goto fallback;
+
+	fds[0] = socket(AF_UNIX, SOCK_STREAM, 0);
+
+	if ((SOCKET)fds[0] == INVALID_SOCKET) {
+		DeleteFileA(a.sun_path);
+		goto fallback;
+	}
+
+	if (connect(fds[0], (struct sockaddr*)&a, addrlen) == SOCKET_ERROR) {
+		DeleteFileA(a.sun_path);
+		goto fallback;
+	}
+
+	fds[1] = accept(listener, NULL, NULL);
+	DeleteFileA(a.sun_path);
+
+	if (fds[1] == INVALID_SOCKET) 
+		goto fallback;
+
+	closesocket(listener);
+	return 0;
+
+fallback:
+	if (listener != INVALID_SOCKET) closesocket(listener);
+	if (fds[0] != INVALID_SOCKET) closesocket((SOCKET)fds[0]);
+	if (fds[1] != INVALID_SOCKET) closesocket((SOCKET)fds[1]);
+
+	return -1;
+}
+
+#endif
+
+/* external implementation */
+int (*isocket_pair_hook)(int fds[2], int mode) = NULL;
+
 /* create socket pair */
 int isocket_pair(int fds[2], int mode)
 {
-	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
-	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
-	if (isocket_pair_imp(fds, mode, -1) == 0) return 0;
+	if (isocket_pair_hook != NULL) {
+		if ((mode & 0x10000) == 0) {
+			int hr = isocket_pair_hook(fds, mode);
+			if (hr == 0) return 0;
+		}
+	}
+#ifdef __unix
+	if ((mode & 0x10000) == 0) {
+		if (socketpair(AF_INET, SOCK_STREAM, 0, fds) == 0) {
+			return 0;
+		}
+	#ifdef AF_UNIX
+		if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) == 0) {
+			return 0;
+		}
+	#endif
+	}
+#elif defined(_WIN32) && defined(AF_UNIX)
+	if (IFEATURE_HAS(IFEATURE_AFUNIX_PAIR)) {
+		if ((mode & 0x10000) == 0) {
+			int cc;
+			for (cc = 0; cc < 3; cc++) {
+				SOCKET socks[2];
+				if (isocket_pair_afunix(socks, mode) == 0) {
+					fds[0] = (int)socks[0];
+					fds[1] = (int)socks[1];
+					return 0;
+				}
+			}
+		}
+	}
+#endif
+	if (isocket_pair_compat(fds, mode, -1) == 0) return 0;
+	if (isocket_pair_compat(fds, mode, -1) == 0) return 0;
+	if (isocket_pair_compat(fds, mode, -1) == 0) return 0;
 	return -1;
 }
 
@@ -1673,7 +1895,7 @@ int isocket_try_firewall(void)
 	int i;
 	for (i = 0; i < 2; i++) {
 		int fds[2];
-		if (isocket_pair_imp(fds, 1, 150) == 0) {
+		if (isocket_pair_compat(fds, 1, 150) == 0) {
 			iclose(fds[0]);
 			iclose(fds[1]);
 			return 0;
@@ -1718,6 +1940,9 @@ int isocket_try_firewall(void)
 #define IHAVE_KEVENT
 #endif
 
+#ifdef _WIN32
+#define IHAVE_WSELECT
+#endif
 
 #ifndef IPOLL_DRIVER_DEFINED
 #define IPOLL_DRIVER_DEFINED
@@ -1777,6 +2002,8 @@ struct IPOLLFV
 /*-------------------------------------------------------------------------*/
 /* Support Poll Device                                                     */
 /*-------------------------------------------------------------------------*/
+struct IPOLL_DRIVER IPOLL_EXTERNAL = { 0, -1, 0, "EXTERNAL" };
+
 #ifdef IHAVE_SELECT
 extern struct IPOLL_DRIVER IPOLL_SELECT;
 #endif
@@ -1794,6 +2021,9 @@ extern struct IPOLL_DRIVER IPOLL_DEVPOLL;
 #endif
 #ifdef IHAVE_POLLSET
 extern struct IPOLL_DRIVER IPOLL_POLLSET;
+#endif
+#ifdef IHAVE_WSELECT
+extern struct IPOLL_DRIVER IPOLL_WSELECT;
 #endif
 #ifdef IHAVE_WINCP
 extern struct IPOLL_DRIVER IPOLL_WINCP;
@@ -1824,6 +2054,9 @@ static struct IPOLL_DRIVER *ipoll_list[] = {
 #ifdef IHAVE_POLLSET
 	&IPOLL_POLLSET,
 #endif
+#ifdef IHAVE_WSELECT
+	&IPOLL_WSELECT,
+#endif
 #ifdef IHAVE_RTSIG
 	&IPOLL_RTSIG,
 #endif
@@ -1852,14 +2085,28 @@ int ipoll_init(int device)
 	int retval, i;
 
 	if (ipoll_inited) return 1;
+
+#if defined(IHAVE_WSELECT) && defined(_WIN32)
+	/* large fd-set for windows */
+	if (IFEATURE_HAS(IFEATURE_LARGE_FDSET)) {
+		IPOLL_WSELECT.performance = 2;
+	}
+	else {
+		IPOLL_WSELECT.performance = -2;
+	}
+#endif
 	
-	if (device != IDEVICE_AUTO && device >= 0) {
+	if (IPOLL_EXTERNAL.pdsize > 0) {
+		IPOLLDRV = IPOLL_EXTERNAL;
+	}
+	else if (device != IDEVICE_AUTO && device >= 0) {
 		for (i = 0; ipoll_list[i]; i++) 
 			if (ipoll_list[i]->id == device) break;
 		if (ipoll_list[i] == NULL) 
 			return -1;
 		IPOLLDRV = *ipoll_list[i];
-	}	else {
+	}
+	else {
 		besti = 0;
 		bestv = -1;
 		for (i = 0; ipoll_list[i]; i++) {
@@ -1870,7 +2117,7 @@ int ipoll_init(int device)
 		}
 		IPOLLDRV = *ipoll_list[besti];
 	}
-	
+
 	retval = IPOLLDRV.startup();
 
 	if (retval != 0) return -2;
@@ -1888,6 +2135,28 @@ int ipoll_quit(void)
 	IPOLLDRV.shutdown();
 	IMUTEX_DESTROY(&ipoll_mutex);
 	ipoll_inited = 0;
+	return 0;
+}
+
+/* install external driver */
+int ipoll_install(int pdsize, void **driver) 
+{
+	if (driver == NULL) {
+		IPOLL_EXTERNAL.pdsize = 0;
+	}
+	else {
+		IPOLL_EXTERNAL.pdsize = pdsize;
+		IPOLL_EXTERNAL.startup = (int(*)(void))driver[0];
+		IPOLL_EXTERNAL.shutdown = (int(*)(void))driver[1];
+		IPOLL_EXTERNAL.init_pd = (int(*)(ipolld, int))driver[2];
+		IPOLL_EXTERNAL.destroy_pd = (int(*)(ipolld))driver[3];
+		IPOLL_EXTERNAL.poll_add = (int(*)(ipolld, int, int, void*))driver[4];
+		IPOLL_EXTERNAL.poll_del = (int(*)(ipolld, int))driver[5];
+		IPOLL_EXTERNAL.poll_set = (int(*)(ipolld, int, int))driver[6];
+		IPOLL_EXTERNAL.poll_wait = (int(*)(ipolld, int))driver[7];
+		IPOLL_EXTERNAL.poll_event = 
+			(int(*)(ipolld, int*, int*, void**))driver[8];
+	}
 	return 0;
 }
 
@@ -2057,7 +2326,10 @@ static int ipoll_fvresize(struct IPOLLFV *fv, long count)
 {
 	int retval;
 	retval = ipv_resize(&fv->vec, count * sizeof(struct IPOLLFD));
-	assert(retval == 0);
+	if (retval != 0) {
+		assert(retval == 0);
+		return -1;
+	}
 	fv->fds = (struct IPOLLFD*)fv->vec.data;
 	fv->count = count;
 	return 0;
@@ -2101,7 +2373,7 @@ typedef struct
 struct IPOLL_DRIVER IPOLL_SELECT = {
 	sizeof (IPD_SELECT),
 	IDEVICE_SELECT,
-	0,
+	1,
 	"SELECT",
 	ips_startup,
 	ips_shutdown,
@@ -2158,6 +2430,8 @@ static int ips_init_pd(ipolld ipd, int param)
 		return -2;
 	}
 
+	ps->fv.fds[0].fd = -1;
+
 	return retval;
 }
 
@@ -2192,6 +2466,7 @@ static int ips_poll_add(ipolld ipd, int fd, int mask, void *user)
 	for (i = oldmax + 1; i <= ps->max_fd; i++) {
 		ps->fv.fds[i].fd = -1;
 	}
+
 	ps->fv.fds[fd].fd = fd;
 
 	ps->fv.fds[fd].user = user;
@@ -2279,10 +2554,11 @@ static int ips_poll_wait(ipolld ipd, int timeval)
 static int ips_poll_event(ipolld ipd, int *fd, int *event, void **user)
 {
 	PSTRUCT *ps = PDESC(ipd);
-	int revents, n;
+	int revents = 0, n;
 
 	if (ps->rbits < 1) return -1;
-	for (revents=0; ps->cur_fd++ < ps->max_fd; ) {
+	for (revents = 0; ps->cur_fd++ < ps->max_fd; ) {
+		if (ps->fv.fds[ps->cur_fd].fd < 0) continue;
 		if (FD_ISSET(ps->cur_fd, &ps->fdrtest)) revents = IPOLL_IN;
 		if (FD_ISSET(ps->cur_fd, &ps->fdwtest)) revents |= IPOLL_OUT;
 		if (FD_ISSET(ps->cur_fd, &ps->fdetest)) revents |= IPOLL_ERR;
@@ -2495,7 +2771,6 @@ static int ipp_poll_del(ipolld ipd, int fd)
 	ps->fv.fds[fd].user = NULL;
 
 	ps->pnum_cnt--;
-
 	
 	return 0;
 }
@@ -2670,6 +2945,8 @@ static int ipk_init_pd(ipolld ipd, int param)
 	ps->num_chg= 0;
 	ps->usr_len = 0;
 	ps->stimeval = -1;
+	ps->cur_res = 0;
+	ps->results = -1;
 	param = param + 10;
 
 	if (ipk_grow(ps, 4, 4)) {
@@ -3169,6 +3446,250 @@ static int ipe_poll_event(ipolld ipd, int *fd, int *event, void **user)
 
 
 /*===================================================================*/
+/* POLL DRIVER - WSELECT                                             */
+/*===================================================================*/
+#ifdef IHAVE_WSELECT
+
+static int ipw_startup(void);
+static int ipw_shutdown(void);
+static int ipw_init_pd(ipolld ipd, int param);
+static int ipw_destroy_pd(ipolld ipd);
+static int ipw_poll_add(ipolld ipd, int fd, int mask, void *user);
+static int ipw_poll_del(ipolld ipd, int fd);
+static int ipw_poll_set(ipolld ipd, int fd, int mask);
+static int ipw_poll_wait(ipolld ipd, int timeval);
+static int ipw_poll_event(ipolld ipd, int *fd, int *event, void **user);
+
+
+/*-------------------------------------------------------------------*/
+/* POLL DESCRIPTOR - WSELECT                                         */
+/*-------------------------------------------------------------------*/
+typedef struct
+{
+	struct IPOLLFV fv;
+	struct IPVECTOR buffer;
+	struct IPVECTOR workmem;
+	int max_fd;
+	int min_fd;
+	int index;
+	int count;
+	int result;
+	int *fds;
+	int *events;
+	int *revents;
+}	IPD_WSELECT;
+
+
+/*-------------------------------------------------------------------*/
+/* POLL DRIVER - WSELECT                                             */
+/*-------------------------------------------------------------------*/
+struct IPOLL_DRIVER IPOLL_WSELECT = {
+	sizeof (IPD_WSELECT),
+	IDEVICE_WSELECT,
+	0,
+	"WSELECT",
+	ipw_startup,
+	ipw_shutdown,
+	ipw_init_pd,
+	ipw_destroy_pd,
+	ipw_poll_add,
+	ipw_poll_del,
+	ipw_poll_set,
+	ipw_poll_wait,
+	ipw_poll_event
+};
+
+
+#ifdef PSTRUCT
+#undef PSTRUCT
+#endif
+
+#define PSTRUCT IPD_WSELECT
+
+
+/*-------------------------------------------------------------------*/
+/* wselect device                                                    */
+/*-------------------------------------------------------------------*/
+
+static int ipw_startup(void)
+{
+	return 0;
+}
+
+static int ipw_shutdown(void)
+{
+	return 0;
+}
+
+static int ipw_init_pd(ipolld ipd, int param)
+{
+	int retval = 0;
+	PSTRUCT *ps = PDESC(ipd);
+
+	ps->max_fd = 0;
+	ps->min_fd = 0x7fffffff;
+	ps->index = 0;
+	ps->count = 0;
+	ps->fds = NULL;
+	ps->events = NULL;
+	ps->revents = NULL;
+	ps->result = 0;
+
+	ipv_init(&ps->buffer);
+	ipv_init(&ps->workmem);
+
+	ipoll_fvinit(&ps->fv);
+
+	if (ipoll_fvresize(&ps->fv, 4)) {
+		retval = ips_destroy_pd(ipd);
+		return -2;
+	}
+
+	ps->fv.fds[0].fd = -1;
+
+	return retval;
+}
+
+static int ipw_destroy_pd(ipolld ipd)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	ps->result = 0;
+	ps->index = 0;
+	ipoll_fvdestroy(&ps->fv);
+	ipv_destroy(&ps->buffer);
+	ipv_destroy(&ps->workmem);
+	return 0;
+}
+
+static int ipw_poll_add(ipolld ipd, int fd, int mask, void *user)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int oldmax = ps->max_fd;
+	int i;
+
+	if (fd < 0) return -1;
+
+	if (ps->min_fd > fd) ps->min_fd = fd;
+	if (ps->max_fd < fd) ps->max_fd = fd;
+	if (ipoll_fvresize(&ps->fv, ps->max_fd + 2)) return -2;
+
+	for (i = oldmax + 1; i <= ps->max_fd; i++) {
+		ps->fv.fds[i].fd = -1;
+	}
+
+	ps->fv.fds[fd].fd = fd;
+	ps->fv.fds[fd].user = user;
+	ps->fv.fds[fd].mask = mask;
+	ps->fv.fds[fd].event = 0;
+
+	ps->count++;
+
+	return 0;
+}
+
+static int ipw_poll_del(ipolld ipd, int fd)
+{
+	PSTRUCT *ps = PDESC(ipd);
+
+	if (fd > ps->max_fd || fd < 0) return -1;
+	if (ps->fv.fds[fd].fd < 0) return -2;
+
+	ps->fv.fds[fd].fd = -1;
+	ps->fv.fds[fd].user = NULL;
+	ps->fv.fds[fd].mask = 0;
+
+	ps->count--;
+
+	return 0;
+}
+
+static int ipw_poll_set(ipolld ipd, int fd, int mask)
+{
+	PSTRUCT *ps = PDESC(ipd);
+
+	if (fd < 0 || fd > ps->max_fd) return -1;
+	if (ps->fv.fds[fd].fd < 0) return -2;
+
+	ps->fv.fds[fd].mask = mask;
+
+	return 0;
+}
+
+static int ipw_poll_wait(ipolld ipd, int timeval)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int max_fd = ps->max_fd;
+	int min_fd = ps->min_fd;
+	int length, require;
+	int count, i, n = 0;
+	min_fd = (min_fd < max_fd)? min_fd : max_fd;
+	length = max_fd - min_fd + 1;
+	require = length + 2;
+	if (ipv_resize(&ps->buffer, sizeof(int) * 3 * require) != 0) {
+		return -1;
+	}
+	ps->fds = (int*)ps->buffer.data;
+	ps->events = ps->fds + require;
+	ps->revents = ps->events + require;
+	for (count = 0, i = min_fd; i <= max_fd; i++) {
+		int fd = ps->fv.fds[i].fd;
+		if (fd < 0) continue;
+		if (ps->fv.fds[i].mask == 0) continue;
+		ps->fds[count] = fd;
+		ps->events[count] = ps->fv.fds[i].mask;
+		ps->revents[count] = 0;
+		count++;
+	}
+	require = iselect(NULL, NULL, NULL, count, 0, NULL);
+	if (ipv_resize(&ps->workmem, require + 32) != 0) {
+		return -2;
+	}
+	iselect(ps->fds, ps->events, ps->revents, count, 
+			timeval, ps->workmem.data);
+	for (i = 0; i < count; i++) {
+		int fd = ps->fds[i];
+		int event = ps->revents[i];
+		if (fd >= ps->min_fd && fd <= ps->max_fd) {
+			ps->fv.fds[fd].event = event;
+		}
+		if (event != 0) {
+			n++;
+		}
+	}
+	ps->result = count;
+	ps->index = 0;
+	return n;
+}
+
+static int ipw_poll_event(ipolld ipd, int *fd, int *event, void **user)
+{
+	PSTRUCT *ps = PDESC(ipd);
+	int n, revent = 0;
+
+	if (ps->index >= ps->result) return -1;
+	if (ps->revents == NULL) return -2;
+
+	n = ps->fds[ps->index];
+	revent = ps->revents[ps->index];
+	ps->index++;
+
+	if (n < 0 || n > ps->max_fd) return -3;
+	if (ps->fv.fds[n].fd < 0) revent = 0;
+	revent &= ps->fv.fds[n].mask;
+
+	if (fd) *fd = n;
+	if (event) *event = revent;
+	if (user) *user = ps->fv.fds[n].user;
+
+	return 0;
+}
+
+
+
+#endif
+
+
+/*===================================================================*/
 /* POLL DRIVER - DEVPOLL                                             */
 /*===================================================================*/
 #ifdef IHAVE_DEVPOLL
@@ -3317,6 +3838,8 @@ static int ipu_init_pd(ipolld ipd, int param)
 	ps->num_chg = 0;
 	ps->usr_len = 0;
 	ps->limit = 32000;
+	ps->results = -1;
+	ps->cur_res = 0;
 
 	if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
 		if (rl.rlim_cur != RLIM_INFINITY) {
@@ -3462,7 +3985,9 @@ static int ipu_poll_set(ipolld ipd, int fd, int mask)
 	int retval;
 	int save;
 
-	if (fd >= ps->usr_len) return -1;
+	/* must convert to unsigned to prevent a gcc -O3 */
+	/* false warning from some older gcc versions, on solaris */
+	if ((unsigned int)fd >= (unsigned int)ps->usr_len) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
 	save = ps->fv.fds[fd].mask;
@@ -3652,6 +4177,8 @@ static int ipx_init_pd(ipolld ipd, int param)
 	ps->num_chg = 0;
 	ps->usr_len = 0;
 	ps->limit = 32000;
+	ps->results = -1;
+	ps->cur_res = 0;
 	
 	if (ipx_grow(ps, 4, 4)) {
 		ipx_destroy_pd(ipd);
@@ -3965,9 +4492,9 @@ static int iposix_cond_win32_init(iConditionVariableWin32 *cond)
 					PSleepConditionVariableCS_o &&
 					PWakeConditionVariable_o &&
 					PWakeAllConditionVariable_o) {
-				#if 1
-					iposix_cond_win32_vista = 1;
-				#endif
+					if (IFEATURE_HAS(IFEATURE_VISTA_COND)) {
+						iposix_cond_win32_vista = 1;
+					}
 				}
 			}
 			iposix_cond_win32_inited = 1;
@@ -4544,9 +5071,9 @@ iRwLockPosix *iposix_rwlock_new(void)
 				PReleaseSRWLockExclusive_o && 
 				PAcquireSRWLockShared_o && 
 				PReleaseSRWLockShared_o) {
-			#if 0
-				iposix_rwlock_vista = 1;
-			#endif
+				if (IFEATURE_HAS(IFEATURE_VISTA_RWLOCK)) {
+					iposix_rwlock_vista = 1;
+				}
 			}
 		}
 		iposix_rwlock_inited = 1;
@@ -4754,10 +5281,10 @@ iPosixThread *iposix_thread_new(iPosixThreadFun target, void *obj,
 	const char *name)
 {
 	iPosixThread *thread;
+	int hr = 0;
 
 #ifndef _WIN32
 	#ifndef __ANDROID__
-	int hr = 0;
 	hr |= pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 	hr |= pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	if (hr != 0) {
@@ -4768,7 +5295,7 @@ iPosixThread *iposix_thread_new(iPosixThreadFun target, void *obj,
 
 	if (iposix_thread_inited == 0) {
 		IMUTEX_TYPE *lock = internal_mutex_get(3);
-		int hr = 0;
+		hr = 0;
 		IMUTEX_LOCK(lock);
 		if (iposix_thread_inited == 0) {
 			hr = iposix_thread_init();
@@ -5863,6 +6390,388 @@ iulong iposix_sem_value(iPosixSemaphore *sem)
 	return x;
 }
 
+/*====================================================================*/
+/* Cross-Platform High Resolution Clock                               */
+/*====================================================================*/
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+typedef void (WINAPI *GetSystemTimePreciseAsFileTime_t)(LPFILETIME);
+typedef void (WINAPI *QueryUnbiasedInterruptTimePrecise_t)(PULONGLONG);
+typedef void (WINAPI *QueryUnbiasedInterruptTime_t)(PULONGLONG);
+
+static GetSystemTimePreciseAsFileTime_t 
+	PGetSystemTimePreciseAsFileTime_o = 0;
+static QueryUnbiasedInterruptTimePrecise_t 
+	PQueryUnbiasedInterruptTimePrecise_o = 0;
+static QueryUnbiasedInterruptTime_t 
+	PQueryUnbiasedInterruptTime_o = 0;
+
+static LARGE_INTEGER IPOSIX_CLOCK_FREQUENCY;
+
+typedef struct _IPOSIX_KSYSTEM_TIME {
+	ULONG LowPart;
+	LONG High1Time;
+	LONG High2Time;
+}	IPOSIX_KSYSTEM_TIME;
+
+static int iposix_clock_has_nt4 = 0;
+static int iposix_clock_has_win7 = 0;
+
+static LONGLONG iposix_clock_interrupt_start = 0;
+static LONGLONG iposix_clock_direct_start = 0;
+static LONGLONG iposix_clock_qpc_start = 0;
+
+#define IPOSIX_KUSER_SHARED_DATA 0x7ffe0000
+
+/* NT 4.0: 100ns units */
+#define iPosixInterruptTime \
+	((IPOSIX_KSYSTEM_TIME volatile*)(IPOSIX_KUSER_SHARED_DATA + 0x08))
+
+/* Windows 7: 100ns units */
+#define iPosixInterruptTimeBias \
+	((ULONGLONG volatile*)(IPOSIX_KUSER_SHARED_DATA + 0x3b0))
+
+/* Windows 10: 100ns units */
+static ULONGLONG iposix_clock_monotonic_win10(void);
+
+/* coarse monotonic clock for Windows 7 */
+static ULONGLONG iposix_clock_monotonic_win7(void);
+
+/* interrupt time: for NT4 (100ns units) */
+static LONGLONG iposix_clock_interrupt(void);
+
+/* for Windows 7 (100ns units) */
+static LONGLONG iposix_clock_qpc_unbiased(void);
+
+/* for legacy Window (100ns units) */
+static LONGLONG iposix_clock_qpc_direct(void);
+
+/* initialize clock for windows */
+static void iposix_clock_init_win32(void)
+{
+	HINSTANCE hDLL = GetModuleHandleA("kernel32.dll");
+	OSVERSIONINFOA info;
+	if (hDLL) {
+		/* Windows 8 */
+		PGetSystemTimePreciseAsFileTime_o = 
+			(GetSystemTimePreciseAsFileTime_t)
+			GetProcAddress(hDLL, "GetSystemTimePreciseAsFileTime");
+		/* Windows 10 */
+		PQueryUnbiasedInterruptTimePrecise_o = 
+			(QueryUnbiasedInterruptTimePrecise_t)
+			GetProcAddress(hDLL, "QueryUnbiasedInterruptTimePrecise");
+		/* Windows 7 */
+		PQueryUnbiasedInterruptTime_o =
+			(QueryUnbiasedInterruptTime_t)
+			GetProcAddress(hDLL, "QueryUnbiasedInterruptTime");
+	}
+
+	QueryPerformanceFrequency(&IPOSIX_CLOCK_FREQUENCY);
+
+	if (IPOSIX_CLOCK_FREQUENCY.QuadPart == 0) {
+		IPOSIX_CLOCK_FREQUENCY.QuadPart = 1;
+	}
+
+	memset(&info, 0, sizeof(info));
+	info.dwOSVersionInfoSize = sizeof(info);
+	GetVersionEx2(&info);
+
+	if (info.dwPlatformId == VER_PLATFORM_WIN32_NT) {
+		if (info.dwMajorVersion >= 4) {
+			iposix_clock_has_nt4 = 1;
+		}
+		if ((info.dwMajorVersion == 6 && info.dwMinorVersion >= 1) ||
+			info.dwMajorVersion > 6) {
+			iposix_clock_has_win7 = 1;
+		}
+	}
+
+	if (iposix_clock_has_nt4) {
+		iposix_clock_interrupt_start = iposix_clock_interrupt();
+	}
+	if (iposix_clock_has_win7) {
+		iposix_clock_qpc_start = iposix_clock_qpc_unbiased();
+	}
+	iposix_clock_direct_start = iposix_clock_qpc_direct();
+
+	/* initialize clock base */
+	iposix_clock_monotonic_win10();
+	iposix_clock_monotonic_win7();
+}
+
+#define IPOSIX_CLOCK_FACTOR (0x19db1ded53e8000LL)
+
+/* for Windows 7: 100ns units */
+static void iposix_clock_win32_realtime(time_t *sec, long *nsec)
+{
+	LARGE_INTEGER ularge;
+	FILETIME file_time;
+	LONGLONG now;
+	if (PGetSystemTimePreciseAsFileTime_o != NULL) {
+		PGetSystemTimePreciseAsFileTime_o(&file_time);
+	}
+	else {
+		GetSystemTimeAsFileTime(&file_time);
+	}
+	ularge.LowPart = file_time.dwLowDateTime;
+	ularge.HighPart = file_time.dwHighDateTime;
+	now = (ularge.QuadPart - IPOSIX_CLOCK_FACTOR);
+	sec[0] = (time_t)(now / 10000000);
+	nsec[0] = (long)((now % 10000000) * 100);
+}
+
+/* generic realtime clock for Windows */
+static void iposix_clock_win32_realtime_coarse(time_t *sec, long *nsec)
+{
+	LARGE_INTEGER ularge;
+	FILETIME file_time;
+	LONGLONG now;
+	GetSystemTimeAsFileTime(&file_time);
+	ularge.LowPart = file_time.dwLowDateTime;
+	ularge.HighPart = file_time.dwHighDateTime;
+	now = (ularge.QuadPart - IPOSIX_CLOCK_FACTOR);
+	sec[0] = (time_t)(now / 10000000);
+	nsec[0] = (long)((now % 10000000) * 100);
+}
+
+/* convert LONGLONG to sec/nsec */
+void iposix_clock_conv(LONGLONG qpc, LONGLONG freq, time_t *sec, long *nsec)
+{
+	time_t tv_sec;
+	long tv_nsec;
+	if (freq < 1) freq = 1;
+	tv_sec = (time_t)(qpc / freq);
+	qpc %= freq;
+	tv_nsec = (long)((qpc * 1000000000) / freq);
+	if (sec) sec[0] = tv_sec;
+	if (nsec) nsec[0] = tv_nsec;
+}
+
+/* for NT4: 100ns units */
+static LONGLONG iposix_clock_interrupt(void)
+{
+	LONG timeHigh;
+	ULONG timeLow;
+	do {
+		timeHigh = iPosixInterruptTime->High1Time;
+		timeLow = iPosixInterruptTime->LowPart;
+	}	while (timeHigh != iPosixInterruptTime->High2Time);
+	LONGLONG now = ((LONGLONG)timeHigh << 32) | timeLow;
+	return now - iposix_clock_interrupt_start;
+}
+
+/* 100ns units */
+static LONGLONG iposix_clock_qpc_direct(void)
+{
+	LARGE_INTEGER qpc;
+	LONGLONG freq = IPOSIX_CLOCK_FREQUENCY.QuadPart;
+	time_t ts_sec;
+	long ts_nsec;
+	LONGLONG now;
+	QueryPerformanceCounter(&qpc);
+	iposix_clock_conv(qpc.QuadPart, freq, &ts_sec, &ts_nsec);
+	now = ((LONGLONG)ts_sec) * 10000000;
+	now += ts_nsec / 100;
+	return now - iposix_clock_direct_start;
+}
+
+/* requires Windows 7 with 100ns units */
+static LONGLONG iposix_clock_qpc_unbiased(void)
+{
+	ULONGLONG bias;
+	LARGE_INTEGER now;
+	LONGLONG freq, qpc;
+	time_t ts_sec, bts_sec;
+	long ts_nsec, bts_nsec;
+	do {
+		bias = *iPosixInterruptTimeBias;
+		QueryPerformanceCounter(&now);
+	}	while (bias != *iPosixInterruptTimeBias);
+	freq = IPOSIX_CLOCK_FREQUENCY.QuadPart;
+	if (freq == 0) freq = 1;
+	ts_sec = (time_t)(now.QuadPart / freq);
+	now.QuadPart = now.QuadPart % freq;
+	ts_nsec = (long)((now.QuadPart * 1000000000) / freq);
+	bts_sec = (time_t)(bias / 10000000);
+	bts_nsec = (long)((bias % 10000000) * 100);
+	ts_nsec -= bts_nsec;
+	if (ts_nsec < 0) {
+		ts_sec--;
+		ts_nsec += 1000000000;
+	}
+	ts_sec -= bts_sec;
+	qpc = ((LONGLONG)ts_sec) * 10000000;
+	qpc += ts_nsec / 100;
+	return qpc - iposix_clock_qpc_start;
+}
+
+/* most accurate monotonic clock for Windows 10 */
+static ULONGLONG iposix_clock_monotonic_win10(void)
+{
+	static int inited = 0;
+	static ULONGLONG base = 0;
+	ULONGLONG now = 0;
+	if (PQueryUnbiasedInterruptTimePrecise_o != NULL) {
+		if (inited == 0) {
+			PQueryUnbiasedInterruptTimePrecise_o(&base);
+			inited = 1;
+		}
+		PQueryUnbiasedInterruptTimePrecise_o(&now);
+		now = now - base;
+	}
+	return now;
+}
+
+/* coarse monotonic clock for Windows 7 */
+static ULONGLONG iposix_clock_monotonic_win7(void)
+{
+	static int inited = 0;
+	static ULONGLONG base = 0;
+	ULONGLONG now = 0;
+	if (PQueryUnbiasedInterruptTime_o != NULL) {
+		if (inited == 0) {
+			PQueryUnbiasedInterruptTime_o(&base);
+			inited = 1;
+		}
+		PQueryUnbiasedInterruptTime_o(&now);
+		now = now - base;
+	}
+	return now;
+}
+
+/* final monotonic clock for Windows */
+static void iposix_clock_win32_monotonic(time_t *sec, long *nsec)
+{
+	if (PQueryUnbiasedInterruptTimePrecise_o != NULL) {
+		ULONGLONG now = iposix_clock_monotonic_win10();
+		if (sec) sec[0] = (time_t)(now / 10000000);
+		if (nsec) nsec[0] = (long)((now % 10000000) * 100);
+	}
+	else {
+		if (iposix_clock_has_win7) {
+			LONGLONG qpc = iposix_clock_qpc_unbiased();
+			iposix_clock_conv(qpc, 10000000, sec, nsec);
+		}
+		else if (iposix_clock_has_nt4) {
+			LONGLONG qpc = iposix_clock_interrupt();
+			iposix_clock_conv(qpc, 10000000, sec, nsec);
+		}
+		else {
+			LONGLONG qpc = iposix_clock_qpc_direct();
+			iposix_clock_conv(qpc, 10000000, sec, nsec);
+		}
+	}
+}
+
+/* final coarse monotonic clock for Windows */
+static void iposix_clock_win32_monotonic_coarse(time_t *sec, long *nsec)
+{
+	if (PQueryUnbiasedInterruptTime_o != NULL) {
+		ULONGLONG now = iposix_clock_monotonic_win7();
+		if (sec) sec[0] = (time_t)(now / 10000000);
+		if (nsec) nsec[0] = (long)((now % 10000000) * 100);
+	}
+	else {
+		iposix_clock_win32_monotonic(sec, nsec);
+	}
+}
+
+#endif
+
+
+/* high resolution clock, returns nanosecond */
+void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec)
+{
+	time_t tv_sec = 0;
+	long tv_nsec = 0;
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	static int inited = 0, once = 0;
+	if (inited == 0) {
+		ithread_once(&once, iposix_clock_init_win32);
+		inited = 1;
+	}
+	switch (clock_id) {
+	case IPOSIX_CLOCK_REALTIME:
+		iposix_clock_win32_realtime(&tv_sec, &tv_nsec);
+		break;
+	case IPOSIX_CLOCK_REALTIME_COARSE: 
+		iposix_clock_win32_realtime_coarse(&tv_sec, &tv_nsec);
+		break;
+	case IPOSIX_CLOCK_MONOTONIC:
+		iposix_clock_win32_monotonic(&tv_sec, &tv_nsec);
+		break;
+	case IPOSIX_CLOCK_MONOTONIC_COARSE:
+		iposix_clock_win32_monotonic_coarse(&tv_sec, &tv_nsec);
+		break;
+	default:
+		iposix_clock_win32_realtime(&tv_sec, &tv_nsec);
+		break;
+	}
+#elif defined(CLOCK_MONOTONIC) && defined(CLOCK_REALTIME)
+	struct timespec tv = {0, 0};
+	switch (clock_id) {
+	case IPOSIX_CLOCK_REALTIME:
+	#ifdef CLOCK_REALTIME_PRECISE
+		clock_gettime(CLOCK_REALTIME_PRECISE, &tv);
+	#else
+		clock_gettime(CLOCK_REALTIME, &tv);
+	#endif
+		break;
+	case IPOSIX_CLOCK_MONOTONIC:
+	#ifdef CLOCK_MONOTONIC_PRECISE
+		clock_gettime(CLOCK_MONOTONIC_PRECISE, &tv);
+	#else
+		clock_gettime(CLOCK_MONOTONIC, &tv);
+	#endif
+		break;
+	case IPOSIX_CLOCK_REALTIME_COARSE:
+	#ifdef CLOCK_REALTIME_COARSE
+		clock_gettime(CLOCK_REALTIME_COARSE, &tv);
+	#else
+		clock_gettime(CLOCK_REALTIME, &tv);
+	#endif
+		break;
+	case IPOSIX_CLOCK_MONOTONIC_COARSE:
+	#ifdef CLOCK_REALTIME_COARSE
+		clock_gettime(CLOCK_MONOTONIC_COARSE, &tv);
+	#else
+		clock_gettime(CLOCK_MONOTONIC, &tv);
+	#endif
+		break;
+	default:
+		tv.tv_sec = 0;
+		tv.tv_nsec = 0;
+		break;
+	}
+	tv_sec = (time_t)(tv.tv_sec);
+	tv_nsec = (long)(tv.tv_nsec);
+#elif defined(__unix)
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	tv_sec = (time_t)(tv.tv_sec);
+	tv_nsec = (long)(tv.tv_usec * 1000);
+#else
+	long sec, usec;
+	itimeofday(&sec, &usec);
+	tv_sec = (time_t)sec;
+	tv_nsec = (long)(usec * 1000);
+#endif
+	if (sec) sec[0] = tv_sec;
+	if (nsec) nsec[0] = tv_nsec;
+}
+
+
+/* returns 64bit nanosecond */
+IINT64 iposix_clock_nanosec(int clock_id)
+{
+	time_t sec = 0;
+	long nsec = 0;
+	IINT64 now;
+	iposix_clock_gettime(clock_id, &sec, &nsec);
+	now = ((IINT64)sec) * 1000000000 + ((IINT64)nsec);
+	return now;
+}
+
+
 
 /*===================================================================*/
 /* DateTime Cross-Platform Interface                                 */
@@ -6091,7 +7000,7 @@ static int inet_pton4x(const char *src, unsigned char *dst)
 	int base, n;
 	unsigned char c;
 	unsigned int parts[4];
-	register unsigned int *pp = parts;
+	unsigned int *pp = parts;
 	int pton = 1;
 	c = *src;
 	for (;;) {
@@ -6359,6 +7268,94 @@ const char *isockaddr_ntop(int af, const void *src, char *dst, size_t size)
 		return NULL;
 	}
 }
+
+
+
+/*===================================================================*/
+/* AF_UNIX address manipulation                                      */
+/*===================================================================*/
+
+/* set filename to a af_unix address */
+void isockaddr_afunix_set(isockaddr_union *su, const char *filename)
+{
+#ifdef AF_UNIX
+	int size = (int)strlen(filename);
+	memset(su, 0, sizeof(isockaddr_union));
+	if (size >= _I_UNIX_PATH_MAX) size = _I_UNIX_PATH_MAX - 1;
+	if (size >= 108) size = 107;
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+		if (size >= 104) size = 103;
+#elif defined(__MACH__)
+		if (size >= 104) size = 103;
+#endif
+	if (size + 2 >= (int)sizeof(isockaddr_union)) {
+		size = (int)sizeof(isockaddr_union) - 2;
+	}
+	#ifdef _WIN32
+	su->inx.sun_family = AF_UNIX;
+	memcpy(su->inx.sun_path, filename, size);
+	#else
+	su->inu.sun_family = AF_UNIX;
+	memcpy(su->inu.sun_path, filename, size);
+	#endif
+#endif
+}
+
+/* get filename from a af_unix address */
+const char *isockaddr_afunix_get(const isockaddr_union *su)
+{
+#ifdef AF_UNIX
+	#ifdef _WIN32
+	return su->inx.sun_path;
+	#else
+	return su->inu.sun_path;
+	#endif
+#else
+	return NULL;
+#endif
+}
+
+/* convert to string, buffer size must >= 256 */
+char *isockaddr_union_string(const isockaddr_union *su, char *text)
+{
+	static char temp[256];
+	if (text == NULL) text = temp;
+	if (su->address.sa_family == AF_INET) {
+		return isockaddr_str(&su->address, text);
+	}
+#ifdef AF_INET6
+	if (su->address.sa_family == AF_INET6) {
+		char *ptr = text;
+		int port;
+		*ptr++ = '[';
+		isockaddr_ntop(AF_INET6, &(su->in6.sin6_addr), ptr, 200);
+		ptr += (int)strlen(ptr);
+		*ptr++ = ']';
+		*ptr++ = ':';
+		port = ntohs(su->in6.sin6_port);
+		sprintf(ptr, "%d", port);
+	}
+#endif
+#ifdef AF_UNIX
+	if (su->address.sa_family == AF_UNIX) {
+		const char *src = isockaddr_afunix_get(su);
+		int size = (int)strlen(src);
+		if (size >= _I_UNIX_PATH_MAX) size = _I_UNIX_PATH_MAX - 1;
+		if (size >= 108) size = 107;
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+		if (size >= 104) size = 103;
+#elif defined(__MACH__)
+		if (size >= 104) size = 103;
+#endif
+		if (size + 2 >= (int)sizeof(isockaddr_union)) {
+			size = (int)sizeof(isockaddr_union) - 2;
+		}
+		memcpy(text, src, size + 1);
+	}
+#endif
+	return text;
+}
+
 
 
 

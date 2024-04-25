@@ -339,8 +339,8 @@ int itcp_setbuf(itcpcb *tcp, long bufsize)
 	assert(bufsize > 0);
 	assert(tcp->rbuf && tcp->sbuf);
 
-	dsize = _imax((IUINT32)IRING_DSIZE(&tcp->rcache), 
-		(IUINT32)IRING_DSIZE(&tcp->scache));
+	dsize = _imax((IUINT32)tcp->rcache.capacity, 
+			(IUINT32)tcp->scache.capacity);
 	if (bufsize < (long)dsize) return -1;
 
 	if (bufsize < 1024) bufsize = 1024;
@@ -504,7 +504,7 @@ static long itcp_send_queue(itcpcb *tcp, const char *data, int len, int ctl)
 	if (len > 0) {
 		#ifdef ITCP_CIRCLE
 		int retval;
-		retval = (int)iring_put(&tcp->scache, tcp->slen, data, len);
+		retval = (int)iring_write(&tcp->scache, tcp->slen, data, len);
 		assert(retval == len);
 		#else
 		memcpy(tcp->sbuf + tcp->slen, data, len);
@@ -542,7 +542,7 @@ static int itcp_send_seg(itcpcb *tcp, ISEGOUT *seg)
 
 		#ifdef ITCP_CIRCLE
 		buffer = tcp->buffer + IHEADER_SIZE;
-		result = (int)iring_get(&tcp->scache, seg->seq - tcp->snd_una, buffer, 
+		result = (int)iring_read(&tcp->scache, seg->seq - tcp->snd_una, buffer, 
 			ntransmit);
 		assert(result == (int)ntransmit);
 		result = itcp_output(tcp, seq, flags, NULL, ntransmit);
@@ -850,7 +850,7 @@ static int itcp_ack_update(itcpcb *tcp, ISEGMENT *seg, int bconnect)
 		tcp->slen -= nacked;
 
 		#ifdef ITCP_CIRCLE
-		iring_drop(&tcp->scache, nacked);
+		iring_advance(&tcp->scache, nacked);
 		#else
 		memmove(tcp->sbuf, tcp->sbuf + nacked, tcp->slen);
 		#endif
@@ -1114,7 +1114,7 @@ int itcp_process(itcpcb *tcp, ISEGMENT *seg)
 			IUINT32 offset = seg->seq - tcp->rcv_nxt;
 			#ifdef ITCP_CIRCLE
 			int retval;
-			retval = (int)iring_put(&tcp->rcache, tcp->rlen + offset, 
+			retval = (int)iring_write(&tcp->rcache, tcp->rlen + offset, 
 				seg->data, seg->len);
 			assert(retval == (int)seg->len);
 			#else
@@ -1264,7 +1264,7 @@ long itcp_recv(itcpcb *tcp, char *buffer, long len)
 
 	if (buffer) {
 		#ifdef ITCP_CIRCLE
-		iring_get(&tcp->rcache, 0, buffer, read);
+		iring_read(&tcp->rcache, 0, buffer, read);
 		#else
 		memcpy(buffer, tcp->rbuf, read);
 		#endif
@@ -1274,7 +1274,7 @@ long itcp_recv(itcpcb *tcp, char *buffer, long len)
 		tcp->rlen -= read;
 
 		#ifdef ITCP_CIRCLE
-		iring_drop(&tcp->rcache, read);
+		iring_advance(&tcp->rcache, read);
 		#else
 		memmove(tcp->rbuf, tcp->rbuf + read, tcp->buf_size - read);
 		#endif

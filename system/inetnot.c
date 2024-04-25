@@ -42,10 +42,12 @@ struct CAsyncNode
 	struct ILISTHEAD node_ping;
 	struct ILISTHEAD node_idle;
 	long hid;		// AsyncCore connection id
-	int mode;		// ASYNC_CORE_NODE_LISTEN4/LISTEN6/IN/OUT
+	int mode;		// ASYNC_CORE_NODE_LISTEN/IN/OUT
 	int state;		// 0: unlogin 1: logined
 	int sid;		// server id
 	int rtt;
+	int ipv6;
+	int afunix;
 	long ts_ping;
 	long ts_idle;
 };
@@ -160,6 +162,8 @@ static CAsyncNode *async_notify_node_new(CAsyncNotify *notify, long hid)
 	node->state = 0;
 	node->sid = -1;
 	node->rtt = -1;
+	node->ipv6 = 0;
+	node->afunix = 0;
 	ilist_init(&node->node_ping);
 	ilist_init(&node->node_idle);
 	node->ts_ping = notify->seconds;
@@ -807,7 +811,7 @@ void async_notify_wait(CAsyncNotify *notify, IUINT32 millisec)
 			async_notify_on_new(notify, wparam, lparam, 
 				(struct sockaddr*)data, hr);
 			break;
-		case ASYNC_CORE_EVT_LEAVE:
+		case ASYNC_CORE_EVT_CLOSE:
 			async_notify_on_leave(notify, wparam, lparam, 
 				((IUINT32*)data)[0], ((IUINT32*)data)[1]);
 			break;
@@ -1035,10 +1039,7 @@ static void async_notify_on_leave(CAsyncNotify *notify, long hid, long tag,
 			}
 		}
 	}
-	else if (node->mode == ASYNC_CORE_NODE_LISTEN4) {
-		name = "listener";
-	}
-	else if (node->mode == ASYNC_CORE_NODE_LISTEN6) {
+	else if (node->mode == ASYNC_CORE_NODE_LISTEN) {
 		name = "listener";
 	}
 
@@ -1320,12 +1321,16 @@ long async_notify_listen(CAsyncNotify *notify, const struct sockaddr *addr,
 			struct sockaddr_in remote4;
 			struct sockaddr_in6 remote6;
 
-			node->mode = (addrlen <= (int)sizeof(struct sockaddr_in))? 
-				ASYNC_CORE_NODE_LISTEN4 : ASYNC_CORE_NODE_LISTEN6;
+			node->mode = ASYNC_CORE_NODE_LISTEN;
 			node->sid = -1;
 			node->state = 0;
 
-			if (node->mode == ASYNC_CORE_NODE_LISTEN4) {
+			node->ipv6 = async_core_status(notify->core, hid, 
+					ASYNC_CORE_STATUS_IPV6);
+			node->afunix = async_core_status(notify->core, hid, 
+					ASYNC_CORE_STATUS_AFUNIX);
+
+			if (node->ipv6 == 0) {
 				int size = sizeof(remote4);
 				async_core_sockname(notify->core, hid, 
 					(struct sockaddr*)&remote4, &size);
@@ -1379,8 +1384,7 @@ int async_notify_remove(CAsyncNotify *notify, long listenid, int code)
 	node = async_notify_node_get(notify, listenid);
 
 	if (node != NULL) {
-		if (node->mode != ASYNC_CORE_NODE_LISTEN4 && 
-			node->mode != ASYNC_CORE_NODE_LISTEN6) {
+		if (node->mode != ASYNC_CORE_NODE_LISTEN) {
 			hr = -2;
 		}	else {
 			async_core_close(notify->core, listenid, code);
@@ -1406,8 +1410,7 @@ int async_notify_get_port(CAsyncNotify *notify, long listenid)
 	node = async_notify_node_get(notify, listenid);
 
 	if (node != NULL) {
-		if (node->mode != ASYNC_CORE_NODE_LISTEN4 && 
-			node->mode != ASYNC_CORE_NODE_LISTEN6) {
+		if (node->mode != ASYNC_CORE_NODE_LISTEN) {
 			hr = -2;
 		}	else {
 			hr = node->state;

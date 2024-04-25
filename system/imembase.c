@@ -1521,7 +1521,7 @@ ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 
 int ib_string_find(const ib_string *str, const char *src, int len, int start)
 {
-	char *text = str->ptr;
+	const char *text = str->ptr;
 	int pos = (start < 0)? 0 : start;
 	int length = (len >= 0)? len : ((int)strlen(src));
 	int endup = str->size - length;
@@ -2228,14 +2228,14 @@ size_t ib_hash_bytes_lua(const void *ptr, size_t size, size_t seed)
 	const unsigned char *name = (const unsigned char*)ptr;
 	size_t step = (size >> 5) + 1;
 	size_t h = size ^ seed, i;
-    for(i = size; i >= step; i -= step)
+    for (i = size; i >= step; i -= step)
         h = h ^ ((h << 5) + (h >> 2) + (size_t)name[i - 1]);
     return h;
 }
 
 size_t ib_hash_func_str(const void *key)
 {
-	ib_string *str = (ib_string*)key;
+	const ib_string *str = (const ib_string*)key;
 #ifndef IB_HASH_BYTES_STL
 	return ib_hash_bytes_lua(str->ptr, str->size, ib_hash_seed);
 #else

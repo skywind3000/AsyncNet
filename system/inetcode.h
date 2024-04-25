@@ -53,56 +53,64 @@ int isocket_update_address(int resolvname);
 /*===================================================================*/
 struct CAsyncSock
 {
-	IUINT32 time;					/* timeout */
-	int fd;							/* socket fd */
-	int state;						/* CLOSED/CONNECTING/ESTABLISHED */
-	long hid;						/* hid */
-	long tag;						/* tag */
-	int error;						/* errno value */
-	int header;						/* header mode (0-13) */
-	int mask;						/* poll event mask */
-	int mode;						/* socket mode */
-	int ipv6;						/* 0:ipv4, 1:ipv6 */
-	int flags;						/* flag bits */
-	char *buffer;					/* internal working buffer */
-	char *external;					/* external working buffer */
-	long bufsize;					/* working buffer size */
-	long maxsize;					/* max packet size */
-	long limited;					/* buffer limited */
-	int rc4_send_x;					/* rc4 encryption variable */
-	int rc4_send_y;					/* rc4 encryption variable */
-	int rc4_recv_x;					/* rc4 encryption variable */
-	int rc4_recv_y;					/* rc4 encryption variable */
-	void *filter;					/* filter function */
-	void *object;					/* filter object */
-	int closing;					/* pending close */
-	int exitcode;					/* exit code */
-	struct ILISTHEAD node;			/* list node */
-	struct ILISTHEAD pending;		/* waiting close */
-	struct IMSTREAM linemsg;		/* line buffer */
-	struct IMSTREAM sendmsg;		/* send buffer */
-	struct IMSTREAM recvmsg;		/* recv buffer */
-	unsigned char rc4_send_box[256];	
+	IUINT32 time;                /* timeout */
+	int fd;                      /* socket fd */
+	int state;                   /* CLOSED/CONNECTING/ESTABLISHED */
+	long hid;                    /* hid */
+	long tag;                    /* tag */
+	int error;                   /* errno value */
+	int header;                  /* header mode (0-13) */
+	int mask;                    /* poll event mask */
+	int mode;                    /* socket mode */
+	int ipv6;                    /* 0:ipv4, 1:ipv6 */
+	int flags;                   /* flag bits */
+	int afunix;                  /* is af_unix socket ? */
+	char *buffer;                /* internal working buffer */
+	char *external;              /* external working buffer */
+	long bufsize;                /* working buffer size */
+	long maxsize;                /* max packet size */
+	long limited;                /* buffer limited */
+	int rc4_send_x;              /* rc4 encryption variable */
+	int rc4_send_y;              /* rc4 encryption variable */
+	int rc4_recv_x;              /* rc4 encryption variable */
+	int rc4_recv_y;              /* rc4 encryption variable */
+	void *filter;                /* filter function */
+	void *object;                /* filter object */
+	int closing;                 /* pending close */
+	int exitcode;                /* exit code */
+	int protocol;                /* protocol */
+	long manual_hiwater;         /* recv buffer will not exceed this */
+	long manual_lowater;         /* recv continue after this */
+	struct ILISTHEAD node;       /* list node */
+	struct ILISTHEAD pending;    /* waiting close */
+	struct IMSTREAM linemsg;     /* line buffer */
+	struct IMSTREAM sendmsg;     /* send buffer */
+	struct IMSTREAM recvmsg;     /* recv buffer */
+	int (*socket_init_proc)(void *user, int mode, int fd);
+	void *socket_init_user;
+	int socket_init_code;
+	unsigned char rc4_send_box[256];
 	unsigned char rc4_recv_box[256];
 };
 
 
 #ifndef ITMH_WORDLSB
-#define ITMH_WORDLSB		0		/* header: 2 bytes LSB */
-#define ITMH_WORDMSB		1		/* header: 2 bytes MSB */
-#define ITMH_DWORDLSB		2		/* header: 4 bytes LSB */
-#define ITMH_DWORDMSB		3		/* header: 4 bytes MSB */
-#define ITMH_BYTELSB		4		/* header: 1 byte LSB */
-#define ITMH_BYTEMSB		5		/* header: 1 byte MSB */
-#define ITMH_EWORDLSB		6		/* header: 2 bytes LSB (exclude self) */
-#define ITMH_EWORDMSB		7		/* header: 2 bytes MSB (exclude self) */
-#define ITMH_EDWORDLSB		8		/* header: 4 bytes LSB (exclude self) */
-#define ITMH_EDWORDMSB		9		/* header: 4 bytes MSB (exclude self) */
-#define ITMH_EBYTELSB		10		/* header: 1 byte LSB (exclude self) */
-#define ITMH_EBYTEMSB		11		/* header: 1 byte MSB (exclude self) */
-#define ITMH_DWORDMASK		12		/* header: 4 bytes LSB (self and mask) */
-#define ITMH_RAWDATA		13		/* header: raw data */
-#define ITMH_LINESPLIT		14		/* header: '\n' split */
+#define ITMH_WORDLSB        0     /* header: 2 bytes LSB */
+#define ITMH_WORDMSB        1     /* header: 2 bytes MSB */
+#define ITMH_DWORDLSB       2     /* header: 4 bytes LSB */
+#define ITMH_DWORDMSB       3     /* header: 4 bytes MSB */
+#define ITMH_BYTELSB        4     /* header: 1 byte LSB */
+#define ITMH_BYTEMSB        5     /* header: 1 byte MSB */
+#define ITMH_EWORDLSB       6     /* header: 2 bytes LSB (exclude self) */
+#define ITMH_EWORDMSB       7     /* header: 2 bytes MSB (exclude self) */
+#define ITMH_EDWORDLSB      8     /* header: 4 bytes LSB (exclude self) */
+#define ITMH_EDWORDMSB      9     /* header: 4 bytes MSB (exclude self) */
+#define ITMH_EBYTELSB       10    /* header: 1 byte LSB (exclude self) */
+#define ITMH_EBYTEMSB       11    /* header: 1 byte MSB (exclude self) */
+#define ITMH_DWORDMASK      12    /* header: 4 bytes LSB (self and mask) */
+#define ITMH_RAWDATA        13    /* header: raw data */
+#define ITMH_LINESPLIT      14    /* header: '\n' split */
+#define ITMH_MANUAL         15    /* header: raw in manual mode */
 #endif
 
 #define ASYNC_SOCK_STATE_CLOSED         0
@@ -124,7 +132,7 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 	int addrlen, int header);
 
 /* assign a new socket */
-int async_sock_assign(CAsyncSock *asyncsock, int sock, int header);
+int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab);
 
 /* close socket */
 void async_sock_close(CAsyncSock *asyncsock);
@@ -136,9 +144,11 @@ int async_sock_state(const CAsyncSock *asyncsock);
 /* get fd */
 int async_sock_fd(const CAsyncSock *asyncsock);
 
-/* get how many bytes remain in the send buffer */
+/* get how many bytes remain in the recv buffer */
 long async_sock_remain(const CAsyncSock *asyncsock);
 
+/* get how many bytes remain in the send buffer */
+long async_sock_pending(const CAsyncSock *asyncsock);
 
 /* send data */
 long async_sock_send(CAsyncSock *asyncsock, const void *ptr, 
@@ -200,20 +210,19 @@ struct CAsyncCore;
 typedef struct CAsyncCore CAsyncCore;
 
 #define ASYNC_CORE_EVT_NEW       0   /* new: (hid, tag)   */
-#define ASYNC_CORE_EVT_LEAVE     1   /* leave: (hid, tag) */
+#define ASYNC_CORE_EVT_CLOSE     1   /* close: (hid, tag) */
 #define ASYNC_CORE_EVT_ESTAB     2   /* estab: (hid, tag) */
 #define ASYNC_CORE_EVT_DATA      3   /* data: (hid, tag)  */
 #define ASYNC_CORE_EVT_PROGRESS  4   /* output progress: (hid, tag) */
 #define ASYNC_CORE_EVT_DGRAM     5   /* raw fd event: (hid, tag) */
-#define ASYNC_CORE_EVT_PUSH      6   /* msg from async_core_post */
+#define ASYNC_CORE_EVT_POST      6   /* msg from async_core_post */
 #define ASYNC_CORE_EVT_EXTEND    7   /* user defined event */
 
 #define ASYNC_CORE_NODE_IN          1       /* accepted node */
 #define ASYNC_CORE_NODE_OUT         2       /* connected out node */
-#define ASYNC_CORE_NODE_LISTEN4     3       /* ipv4 listener */
-#define ASYNC_CORE_NODE_LISTEN6     4       /* ipv6 listener */
-#define ASYNC_CORE_NODE_ASSIGN      5       /* assigned fd ipv4 */
-#define ASYNC_CORE_NODE_DGRAM       6       /* raw dgram fd */
+#define ASYNC_CORE_NODE_LISTEN      3       /* socket listener */
+#define ASYNC_CORE_NODE_ASSIGN      4       /* assigned from external fd */
+#define ASYNC_CORE_NODE_DGRAM       5       /* raw dgram fd */
 
 #ifndef ASYNC_CORE_HID_BITS
 #define ASYNC_CORE_HID_BITS        16       /* size shift */
@@ -289,13 +298,19 @@ long async_core_new_dgram(CAsyncCore *core, const struct sockaddr *addr,
 	int addrlen, int mode);
 
 
-/* queue an ASYNC_CORE_EVT_PUSH event and wake async_core_wait up */
+/* queue an ASYNC_CORE_EVT_POST event and wake async_core_wait up */
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
 	const void *data, long size);
 
 /* queue an arbitrary event and wake async_core_wait up */
 int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
 	const void *data, long size);
+
+/**
+ * fetch data in manual mode (head is ITMH_MANUAL), size < 0 for peek, 
+ * returns remain data size only if data == NULL.
+ */
+long async_core_fetch(CAsyncCore *core, long hid, void *data, long size);
 
 /* get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN */
 int async_core_get_mode(const CAsyncCore *core, long hid);
@@ -306,14 +321,25 @@ long async_core_get_tag(const CAsyncCore *core, long hid);
 /* set connection tag */
 void async_core_set_tag(CAsyncCore *core, long hid, long tag);
 
-/* get send queue size */
+/* get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL) */
 long async_core_remain(const CAsyncCore *core, long hid);
+
+/* get send queue size: how many bytes are waiting to be sent */
+long async_core_pending(const CAsyncCore *core, long hid);
 
 /* set default buffer limit and max packet size */
 void async_core_limit(CAsyncCore *core, long limited, long maxsize);
 
 /* set disable read polling event: 1/on, 0/off */
 int async_core_disable(CAsyncCore *core, long hid, int value);
+
+
+#define ASYNC_CORE_SETTING_MAXSIZE       0
+#define ASYNC_CORE_SETTING_LIMIT         1
+#define ASYNC_CORE_SETTING_BACKLOG       2
+
+/* global configuration */
+int async_core_setting(CAsyncCore *core, int config, long value);
 
 
 /* get first node */
@@ -342,15 +368,21 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_MASKGET       14
 #define ASYNC_CORE_OPTION_MASKADD       15
 #define ASYNC_CORE_OPTION_MASKDEL       16
-#define ASYNC_CORE_OPTION_SHUTDOWN      17
-#define ASYNC_CORE_OPTION_GETHEADER     18
+#define ASYNC_CORE_OPTION_PAUSEREAD     17
+#define ASYNC_CORE_OPTION_SHUTDOWN      18
+#define ASYNC_CORE_OPTION_GET_HEADER    19
+#define ASYNC_CORE_OPTION_GET_PROTOCOL  20
+#define ASYNC_CORE_OPTION_HIWATER       21
+#define ASYNC_CORE_OPTION_LOWATER       22
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 
 #define ASYNC_CORE_STATUS_STATE     0
-#define ASYNC_CORE_STATUS_IPV6      1
-#define ASYNC_CORE_STATUS_ESTAB     2
+#define ASYNC_CORE_STATUS_ESTAB     1
+#define ASYNC_CORE_STATUS_IPV6      2
+#define ASYNC_CORE_STATUS_AFUNIX    3
+#define ASYNC_CORE_STATUS_ERROR     4
 
 /* get connection socket status */
 long async_core_status(CAsyncCore *core, long hid, int opt);
@@ -371,6 +403,8 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 #define ASYNC_CORE_FILTER_RELEASE       1     /* called before delete */
 #define ASYNC_CORE_FILTER_WRITE         2     /* upper level data send */
 #define ASYNC_CORE_FILTER_INPUT         3     /* lower level data arrival */
+#define ASYNC_CORE_FILTER_FETCH         4     /* upper level data fetch */
+#define ASYNC_CORE_FILTER_PROGRESS      5     /* written in progress */
 
 /* setup filter */
 void async_core_filter(CAsyncCore *core, long hid, 
@@ -379,10 +413,28 @@ void async_core_filter(CAsyncCore *core, long hid,
 #define ASYNC_CORE_DISPATCH_PUSH        0
 #define ASYNC_CORE_DISPATCH_SEND        1
 #define ASYNC_CORE_DISPATCH_CLOSE       2
+#define ASYNC_CORE_DISPATCH_FETCH       3
+#define ASYNC_CORE_DISPATCH_HEADER      4
 
 /* dispatch: for filter only, don't call outside the filter */
 int async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
 	const void *ptr, long size);
+
+/* Filter Factory: async_core_protocol() will use this to create filter */
+typedef CAsyncFilter (*CAsyncFactory)(CAsyncCore *core, long hid, 
+	int protocol, void **object);
+
+/* register options */
+#define ASYNC_CORE_REG_GET_PARENT      0
+#define ASYNC_CORE_REG_SET_PARENT      1
+#define ASYNC_CORE_REG_GET_FACTORY     2
+#define ASYNC_CORE_REG_SET_FACTORY     3
+
+/* read/write registry */
+void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr);
+
+/* set protocol: use factory to create a CAsyncFilter and install it */
+int async_core_protocol(CAsyncCore *core, long hid, int protocol);
 
 /* set timeout */
 void async_core_timeout(CAsyncCore *core, long seconds);
@@ -397,6 +449,24 @@ int async_core_peername(const CAsyncCore *core, long hid,
 
 /* get fd count */
 long async_core_nfds(const CAsyncCore *core);
+
+
+#define ASYNC_CORE_INFO_NFDS          1
+#define ASYNC_CORE_INFO_NODE_USED     2
+#define ASYNC_CORE_INFO_NODE_MAX      3
+#define ASYNC_CORE_INFO_NODE_MEMORY   4
+#define ASYNC_CORE_INFO_CACHE_USED    5
+#define ASYNC_CORE_INFO_CACHE_MAX     6
+#define ASYNC_CORE_INFO_CACHE_MEMORY  7
+
+/* memory information */
+long async_core_info(const CAsyncCore *core, int info);
+
+/* socket init proc: returns non-zero for error */
+typedef int (*CAsyncSocketInit)(void *user, int mode, int fd);
+
+/* setup socket init hook */
+void async_core_install(CAsyncCore *core, CAsyncSocketInit proc, void *user);
 
 
 
