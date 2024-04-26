@@ -979,10 +979,10 @@ iulong iposix_sem_value(iPosixSemaphore *sem);
 
 
 /* high resolution clock, returns nanosecond */
-void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec);
+void iposix_clock_gettime(int source, time_t *sec, long *nsec);
 
 /* returns 64bit nanosecond */
-IINT64 iposix_clock_nanosec(int clock_id);
+IINT64 iposix_clock_nanosec(int source);
 
 
 /*===================================================================*/

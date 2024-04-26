@@ -6465,6 +6465,15 @@ static void iposix_clock_init_win32(void)
 			GetProcAddress(hDLL, "QueryUnbiasedInterruptTime");
 	}
 
+	if (PQueryUnbiasedInterruptTimePrecise_o == NULL) {
+		HINSTANCE hKB = GetModuleHandleA("KernelBase.dll");
+		if (hKB) {
+			PQueryUnbiasedInterruptTimePrecise_o = 
+				(QueryUnbiasedInterruptTimePrecise_t)
+				GetProcAddress(hKB, "QueryUnbiasedInterruptTimePrecise");
+		}
+	}
+
 	QueryPerformanceFrequency(&IPOSIX_CLOCK_FREQUENCY);
 
 	if (IPOSIX_CLOCK_FREQUENCY.QuadPart == 0) {
@@ -6679,7 +6688,7 @@ static void iposix_clock_win32_monotonic_coarse(time_t *sec, long *nsec)
 
 
 /* high resolution clock, returns nanosecond */
-void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec)
+void iposix_clock_gettime(int source, time_t *sec, long *nsec)
 {
 	time_t tv_sec = 0;
 	long tv_nsec = 0;
@@ -6689,7 +6698,7 @@ void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec)
 		ithread_once(&once, iposix_clock_init_win32);
 		inited = 1;
 	}
-	switch (clock_id) {
+	switch (source) {
 	case IPOSIX_CLOCK_REALTIME:
 		iposix_clock_win32_realtime(&tv_sec, &tv_nsec);
 		break;
@@ -6708,7 +6717,7 @@ void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec)
 	}
 #elif defined(CLOCK_MONOTONIC) && defined(CLOCK_REALTIME)
 	struct timespec tv = {0, 0};
-	switch (clock_id) {
+	switch (source) {
 	case IPOSIX_CLOCK_REALTIME:
 	#ifdef CLOCK_REALTIME_PRECISE
 		clock_gettime(CLOCK_REALTIME_PRECISE, &tv);
@@ -6761,12 +6770,12 @@ void iposix_clock_gettime(int clock_id, time_t *sec, long *nsec)
 
 
 /* returns 64bit nanosecond */
-IINT64 iposix_clock_nanosec(int clock_id)
+IINT64 iposix_clock_nanosec(int source)
 {
 	time_t sec = 0;
 	long nsec = 0;
 	IINT64 now;
-	iposix_clock_gettime(clock_id, &sec, &nsec);
+	iposix_clock_gettime(source, &sec, &nsec);
 	now = ((IINT64)sec) * 1000000000 + ((IINT64)nsec);
 	return now;
 }
