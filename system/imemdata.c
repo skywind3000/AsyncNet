@@ -917,12 +917,12 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 {
 	ilong total, canwrite, towrite;
 	struct IMSPAGE *current;
-	IUINT8 *lptr;
+	const IUINT8 *lptr;
 
 	assert(s);
 
 	if (size <= 0) return size;
-	lptr = (IUINT8*)ptr;
+	lptr = (const IUINT8*)ptr;
 
 	for (total = 0; size > 0; size -= towrite, total += towrite) {
 		if (ilist_is_empty(&s->head)) {
@@ -940,8 +940,12 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 			canwrite = current->size;
 		}
 		towrite = (size <= canwrite)? size : canwrite;
-		memcpy(current->data + s->pos_write, lptr, towrite);
-		lptr += towrite;
+		if (lptr != NULL) {
+			if (towrite > 0) {
+				memcpy(current->data + s->pos_write, lptr, towrite);
+			}
+			lptr += towrite;
+		}
 		s->pos_write += towrite;
 		s->size += towrite;
 	}
@@ -973,7 +977,9 @@ ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 		toread = (size <= canread)? size : canread;
 		if (toread == 0) break;
 		if (lptr) {
-			memcpy(lptr, current->data + posread, toread);
+			if (toread > 0) {
+				memcpy(lptr, current->data + posread, toread);
+			}
 			lptr += toread;
 		}
 		posread += toread;

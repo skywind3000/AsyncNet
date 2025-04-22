@@ -170,12 +170,12 @@ void isleep(unsigned long millisecond)
 
 
 /* get system time */
-static void itimeofday_default(long *sec, long *usec)
+static void itimeofday_default(IINT64 *sec, long *usec)
 {
 	#if defined(__unix)
 	struct timeval time;
 	gettimeofday(&time, NULL);
-	if (sec) *sec = (long)(time.tv_sec);
+	if (sec) *sec = (IINT64)(time.tv_sec);
 	if (usec) *usec = (long)(time.tv_usec);
 	#elif defined(_WIN32)
 	typedef void (WINAPI * GetSystemTime_t)(LPFILETIME);
@@ -204,18 +204,19 @@ static void itimeofday_default(long *sec, long *usec)
 	ularge.LowPart = file_time.dwLowDateTime;
 	ularge.HighPart = file_time.dwHighDateTime;
 	current = ((IINT64)ularge.QuadPart) - epoch;
-	if (sec) *sec = (long)(current / 10000000);
+	if (sec) *sec = (IINT64)(current / 10000000);
 	if (usec) *usec = (long)((current % 10000000) / 10);
 	#endif
 }
 
 /* get time of day */
-void itimeofday(long *sec, long *usec)
+void itimeofday(IINT64 *sec, long *usec)
 {
 	static volatile int inited = 0;
 	volatile int *once = &inited;
 	IINT64 value;
-	long s, u;
+	IINT64 s;
+	long u;
 	itimeofday_default(&s, &u);
 	value = ((IINT64)s) * 1000 + (u / 1000);
 	itimeclock = value;
@@ -236,7 +237,8 @@ void itimeofday(long *sec, long *usec)
 /* get clock in millisecond 64 */
 IINT64 iclock64(void)
 {
-	long s, u;
+	long u;
+	IINT64 s;
 	IINT64 value;
 	itimeofday(&s, &u);
 	value = ((IINT64)s) * 1000 + (u / 1000);
@@ -257,7 +259,7 @@ IINT64 iclockrt(void)
 	IINT64 current;
 #ifndef _WIN32
 	struct timespec ts;
-	#if (!defined(__imac__)) && (!defined(ITIME_USE_GET_TIME_OF_DAY))
+	#if defined(CLOCK_REALTIME) && defined(CLOCK_MONOTONIC)
 		#if defined(ICLOCK_TYPE_REALTIME) || (!defined(CLOCK_MONOTONIC))
 		clock_gettime(CLOCK_REALTIME, &ts);
 		#else
@@ -271,7 +273,8 @@ IINT64 iclockrt(void)
 	#endif
 	current = ((IINT64)ts.tv_sec) * 1000000 + ((IINT64)ts.tv_nsec) / 1000;
 #else
-	long sec, usec;
+	IINT64 sec;
+	long usec;
 	itimeofday(&sec, &usec);
 	current = ((IINT64)sec) * 1000000 + ((IINT64)usec);
 #endif
@@ -751,17 +754,17 @@ int ipollfd(int sock, int event, long millisec)
 	tmx.tv_usec = (millisec % 1000) * 1000;
 	if (event & ISOCK_ERECV) {
 		FD_ZERO(&fdr);
-		FD_SET(sock, &fdr);
+		FD_SET((SOCKET)sock, &fdr);
 		pr = &fdr;
 	}
 	if (event & ISOCK_ESEND) {
 		FD_ZERO(&fdw);
-		FD_SET(sock, &fdw);
+		FD_SET((SOCKET)sock, &fdw);
 		pw = &fdw;
 	}
 	if (event & ISOCK_ERROR) {
 		FD_ZERO(&fde);
-		FD_SET(sock, &fde);
+		FD_SET((SOCKET)sock, &fde);
 		pe = &fde;
 	}
 	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
@@ -910,8 +913,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 		#elif defined(__AVM3__)
 		return sizeof(fd_set) * 3;
 		#else
-		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
-		size_t size = count * sizeof(SOCKET) + unit + 8;
+		size_t size = count * sizeof(SOCKET) + 16;
 		return (int)(size * 3);
 		#endif
 	}	
@@ -999,8 +1001,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 
 		#else
 		struct timeval tmx = { 0, 0 };
-		size_t unit = (size_t)(&(((FD_SET*)0)->fd_array[1]));
-		size_t size = count * sizeof(SOCKET) + unit + 8;
+		size_t size = count * sizeof(SOCKET) + 16;
 		FD_SET *fdr = (FD_SET*)(((char*)workmem) + 0);
 		FD_SET *fdw = (FD_SET*)(((char*)workmem) + size);
 		FD_SET *fde = (FD_SET*)(((char*)workmem) + size * 2);
@@ -1071,7 +1072,9 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 int ipollfds(const int *fds, const int *events, int *revents, int count, 
 	long millisec)
 {
+#ifndef IPOLLFDS_SIZE
 	#define IPOLLFDS_SIZE 2048
+#endif
 	char _buffer[IPOLLFDS_SIZE];
 	char *buffer = _buffer;
 	long size;
@@ -1534,7 +1537,7 @@ int isocket_udp_init(int fd, int flags)
 		isocket_enable(fd, ISOCK_CLOEXEC);
 	}
 
-	if ((flags & 512) == 0) {
+	if ((flags & 0x200) == 0) {
 		isocket_enable(fd, ISOCK_NOBLOCK);
 	}
 
@@ -1565,27 +1568,25 @@ int isocket_udp_init(int fd, int flags)
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 {
 	int fd = -1;
+	int family = (addr == NULL)? AF_INET : addr->sa_family;
 
-	if (addrlen >= (int)sizeof(struct sockaddr_in6)) {
+	fd = (int)socket(family, SOCK_DGRAM, 0);
+
+	if (fd >= 0) {
 	#ifdef AF_INET6
-		if (addr->sa_family == AF_INET6) {
-			fd = (int)socket(AF_INET6, SOCK_DGRAM, 0);
+		if (family == AF_INET6) {
 			#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
 			if (fd >= 0) {
 				unsigned long enable = 1;
+				if ((flags & 0x400) != 0) {
+					enable = 0;
+				}
 				isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
 					(const char*)&enable, sizeof(enable));
 			}
 			#endif
 		}
 	#endif
-	#ifdef AF_UNIX
-		if (addr->sa_family == AF_UNIX) {
-			fd = (int)socket(AF_UNIX, SOCK_DGRAM, 0);
-		}
-	#endif
-	}	else {
-		fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
 	}
 
 	if (fd < 0) return -1;
@@ -1607,6 +1608,37 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 }
 
 
+/* check tcp is established ?, returns 1/true, 0/false, -1/error */
+int isocket_tcp_estab(int sock)
+{
+	int event;
+	if (sock < 0) return -1;
+	event = ISOCK_ESEND | ISOCK_ERROR;
+	event = ipollfd(sock, event, 0);
+	if (event & ISOCK_ERROR) {
+		return -1;
+	}
+	if (event & ISOCK_ESEND) {
+		int hr = 0, len = sizeof(int), error = 0;
+		hr = igetsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &len);
+		if (hr < 0 || (hr == 0 && error != 0)) return -1;
+		return 1;
+	}
+	return 0;
+}
+
+/* get address family */
+int isocket_get_family(int sock)
+{
+	char name[256];
+	struct sockaddr *uname = (struct sockaddr*)name;
+	int size = (int)sizeof(name);
+	if (isockname(sock, uname, &size) == 0) {
+		return uname->sa_family;
+	}
+	return 0;
+}
+
 /* set recv buf and send buf */
 int isocket_set_buffer(int sock, long rcvbuf_size, long sndbuf_size)
 {
@@ -1625,23 +1657,78 @@ int isocket_set_buffer(int sock, long rcvbuf_size, long sndbuf_size)
 	return 0;
 }
 
-/* check tcp is established ?, returns 1/true, 0/false, -1/error */
-int isocket_tcp_estab(int sock)
+/* setsockopt with uint */
+int isocket_set_uint(int fd, int level, int optname, unsigned int value)
 {
-	int event;
-	if (sock < 0) return -1;
-	event = ISOCK_ESEND | ISOCK_ERROR;
-	event = ipollfd(sock, event, 0);
-	if (event & ISOCK_ERROR) {
-		return -1;
-	}
-	if (event & ISOCK_ESEND) {
-		int hr = 0, len = sizeof(int), error = 0;
-		hr = igetsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &len);
-		if (hr < 0 || (hr == 0 && error != 0)) return -1;
-		return 1;
-	}
+	return isetsockopt(fd, level, optname, (char*)&value, sizeof(value));
+}
+
+/* getsockopt with uint */
+int isocket_get_uint(int fd, int level, int optname, unsigned int *value)
+{
+	unsigned int x = 0;
+	int len = sizeof(unsigned int);
+	int hr = igetsockopt(fd, level, optname, (char*)&x, &len);
+	if (value) value[0] = x;
+	return hr;
+}
+
+/* setsockopt with ulong */
+int isocket_set_ulong(int fd, int level, int optname, unsigned long value)
+{
+	return isetsockopt(fd, level, optname, (char*)&value, sizeof(value));
+}
+
+/* getsockopt with ulong */
+int isocket_get_ulong(int fd, int level, int optname, unsigned long *value)
+{
+	unsigned long x = 0;
+	int len = sizeof(unsigned long);
+	int hr = igetsockopt(fd, level, optname, (char*)&x, &len);
+	if (value) value[0] = x;
+	return hr;
+}
+
+/* set TOS */
+int isocket_set_tos(int fd, unsigned int tos)
+{
+#ifdef IP_TOS
+	return isocket_set_uint(fd, IPPROTO_IP, IP_TOS, tos);
+#else
+	return -1;
+#endif
+}
+
+/* get TOS */
+int isocket_get_tos(int fd, unsigned int *tos)
+{
+#ifdef IP_TOS
+	return isocket_get_uint(fd, IPPROTO_IP, IP_TOS, (unsigned int*)tos);
+#else
+	if (tos) tos[0] = 0;
 	return 0;
+#endif
+}
+
+/* set SO_MARK: require root privilege */
+int isocket_set_mark(int fd, unsigned int mark)
+{
+#ifdef SO_MARK
+	return isocket_set_uint(fd, SOL_SOCKET, SO_MARK, mark);
+#else
+	return -1;
+#endif
+}
+
+/* get SO_MARK */
+int isocket_get_mark(int fd, unsigned int *mark)
+{
+#ifdef SO_MARK
+	return isocket_get_uint(fd, SOL_SOCKET, SO_MARK, mark);
+#else
+	if (mark) mark[0] = 0;
+	return 0;
+#endif
 }
 
 
@@ -3098,16 +3185,31 @@ static int ipk_poll_set(ipolld ipd, int fd, int mask)
 	if (fd >= ps->usr_len) return -3;
 	if (ps->fv.fds[fd].fd < 0) return -4;
 
-	if (mask & IPOLL_IN) {
-		if (ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_ENABLE)) return -1;
-	}	else {
-		if (ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_DISABLE)) return -2;
+	if (IFEATURE_HAS(IFEATURE_KEVENT_REFRESH) == 0) {
+		if (mask & IPOLL_IN) {
+			ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_ENABLE);
+		}	else {
+			ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_DISABLE);
+		}
+		if (mask & IPOLL_OUT) {
+			ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_ENABLE);
+		}	else {
+			ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_DISABLE);
+		}
 	}
-	if (mask & IPOLL_OUT) {
-		if (ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_ENABLE)) return -1;
-	}	else {
-		if (ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_DISABLE)) return -2;
+	else {
+		if (mask & IPOLL_IN) {
+			ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_ADD | EV_ENABLE);
+		}   else {
+			ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_DELETE);
+		}
+		if (mask & IPOLL_OUT) {
+			ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE);
+		}   else {
+			ipk_poll_kevent(ipd, fd, EVFILT_WRITE, EV_DELETE);
+		}
 	}
+
 	ps->fv.fds[fd].mask = mask;
 
 	return 0;
@@ -3316,8 +3418,9 @@ static int ipe_poll_add(ipolld ipd, int fd, int mask, void *user)
 	}
 	if (ps->fv.fds[fd].fd >= 0) {
 		ps->fv.fds[fd].user = user;
-		ipe_poll_set(ipd, fd, mask);
-		return 0;
+		if (ipe_poll_set(ipd, fd, mask) == 0) {
+			return 0;
+		}
 	}
 	ps->fv.fds[fd].fd = fd;
 	ps->fv.fds[fd].user = user;
@@ -5953,8 +6056,8 @@ struct iPosixTimer
 };
 
 
-/* new timer */
-iPosixTimer *iposix_timer_new(void)
+/* create a new timer: flags can be set to 0 by default */
+iPosixTimer *iposix_timer_new(int flags)
 {
 	iPosixTimer *timer;
 	timer = (iPosixTimer*)ikmalloc(sizeof(iPosixTimer));
@@ -5974,15 +6077,15 @@ iPosixTimer *iposix_timer_new(void)
 #ifdef _WIN32
 	timer->id = 0;
 	timer->event = NULL;
-	/* disable timeSetEvent here, in windows you can only create at most
+	/* Note: in windows you can only create at most
 	   16 events(timeSetEvent) per process in the same time. */
-	#if 0
-	timer->event = CreateEvent(NULL, FALSE, FALSE, NULL);
-	if (timer->event == NULL) {
-		iposix_timer_delete(timer);
-		return NULL;
+	if ((flags & IPOSIX_TIMER_WIN_TIMER_EVENT) != 0) {
+		timer->event = CreateEvent(NULL, FALSE, FALSE, NULL);
+		if (timer->event == NULL) {
+			iposix_timer_delete(timer);
+			return NULL;
+		}
 	}
-	#endif
 #endif
 	return timer;
 }
@@ -6507,10 +6610,11 @@ static void iposix_clock_init_win32(void)
 	iposix_clock_monotonic_win7();
 }
 
-#define IPOSIX_CLOCK_FACTOR (0x19db1ded53e8000LL)
+#define IPOSIX_MAKE_QWORD(hi, lo) ((((IINT64)(hi)) << 32) | ((IINT64)(lo)))
+#define IPOSIX_CLOCK_FACTOR IPOSIX_MAKE_QWORD(0x19db1de, 0xd53e8000)
 
 /* for Windows 7: 100ns units */
-static void iposix_clock_win32_realtime(time_t *sec, long *nsec)
+static void iposix_clock_win32_realtime(IINT64 *sec, long *nsec)
 {
 	LARGE_INTEGER ularge;
 	FILETIME file_time;
@@ -6524,12 +6628,12 @@ static void iposix_clock_win32_realtime(time_t *sec, long *nsec)
 	ularge.LowPart = file_time.dwLowDateTime;
 	ularge.HighPart = file_time.dwHighDateTime;
 	now = (ularge.QuadPart - IPOSIX_CLOCK_FACTOR);
-	sec[0] = (time_t)(now / 10000000);
+	sec[0] = (IINT64)(now / 10000000);
 	nsec[0] = (long)((now % 10000000) * 100);
 }
 
 /* generic realtime clock for Windows */
-static void iposix_clock_win32_realtime_coarse(time_t *sec, long *nsec)
+static void iposix_clock_win32_realtime_coarse(IINT64 *sec, long *nsec)
 {
 	LARGE_INTEGER ularge;
 	FILETIME file_time;
@@ -6538,17 +6642,17 @@ static void iposix_clock_win32_realtime_coarse(time_t *sec, long *nsec)
 	ularge.LowPart = file_time.dwLowDateTime;
 	ularge.HighPart = file_time.dwHighDateTime;
 	now = (ularge.QuadPart - IPOSIX_CLOCK_FACTOR);
-	sec[0] = (time_t)(now / 10000000);
+	sec[0] = (IINT64)(now / 10000000);
 	nsec[0] = (long)((now % 10000000) * 100);
 }
 
 /* convert LONGLONG to sec/nsec */
-void iposix_clock_conv(LONGLONG qpc, LONGLONG freq, time_t *sec, long *nsec)
+void iposix_clock_conv(LONGLONG qpc, LONGLONG freq, IINT64 *sec, long *nsec)
 {
-	time_t tv_sec;
+	IINT64 tv_sec;
 	long tv_nsec;
 	if (freq < 1) freq = 1;
-	tv_sec = (time_t)(qpc / freq);
+	tv_sec = (IINT64)(qpc / freq);
 	qpc %= freq;
 	tv_nsec = (long)((qpc * 1000000000) / freq);
 	if (sec) sec[0] = tv_sec;
@@ -6560,11 +6664,12 @@ static LONGLONG iposix_clock_interrupt(void)
 {
 	LONG timeHigh;
 	ULONG timeLow;
+	LONGLONG now;
 	do {
 		timeHigh = iPosixInterruptTime->High1Time;
 		timeLow = iPosixInterruptTime->LowPart;
 	}	while (timeHigh != iPosixInterruptTime->High2Time);
-	LONGLONG now = ((LONGLONG)timeHigh << 32) | timeLow;
+	now = ((LONGLONG)timeHigh << 32) | timeLow;
 	return now - iposix_clock_interrupt_start;
 }
 
@@ -6573,7 +6678,7 @@ static LONGLONG iposix_clock_qpc_direct(void)
 {
 	LARGE_INTEGER qpc;
 	LONGLONG freq = IPOSIX_CLOCK_FREQUENCY.QuadPart;
-	time_t ts_sec;
+	IINT64 ts_sec;
 	long ts_nsec;
 	LONGLONG now;
 	QueryPerformanceCounter(&qpc);
@@ -6589,7 +6694,7 @@ static LONGLONG iposix_clock_qpc_unbiased(void)
 	ULONGLONG bias;
 	LARGE_INTEGER now;
 	LONGLONG freq, qpc;
-	time_t ts_sec, bts_sec;
+	IINT64 ts_sec, bts_sec;
 	long ts_nsec, bts_nsec;
 	do {
 		bias = *iPosixInterruptTimeBias;
@@ -6597,10 +6702,10 @@ static LONGLONG iposix_clock_qpc_unbiased(void)
 	}	while (bias != *iPosixInterruptTimeBias);
 	freq = IPOSIX_CLOCK_FREQUENCY.QuadPart;
 	if (freq == 0) freq = 1;
-	ts_sec = (time_t)(now.QuadPart / freq);
+	ts_sec = (IINT64)(now.QuadPart / freq);
 	now.QuadPart = now.QuadPart % freq;
 	ts_nsec = (long)((now.QuadPart * 1000000000) / freq);
-	bts_sec = (time_t)(bias / 10000000);
+	bts_sec = (IINT64)(bias / 10000000);
 	bts_nsec = (long)((bias % 10000000) * 100);
 	ts_nsec -= bts_nsec;
 	if (ts_nsec < 0) {
@@ -6648,11 +6753,11 @@ static ULONGLONG iposix_clock_monotonic_win7(void)
 }
 
 /* final monotonic clock for Windows */
-static void iposix_clock_win32_monotonic(time_t *sec, long *nsec)
+static void iposix_clock_win32_monotonic(IINT64 *sec, long *nsec)
 {
 	if (PQueryUnbiasedInterruptTimePrecise_o != NULL) {
 		ULONGLONG now = iposix_clock_monotonic_win10();
-		if (sec) sec[0] = (time_t)(now / 10000000);
+		if (sec) sec[0] = (IINT64)(now / 10000000);
 		if (nsec) nsec[0] = (long)((now % 10000000) * 100);
 	}
 	else {
@@ -6672,11 +6777,11 @@ static void iposix_clock_win32_monotonic(time_t *sec, long *nsec)
 }
 
 /* final coarse monotonic clock for Windows */
-static void iposix_clock_win32_monotonic_coarse(time_t *sec, long *nsec)
+static void iposix_clock_win32_monotonic_coarse(IINT64 *sec, long *nsec)
 {
 	if (PQueryUnbiasedInterruptTime_o != NULL) {
 		ULONGLONG now = iposix_clock_monotonic_win7();
-		if (sec) sec[0] = (time_t)(now / 10000000);
+		if (sec) sec[0] = (IINT64)(now / 10000000);
 		if (nsec) nsec[0] = (long)((now % 10000000) * 100);
 	}
 	else {
@@ -6688,9 +6793,9 @@ static void iposix_clock_win32_monotonic_coarse(time_t *sec, long *nsec)
 
 
 /* high resolution clock, returns nanosecond */
-void iposix_clock_gettime(int source, time_t *sec, long *nsec)
+void iposix_clock_gettime(int source, IINT64 *sec, long *nsec)
 {
-	time_t tv_sec = 0;
+	IINT64 tv_sec = 0;
 	long tv_nsec = 0;
 #if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
 	static int inited = 0, once = 0;
@@ -6751,17 +6856,17 @@ void iposix_clock_gettime(int source, time_t *sec, long *nsec)
 		tv.tv_nsec = 0;
 		break;
 	}
-	tv_sec = (time_t)(tv.tv_sec);
+	tv_sec = (IINT64)(tv.tv_sec);
 	tv_nsec = (long)(tv.tv_nsec);
 #elif defined(__unix)
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	tv_sec = (time_t)(tv.tv_sec);
+	tv_sec = (IINT64)(tv.tv_sec);
 	tv_nsec = (long)(tv.tv_usec * 1000);
 #else
 	long sec, usec;
 	itimeofday(&sec, &usec);
-	tv_sec = (time_t)sec;
+	tv_sec = (IINT64)sec;
 	tv_nsec = (long)(usec * 1000);
 #endif
 	if (sec) sec[0] = tv_sec;
@@ -6772,7 +6877,7 @@ void iposix_clock_gettime(int source, time_t *sec, long *nsec)
 /* returns 64bit nanosecond */
 IINT64 iposix_clock_nanosec(int source)
 {
-	time_t sec = 0;
+	IINT64 sec = 0;
 	long nsec = 0;
 	IINT64 now;
 	iposix_clock_gettime(source, &sec, &nsec);

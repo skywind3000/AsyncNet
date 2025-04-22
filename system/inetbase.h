@@ -426,7 +426,7 @@ extern "C" {
 void isleep(unsigned long millisecond);
 
 /* get system time of day */
-void itimeofday(long *sec, long *usec);
+void itimeofday(IINT64 *sec, long *usec);
 
 /* get clock in millisecond */
 unsigned long iclock(void);
@@ -677,6 +677,7 @@ extern int _initialize_feature;
 #define IFEATURE_VISTA_COND      2    /* win: vista native condition var */
 #define IFEATURE_AFUNIX_PAIR     4    /* win: win10 afunix socket-pair */
 #define IFEATURE_LARGE_FDSET     8    /* win: use WSELECT in ipoll */
+#define IFEATURE_KEVENT_REFRESH  16   /* bsd: always reset kevent event */
 
 
 /*===================================================================*/
@@ -704,8 +705,35 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags);
 /* check tcp is established ?, returns 1/true, 0/false, -1/error */
 int isocket_tcp_estab(int sock);
 
+/* get address family */
+int isocket_get_family(int sock);
+
 /* set recv buf and send buf */
 int isocket_set_buffer(int sock, long recvbuf_size, long sendbuf_size);
+
+/* setsockopt with uint */
+int isocket_set_uint(int fd, int level, int optname, unsigned int value);
+
+/* getsockopt with uint */
+int isocket_get_uint(int fd, int level, int optname, unsigned int *value);
+
+/* set ulong option */
+int isocket_set_ulong(int fd, int level, int optname, unsigned long value);
+
+/* getsockopt with ulong */
+int isocket_get_ulong(int fd, int level, int optname, unsigned long *value);
+
+/* set TOS */
+int isocket_set_tos(int fd, unsigned int tos);
+
+/* get TOS */
+int isocket_get_tos(int fd, unsigned int *tos);
+
+/* set SO_MARK: require root privilege */
+int isocket_set_mark(int fd, unsigned int mark);
+
+/* get SO_MARK */
+int isocket_get_mark(int fd, unsigned int *mark);
 
 /* create socket pair */
 int isocket_pair(int fds[2], int cloexec);
@@ -912,8 +940,13 @@ struct iPosixTimer;
 typedef struct iPosixTimer iPosixTimer;
 
 
-/* create a new timer */
-iPosixTimer *iposix_timer_new(void);
+/* flag to use timer event (timeSetEvent) to achieve higher resolution */
+/* Windows only allows 16 timer events(timeSetEvent) per process */
+/* Leave the flags to 0, to use default implementation (cond-var) */
+#define IPOSIX_TIMER_WIN_TIMER_EVENT   0x10
+
+/* create a new timer: flags can be set to 0 by default */
+iPosixTimer *iposix_timer_new(int flags);
 
 /* delete a timer */
 void iposix_timer_delete(iPosixTimer *timer);
@@ -979,7 +1012,7 @@ iulong iposix_sem_value(iPosixSemaphore *sem);
 
 
 /* high resolution clock, returns nanosecond */
-void iposix_clock_gettime(int source, time_t *sec, long *nsec);
+void iposix_clock_gettime(int source, IINT64 *sec, long *nsec);
 
 /* returns 64bit nanosecond */
 IINT64 iposix_clock_nanosec(int source);

@@ -284,6 +284,7 @@ void itimer_mgr_init(itimer_mgr *mgr, IUINT32 interval)
 	mgr->jiffies = 0;
 	mgr->millisec = 0;
 	mgr->initialized = 0;
+	mgr->counter = 0;
 	itimer_core_init(&mgr->core, mgr->jiffies);
 }
 
@@ -314,6 +315,8 @@ void itimer_mgr_run(itimer_mgr *mgr, IUINT32 millisec)
 			mgr->millisec = millisec;
 		}
 	}
+	// reset counter
+	mgr->counter = 0;
 	// update core timer
 	while ((IINT32)(millisec - mgr->millisec) >= 0) {
 		itimer_core_run(&mgr->core, mgr->jiffies);
@@ -364,6 +367,7 @@ static void itimer_evt_cb(void *p)
 
 	// need invoke callback ?
 	if (fire) {
+		mgr->counter++;
 		if (evt->callback) {
 			evt->callback(evt->data, evt->user);
 		}

@@ -1,0 +1,735 @@
+//=====================================================================
+//
+// AsyncEvent.cpp - 
+//
+// Created by skywind on 2015/07/19
+// Last Modified: 2025/04/19 22:08:19
+//
+//=====================================================================
+#include <stddef.h>
+#include <assert.h>
+
+#include "AsyncEvent.h"
+
+
+NAMESPACE_BEGIN(System);
+
+
+//=====================================================================
+// AsyncLoop
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncLoop::~AsyncLoop()
+{
+	if (_borrow == false) {
+		if (_loop != NULL) {
+			async_loop_delete(_loop);
+		}
+		_loop = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncLoop::AsyncLoop()
+{
+	_loop = async_loop_new();
+	_loop->self = this;
+	_borrow = false;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncLoop::AsyncLoop(CAsyncLoop *loop)
+{
+	_loop = loop;
+	_loop->self = this;
+	_borrow = true;
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncLoop::AsyncLoop(AsyncLoop &&src)
+{
+	this->_loop = src._loop;
+	this->_borrow = src._borrow;
+	this->_loop->self = this;
+	this->_cb_log = src._cb_log;
+	this->_cb_once = src._cb_once;
+	this->_cb_idle = src._cb_idle;
+	this->_cb_timer = src._cb_timer;
+	src._loop = NULL;
+	src._borrow = false;
+	src._cb_log = NULL;
+	src._cb_once = NULL;
+	src._cb_idle = NULL;
+	src._cb_timer = NULL;
+	if (src._log_cache.size() > 0) {
+		this->_log_cache = std::move(src._log_cache);
+	} else {
+		this->_log_cache.clear();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// run once
+//---------------------------------------------------------------------
+void AsyncLoop::RunOnce(uint32_t millisec)
+{
+	async_loop_once(_loop, millisec);
+}
+
+
+//---------------------------------------------------------------------
+// run endless
+//---------------------------------------------------------------------
+void AsyncLoop::RunEndless()
+{
+	async_loop_run(_loop);
+}
+
+
+//---------------------------------------------------------------------
+// exit RunEndless()
+//---------------------------------------------------------------------
+void AsyncLoop::Exit()
+{
+	async_loop_exit(_loop);
+}
+
+
+//---------------------------------------------------------------------
+// callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnLog(void *logger, const char *text)
+{
+	AsyncLoop *self = (AsyncLoop*)logger;
+	if (self) {
+		if (self->_cb_log != NULL) {
+			self->_cb_log(text);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnOnce(CAsyncLoop *loop)
+{
+	AsyncLoop *self = (AsyncLoop*)loop->self;
+	if (self) {
+		if (self->_cb_once != NULL) {
+			self->_cb_once();
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnTimer(CAsyncLoop *loop)
+{
+	AsyncLoop *self = (AsyncLoop*)loop->self;
+	if (self) {
+		if (self->_cb_timer != NULL) {
+			self->_cb_timer();
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnIdle(CAsyncLoop *loop)
+{
+	AsyncLoop *self = (AsyncLoop*)loop->self;
+	if (self) {
+		if (self->_cb_idle != NULL) {
+			self->_cb_idle();
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// set log handler
+//---------------------------------------------------------------------
+void AsyncLoop::SetLogHandler(std::function<void(const char *msg)> handler)
+{
+	if (handler == NULL) {
+		_loop->writelog = NULL;
+		_loop->logger = NULL;
+		_cb_log = NULL;
+	}
+	else {
+		_loop->writelog = OnLog;
+		_loop->logger = this;
+		_cb_log = handler;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write log
+//---------------------------------------------------------------------
+void AsyncLoop::Log(int channel, const char *fmt, ...)
+{
+	if (channel & _loop->logmask) {
+		if (_loop->writelog != NULL) {
+			va_list argptr;
+			char *buffer;
+			if (_log_cache.size() < 1024) {
+				_log_cache.resize(1024);
+			}
+			buffer = &_log_cache[0];
+			va_start(argptr, fmt);
+			vsprintf(buffer, fmt, argptr);
+			va_end(argptr);
+			if (_cb_log != NULL) {
+				_cb_log(buffer);
+			}
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// set log mask
+//---------------------------------------------------------------------
+void AsyncLoop::SetLogMask(int mask)
+{
+	_loop->logmask = mask;
+}
+
+
+//---------------------------------------------------------------------
+// set once handler
+//---------------------------------------------------------------------
+void AsyncLoop::SetOnceHandler(std::function<void()> handler)
+{
+	_cb_once = handler;
+	_loop->on_once = (handler == NULL)? NULL : OnOnce;
+}
+
+
+//---------------------------------------------------------------------
+// set idle handler
+//---------------------------------------------------------------------
+void AsyncLoop::SetIdleHandler(std::function<void()> handler)
+{
+	_cb_idle = handler;
+	_loop->on_idle = (handler == NULL)? NULL : OnIdle;
+}
+
+
+//---------------------------------------------------------------------
+// set timer handler
+//---------------------------------------------------------------------
+void AsyncLoop::SetTimerHandler(std::function<void()> handler)
+{
+	_cb_timer = handler;
+	_loop->on_timer = (handler == NULL)? NULL : OnTimer;
+}
+
+
+
+//=====================================================================
+// AsyncEvent
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncEvent::~AsyncEvent()
+{
+	if (_event.active) {
+		async_event_stop(_loop, &_event);
+	}
+	_loop = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncEvent::AsyncEvent(CAsyncLoop *loop)
+{
+	assert(loop);
+	async_event_init(&_event, EventCB, -1, 0);
+	_event.user = this;
+	_loop = loop;
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncEvent::AsyncEvent(AsyncLoop &loop)
+{
+	async_event_init(&_event, EventCB, -1, 0);
+	_event.user = this;
+	_loop = loop.GetLoop();
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
+{
+	AsyncEvent *self = (AsyncEvent*)evt->user;
+	if (self->_callback != NULL) {
+		self->_callback(event);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup event callback
+//---------------------------------------------------------------------
+void AsyncEvent::SetCallback(std::function<void(int)> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// mask can be one of ASYNC_EVENT_READ or ASYNC_EVENT_WRITE
+// or ASYNC_EVENT_READ | ASYNC_EVENT_WRITE
+// must be called without active
+//---------------------------------------------------------------------
+bool AsyncEvent::Set(int fd, int mask)
+{
+	int cc = async_event_set(&_event, fd, mask);
+	return (cc == 0)? true : false;
+}
+
+
+//---------------------------------------------------------------------
+// change event mask only, must be called without active
+//---------------------------------------------------------------------
+bool AsyncEvent::Modify(int mask)
+{
+	int cc = async_event_modify(&_event, mask);
+	return (cc == 0)? true : false;
+}
+
+
+//---------------------------------------------------------------------
+// start watching
+//---------------------------------------------------------------------
+int AsyncEvent::Start()
+{
+	if (_event.fd < 0) return -1000;
+	return async_event_start(_loop, &_event);
+}
+
+
+//---------------------------------------------------------------------
+// stop watching
+//---------------------------------------------------------------------
+int AsyncEvent::Stop()
+{
+	return async_event_stop(_loop, &_event);
+}
+
+
+//---------------------------------------------------------------------
+// is watching ?
+//---------------------------------------------------------------------
+bool AsyncEvent::IsActive() const
+{
+	int cc = async_event_active(&_event);
+	return (cc == 0)? false : true;
+}
+
+
+
+//=====================================================================
+// AsyncTimer
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncTimer::~AsyncTimer()
+{
+	if (async_timer_active(&_timer)) {
+		async_timer_stop(_loop, &_timer);
+	}
+	_loop = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncTimer::AsyncTimer(AsyncLoop &loop)
+{
+	async_timer_init(&_timer, TimerCB);
+	_timer.user = this;
+	_loop = loop.GetLoop();
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncTimer::AsyncTimer(CAsyncLoop *loop)
+{
+	async_timer_init(&_timer, TimerCB);
+	_timer.user = this;
+	_loop = loop;
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// timer callback
+//---------------------------------------------------------------------
+void AsyncTimer::TimerCB(CAsyncLoop *loop, CAsyncTimer *timer)
+{
+	AsyncTimer *self = (AsyncTimer*)timer->user;
+	if (self->_callback != NULL) {
+		self->_callback();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// start timer, repeat forever if repeat <= 0
+//---------------------------------------------------------------------
+int AsyncTimer::Start(uint32_t period, int repeat)
+{
+	return async_timer_start(_loop, &_timer, period, repeat);
+}
+
+
+//---------------------------------------------------------------------
+// stop timer
+//---------------------------------------------------------------------
+int AsyncTimer::Stop()
+{
+	return async_timer_stop(_loop, &_timer);
+}
+
+
+//---------------------------------------------------------------------
+// is actived
+//---------------------------------------------------------------------
+bool AsyncTimer::IsActive() const
+{
+	int cc = async_timer_active(&_timer);
+	return (cc == 0)? false : true;
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncTimer::SetCallback(std::function<void()> callback)
+{
+	_callback = callback;
+}
+
+
+
+//=====================================================================
+// AsyncSemaphore
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncSemaphore::~AsyncSemaphore()
+{
+	async_sem_destroy(&_sem);
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSemaphore::AsyncSemaphore(AsyncLoop &loop)
+{
+	async_sem_init(&_sem, NotifyCB);
+	_sem.user = this;
+	_loop = loop.GetLoop();
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSemaphore::AsyncSemaphore(CAsyncLoop *loop)
+{
+	async_sem_init(&_sem, NotifyCB);
+	_sem.user = this;
+	_loop = loop;
+	_callback = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// C callback
+//---------------------------------------------------------------------
+void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
+{
+	AsyncSemaphore *self = (AsyncSemaphore*)(notify->user);
+	if (self->_callback != NULL) {
+		self->_callback();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncSemaphore::SetCallback(std::function<void()> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// start watching
+//---------------------------------------------------------------------
+int AsyncSemaphore::Start()
+{
+	int cc = async_sem_start(_loop, &_sem);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// stop watching
+//---------------------------------------------------------------------
+int AsyncSemaphore::Stop()
+{
+	int cc = async_sem_stop(_loop, &_sem);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// is watching ?
+//---------------------------------------------------------------------
+bool AsyncSemaphore::IsActive() const
+{
+	int cc = async_sem_active(&_sem);
+	return (cc == 0)? false : true;
+}
+
+
+//---------------------------------------------------------------------
+// post semaphore from another thread
+//---------------------------------------------------------------------
+int AsyncSemaphore::Post()
+{
+	int cc = async_sem_post(&_sem);
+	return cc;
+}
+
+
+
+//=====================================================================
+// AsyncIdle
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncIdle::~AsyncIdle()
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncIdle::AsyncIdle(AsyncLoop &loop)
+{
+	async_idle_init(&_idle, InternalCB);
+	_idle.user = this;
+	_callback = NULL;
+	_loop = loop.GetLoop();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncIdle::AsyncIdle(CAsyncLoop *loop)
+{
+	async_idle_init(&_idle, InternalCB);
+	_idle.user = this;
+	_callback = NULL;
+	_loop = loop;
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
+{
+	AsyncIdle *self = (AsyncIdle*)idle->user;
+	if (self->_callback != NULL) {
+		self->_callback();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncIdle::SetCallback(std::function<void()> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// start watching
+//---------------------------------------------------------------------
+int AsyncIdle::Start()
+{
+	int cc = async_idle_start(_loop, &_idle);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// stop watching
+//---------------------------------------------------------------------
+int AsyncIdle::Stop()
+{
+	int cc = async_idle_stop(_loop, &_idle);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// is watching ?
+//---------------------------------------------------------------------
+bool AsyncIdle::IsActive() const
+{
+	return (_idle.active != 0) ? true : false;
+}
+
+
+
+//=====================================================================
+// AsyncOnce
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncOnce::~AsyncOnce()
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncOnce::AsyncOnce(AsyncLoop &loop)
+{
+	async_once_init(&_once, InternalCB);
+	_once.user = this;
+	_callback = NULL;
+	_loop = loop.GetLoop();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncOnce::AsyncOnce(CAsyncLoop *loop)
+{
+	async_once_init(&_once, InternalCB);
+	_once.user = this;
+	_callback = NULL;
+	_loop = loop;
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncOnce::SetCallback(std::function<void()> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+void AsyncOnce::InternalCB(CAsyncLoop *loop, CAsyncOnce *once)
+{
+	AsyncOnce *self = (AsyncOnce*)once->user;
+	if (self->_callback != NULL) {
+		self->_callback();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// start watching
+//---------------------------------------------------------------------
+int AsyncOnce::Start()
+{
+	int cc = async_once_start(_loop, &_once);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// stop watching
+//---------------------------------------------------------------------
+int AsyncOnce::Stop()
+{
+	int cc = async_once_stop(_loop, &_once);
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// is watching ?
+//---------------------------------------------------------------------
+bool AsyncOnce::IsActive() const
+{
+	return (_once.active != 0) ? true : false;
+}
+
+
+
+
+NAMESPACE_END(System);
+
+
+

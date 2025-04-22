@@ -8,7 +8,7 @@
 #ifndef __IMEMBASE_H__
 #define __IMEMBASE_H__
 
-#ifdef HAVE_CONFIG_H
+#ifdef IHAVE_CONFIG_H
 #include "config.h"
 #endif
 
@@ -293,7 +293,11 @@ typedef struct ILISTHEAD ilist_head;
 #define ILIST_INIT(ptr) ( \
 	(ptr)->next = (ptr), (ptr)->prev = (ptr))
 
+#if (!defined(offsetof)) || (defined(IHAVE_NOT_OFFSETOF))
 #define IOFFSETOF(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#else
+#define IOFFSETOF(TYPE, MEMBER) offsetof(TYPE, MEMBER)
+#endif
 
 #define ICONTAINEROF(ptr, type, member) ( \
 		(type*)( ((char*)((type*)ptr)) - IOFFSETOF(type, member)) )

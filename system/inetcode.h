@@ -79,6 +79,8 @@ struct CAsyncSock
 	int closing;                 /* pending close */
 	int exitcode;                /* exit code */
 	int protocol;                /* protocol */
+	unsigned int mark;           /* SO_MARK */
+	unsigned int tos;            /* IP_TOS */
 	long manual_hiwater;         /* recv buffer will not exceed this */
 	long manual_lowater;         /* recv continue after this */
 	struct ILISTHEAD node;       /* list node */
@@ -337,6 +339,8 @@ int async_core_disable(CAsyncCore *core, long hid, int value);
 #define ASYNC_CORE_SETTING_MAXSIZE       0
 #define ASYNC_CORE_SETTING_LIMIT         1
 #define ASYNC_CORE_SETTING_BACKLOG       2
+#define ASYNC_CORE_SETTING_MARK          3
+#define ASYNC_CORE_SETTING_TOS           4
 
 /* global configuration */
 int async_core_setting(CAsyncCore *core, int config, long value);
@@ -374,6 +378,8 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_GET_PROTOCOL  20
 #define ASYNC_CORE_OPTION_HIWATER       21
 #define ASYNC_CORE_OPTION_LOWATER       22
+#define ASYNC_CORE_OPTION_MARK          23
+#define ASYNC_CORE_OPTION_TOS           24
 
 /* set connection socket option */
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);

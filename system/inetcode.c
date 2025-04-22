@@ -162,6 +162,8 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	asyncsock->exitcode = 0;
 	asyncsock->closing = 0;
 	asyncsock->protocol = -1;
+	asyncsock->mark = 0;
+	asyncsock->tos = 0;
 	asyncsock->manual_hiwater = ASYNC_SOCK_HIWATER;
 	asyncsock->manual_lowater = ASYNC_SOCK_LOWATER;
 	asyncsock->socket_init_proc = NULL;
@@ -277,6 +279,14 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 		return -2;
 	}
 
+	if (asyncsock->mark > 0) {
+		isocket_set_mark(asyncsock->fd, asyncsock->mark);
+	}
+
+	if (asyncsock->tos != 0) {
+		isocket_set_tos(asyncsock->fd, asyncsock->tos);
+	}
+
 	if (asyncsock->socket_init_proc) {
 		if (asyncsock->socket_init_proc(
 				asyncsock->socket_init_user, 
@@ -363,6 +373,14 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab)
 
 	asyncsock->fd = sock;
 	asyncsock->error = 0;
+
+	if (asyncsock->mark > 0) {
+		isocket_set_mark(asyncsock->fd, asyncsock->mark);
+	}
+
+	if (asyncsock->tos != 0) {
+		isocket_set_tos(asyncsock->fd, asyncsock->tos);
+	}
 
 	if (asyncsock->socket_init_proc) {
 		if (asyncsock->socket_init_proc(
@@ -938,6 +956,8 @@ struct CAsyncCore
 	int dispatch;
 	int backlog;
 	void *parent;
+	unsigned int mark;
+	unsigned int tos;
 	IMUTEX_TYPE lock;
 	IMUTEX_TYPE xmtx;
 	IMUTEX_TYPE xmsg;
@@ -1050,6 +1070,8 @@ CAsyncCore* async_core_new(int flags)
 	core->flags = 0;
 	core->backlog = 1024;
 	core->dispatch = 0;
+	core->mark = 0;
+	core->tos = 0;
 
 	core->parent = NULL;
 	core->factory = NULL;
@@ -1068,7 +1090,8 @@ CAsyncCore* async_core_new(int flags)
 	if ((flags & 2) == 0) {
 	#ifdef __unix
 		#ifndef __AVM2__
-		pipe(core->xfd);
+		int cc = pipe(core->xfd);
+		assert(cc == 0);
 		isocket_enable(core->xfd[0], ISOCK_NOBLOCK);
 		isocket_enable(core->xfd[1], ISOCK_NOBLOCK);
 		#endif
@@ -1211,6 +1234,8 @@ static long async_core_node_new(CAsyncCore *core)
 	sock->closing = 0;
 	sock->filter = NULL;
 	sock->object = NULL;
+	sock->mark = core->mark;
+	sock->tos = core->tos;
 
 	core->count++;
 
@@ -1512,6 +1537,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	CAsyncSock *sock = async_core_node_get(core, listen_hid);
 	struct sockaddr *remote;
 	isockaddr_union rmt;
+	unsigned int mark, tos;
 	long hid, limited, maxsize;
 	long hiwater, lowater;
 	int fd = -1;
@@ -1584,6 +1610,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	maxsize = sock->maxsize;
 	hiwater = sock->manual_hiwater;
 	lowater = sock->manual_lowater;
+	mark = sock->mark;
+	tos = sock->tos;
 
 	sock = async_core_node_get(core, hid);
 
@@ -1595,6 +1623,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	sock->mode = ASYNC_CORE_NODE_IN;
 	sock->ipv6 = ipv6;
 	sock->afunix = afunix;
+	sock->mark = mark;
+	sock->tos = tos;
 
 	sock->socket_init_proc = core->socket_init_proc;
 	sock->socket_init_user = core->socket_init_user;
@@ -1879,6 +1909,10 @@ static long _async_core_new_listen(CAsyncCore *core,
 		return -6;
 	}
 
+	sock->mode = ASYNC_CORE_NODE_LISTEN;
+	sock->ipv6 = ipv6;
+	sock->afunix = afunix;
+
 	async_sock_assign(sock, fd, 0, 1);
 
 	hr = ipoll_add(core->pfd, sock->fd, IPOLL_IN | IPOLL_ERR, sock);
@@ -1886,10 +1920,6 @@ static long _async_core_new_listen(CAsyncCore *core,
 		async_core_node_delete(core, hid);
 		return -7;
 	}
-
-	sock->mode = ASYNC_CORE_NODE_LISTEN;
-	sock->ipv6 = ipv6;
-	sock->afunix = afunix;
 
 	async_core_node_mask(core, sock, IPOLL_IN | IPOLL_ERR, 0);
 
@@ -1916,12 +1946,7 @@ static long _async_core_new_dgram(CAsyncCore *core,
 	CAsyncSock *sock;
 	int fd, hr, flag = 0;
 	long hid;
-
-#ifdef AF_INET6
-	struct sockaddr_in6 local;
-#else
-	struct sockaddr_in local;
-#endif
+	char name[256];
 
 	flag = (mode >> 8) & 0xff;
 
@@ -1934,12 +1959,24 @@ static long _async_core_new_dgram(CAsyncCore *core,
 			isocket_enable(fd, ISOCK_CLOEXEC);
 		}
 		isocket_udp_init(fd, flag);
-		addr = (struct sockaddr*)&local;
-		addrlen = (int)sizeof(local);
-		isockname(fd, (struct sockaddr*)&local, &addrlen);
+		memset(name, 0, sizeof(name));
+		addr = (struct sockaddr*)name;
+		addrlen = (int)sizeof(name);
+		if (isockname(fd, (struct sockaddr*)name, &addrlen) != 0) {
+			addrlen = 0;
+		}
+		assert(addrlen <= (int)sizeof(name));
 	}
 
 	if (fd < 0) return fd;
+
+	if (core->mark > 0) {
+		isocket_set_mark(fd, core->mark);
+	}
+
+	if (core->tos != 0) {
+		isocket_set_tos(fd, core->tos);
+	}
 
 	hid = async_core_node_new(core);
 
@@ -1966,13 +2003,16 @@ static long _async_core_new_dgram(CAsyncCore *core,
 	sock->mask = (mode & 0xff);
 	sock->state = ASYNC_SOCK_STATE_ESTAB;
 	sock->header = 0;
+	sock->ipv6 = 0;
+	sock->afunix = 0;
 
-	if (addrlen <= 20) {
-		addrlen = sizeof(struct sockaddr_in);
-		sock->ipv6 = 0;
-	}	else {
-		sock->ipv6 = 1;
-	}
+#ifdef AF_INET6
+	if (addr->sa_family == AF_INET6) sock->ipv6 = 1;
+#endif
+
+#ifdef AF_UNIX
+	if (addr->sa_family == AF_UNIX) sock->afunix = 1;
+#endif
 
 	if (sock->ipv6 == 0) {
 	}
@@ -2124,13 +2164,15 @@ static void async_core_process_events(CAsyncCore *core, IUINT32 millisec)
 		if (fd == xf && fd >= 0) {
 			if ((event & IPOLL_IN) || (event & IPOLL_ERR)) {
 				char dummy[10];
+				int cc = 0;
 				async_core_monitor++;
 				IMUTEX_LOCK(&core->xmtx);
 			#ifdef __unix
-				read(fd, dummy, 8);
+				cc = read(fd, dummy, 8);
 			#else
-				irecv(fd, dummy, 8, 0);
+				cc = irecv(fd, dummy, 8, 0);
 			#endif
+				cc = cc + 1;  /* avoid warn_unused_result */
 				core->xfd[ASYNC_CORE_PIPE_FLAG] = 0;
 				IMUTEX_UNLOCK(&core->xmtx);
 				async_core_monitor--;
@@ -2796,6 +2838,14 @@ static int _async_core_setting(CAsyncCore *core, int config, long value)
 		core->backlog = (int)value;
 		hr = 0;
 		break;
+	case ASYNC_CORE_SETTING_MARK:
+		core->mark = (unsigned int)value;
+		hr = 0;
+		break;
+	case ASYNC_CORE_SETTING_TOS:
+		core->tos = (unsigned int)value;
+		hr = 0;
+		break;
 	}
 	return hr;
 }
@@ -2964,6 +3014,22 @@ static int _async_core_option(CAsyncCore *core, long hid,
 		if (sock->header == ITMH_MANUAL) {
 			sock->manual_lowater = (long)value;
 			hr = 0;
+		}	else {
+			hr = -1;
+		}
+		break;
+	case ASYNC_CORE_OPTION_MARK:
+		sock->mark = (unsigned int)value;
+		if (sock->fd >= 0) {
+			hr = isocket_set_mark(sock->fd, sock->mark);
+		}	else {
+			hr = -1;
+		}
+		break;
+	case ASYNC_CORE_OPTION_TOS:
+		sock->tos = (unsigned int)value;
+		if (sock->fd >= 0) {
+			hr = isocket_set_tos(sock->fd, sock->tos);
 		}	else {
 			hr = -1;
 		}

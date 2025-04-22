@@ -229,7 +229,7 @@ IUINT64 DH_Random();
 IUINT64 DH_Exchange(IUINT64 local);
 
 // get final symmetrical-key from local key and remote A/B
-IUINT64 DH_Final(IUINT64 local, IUINT64 remote);
+IUINT64 DH_Key(IUINT64 local, IUINT64 remote);
 
 // get qword from hex string 
 void DH_STR_TO_U64(const char *str, IUINT64 *x);
@@ -253,8 +253,28 @@ void CRYPTO_RC4_Init(CRYPTO_RC4_CTX *ctx, const void *key, int keylen);
 void CRYPTO_RC4_Apply(CRYPTO_RC4_CTX *ctx, const void *in, void *out, 
 	size_t size);
 
-void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
+void CRYPTO_RC4_Direct(const void *key, int keylen, const void *in,
 	void *out, size_t size, int ntimes);
+
+
+
+//=====================================================================
+// CRYPTO chacha20: 
+//=====================================================================
+typedef struct {
+	IUINT32 state[16];
+	IUINT8 keystream[64];
+	size_t position;
+}	CRYPTO_CHACHA20_CTX;
+
+
+// key: 32 bytes, nonce: 12 bytes
+void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx, 
+		const IUINT8 *key, const IUINT8 *nonce, IUINT32 counter);
+
+// applay cipher
+void CRYPTO_CHACHA20_Apply(CRYPTO_CHACHA20_CTX *ctx, 
+		const void *in, void *out, size_t size);
 
 
 
@@ -265,6 +285,22 @@ void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
 void CRYPTO_XTEA_Encipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
 
 void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
+
+
+//=====================================================================
+// CRYPTO XOR: byte mask or string mask
+//=====================================================================
+
+// xor mask with each byte
+void CRYPTO_XOR_Byte(void *in, const void *out, int size, IUINT8 mask);
+
+// xor mask with each uint32
+void CRYPTO_XOR_DWord(void *in, const void *out, int size, IUINT32 mask);
+
+// xor string with each byte
+void CRYPTO_XOR_String(void *in, const void *out, int size, 
+		const unsigned char *mask, int msize, IUINT32 nonce);
+
 
 
 //=====================================================================
@@ -320,6 +356,9 @@ IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg);
 
 // next random number within 0 <= x < bound
 IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound);
+
+
+
 
 
 #ifdef __cplusplus

@@ -9,6 +9,10 @@
 #ifndef __ITIMER_H__
 #define __ITIMER_H__
 
+#ifdef IHAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stddef.h>
 
 
@@ -114,7 +118,11 @@ typedef struct ILISTHEAD ilist_head;
 #define ILIST_INIT(ptr) ( \
 	(ptr)->next = (ptr), (ptr)->prev = (ptr))
 
+#if (!defined(offsetof)) || (defined(IHAVE_NOT_OFFSETOF))
 #define IOFFSETOF(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#else
+#define IOFFSETOF(TYPE, MEMBER) offsetof(TYPE, MEMBER)
+#endif
 
 #define ICONTAINEROF(ptr, type, member) ( \
 		(type*)( ((char*)((type*)ptr)) - IOFFSETOF(type, member)) )
@@ -279,6 +287,7 @@ struct itimer_mgr
 	IUINT32 current;
 	IUINT32 millisec;
 	IUINT32 jiffies;
+	IUINT32 counter;
 	int initialized;
 	itimer_core core;
 };

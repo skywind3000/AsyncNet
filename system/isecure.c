@@ -9,8 +9,10 @@
 // Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
 //
 //=====================================================================
-#include "isecure.h"
 #include <stdlib.h>
+#include <assert.h>
+
+#include "isecure.h"
 
 
 //=====================================================================
@@ -147,6 +149,30 @@ static inline const char *is_decode32u_msb(const char *p, unsigned long *l)
 	return p;
 }
 
+/* bits rotation */
+static inline IUINT32 is_rotl32(IUINT32 x, int n) 
+{
+	return (x << n) | (x >> (32 - n));
+}
+
+/* pack bytes into uint32_t */
+static inline IUINT32 is_pack4(const unsigned char *a)
+{
+	IUINT32 res = 0;
+	res |= (IUINT32)a[0] << 0 * 8;
+	res |= (IUINT32)a[1] << 1 * 8;
+	res |= (IUINT32)a[2] << 2 * 8;
+	res |= (IUINT32)a[3] << 3 * 8;
+	return res;
+}
+
+/* unpack bytes from uint32_t */
+static inline void is_unpack4(IUINT32 src, unsigned char *dst) {
+	dst[0] = (src >> 0 * 8) & 0xff;
+	dst[1] = (src >> 1 * 8) & 0xff;
+	dst[2] = (src >> 2 * 8) & 0xff;
+	dst[3] = (src >> 3 * 8) & 0xff;
+}
 
 
 //=====================================================================
@@ -405,7 +431,7 @@ void HASH_MD5_Final(HASH_MD5_CTX *ctx, unsigned char digest[16])
 
 
 /* Hash a single 512-bit block. This is the core of the algorithm. */
-void HASH_SHA1_Transform(IUINT32 state[5], const unsigned char buffer[64])
+void HASH_SHA1_Transform(IUINT32 state[5], const unsigned char *buffer)
 {
 	IUINT32 a, b, c, d, e;
 	typedef struct {
@@ -486,7 +512,7 @@ void HASH_SHA1_Update(HASH_SHA1_CTX* ctx, const void *input, unsigned int len)
         memcpy(&ctx->buffer[j], data, (i = 64-j));
         HASH_SHA1_Transform(ctx->state, ctx->buffer);
         for ( ; i + 63 < len; i += 64) {
-            HASH_SHA1_Transform(ctx->state, &data[i]);
+            HASH_SHA1_Transform(ctx->state, data + i);
         }
         j = 0;
     }
@@ -708,7 +734,7 @@ IUINT64 DH_Exchange(IUINT64 local)
 }
 
 // get final symmetrical-key from local key and remote A/B
-IUINT64 DH_Final(IUINT64 local, IUINT64 remote)
+IUINT64 DH_Key(IUINT64 local, IUINT64 remote)
 {
 	IUINT64 x = 0x7fffffff;
 	IUINT64 y = 0xffffffe7;
@@ -801,7 +827,7 @@ void CRYPTO_RC4_Apply(CRYPTO_RC4_CTX *ctx, const void *in, void *out,
 }
 
 
-void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
+void CRYPTO_RC4_Direct(const void *key, int keylen, const void *in,
 	void *out, size_t size, int ntimes)
 {
 	const void *src = in;
@@ -813,6 +839,95 @@ void CRYPTO_RC4_Crypto(const void *key, int keylen, const void *in,
 	}
 }
 
+
+//=====================================================================
+// CRYPTO chacha20:
+//=====================================================================
+
+static void cipher_chacha20_init_block(CRYPTO_CHACHA20_CTX *ctx, 
+		const IUINT8 key[], const IUINT8 nonce[])
+{
+	const IUINT8 *magic_constant = (const IUINT8*)"expand 32-byte k";
+	ctx->state[0] = is_pack4(magic_constant + 0 * 4);
+	ctx->state[1] = is_pack4(magic_constant + 1 * 4);
+	ctx->state[2] = is_pack4(magic_constant + 2 * 4);
+	ctx->state[3] = is_pack4(magic_constant + 3 * 4);
+	ctx->state[4] = is_pack4(key + 0 * 4);
+	ctx->state[5] = is_pack4(key + 1 * 4);
+	ctx->state[6] = is_pack4(key + 2 * 4);
+	ctx->state[7] = is_pack4(key + 3 * 4);
+	ctx->state[8] = is_pack4(key + 4 * 4);
+	ctx->state[9] = is_pack4(key + 5 * 4);
+	ctx->state[10] = is_pack4(key + 6 * 4);
+	ctx->state[11] = is_pack4(key + 7 * 4);
+	ctx->state[12] = 0;		// counter
+	ctx->state[13] = is_pack4(nonce + 0 * 4);
+	ctx->state[14] = is_pack4(nonce + 1 * 4);
+	ctx->state[15] = is_pack4(nonce + 2 * 4);
+}
+
+static void cipher_chacha20_qround(IUINT32 *x, int a, int b, int c, int d)
+{
+	x[a] += x[b]; x[d] = is_rotl32(x[d] ^ x[a], 16); 
+	x[c] += x[d]; x[b] = is_rotl32(x[b] ^ x[c], 12);
+	x[a] += x[b]; x[d] = is_rotl32(x[d] ^ x[a], 8); 
+	x[c] += x[d]; x[b] = is_rotl32(x[b] ^ x[c], 7); 
+}
+
+static void cipher_chacha20_block_next(CRYPTO_CHACHA20_CTX *ctx) {
+	IUINT32 x[16];
+	int i;
+
+	// This is where the crazy voodoo magic happens.
+	// Mix the bytes a lot and hope that nobody finds out how to undo it.
+	for (i = 0; i < 16; i++) 
+		x[i] = ctx->state[i];
+
+	for (i = 0; i < 10; i++) {
+		cipher_chacha20_qround(x, 0, 4, 8, 12);
+		cipher_chacha20_qround(x, 1, 5, 9, 13);
+		cipher_chacha20_qround(x, 2, 6, 10, 14);
+		cipher_chacha20_qround(x, 3, 7, 11, 15);
+		cipher_chacha20_qround(x, 0, 5, 10, 15);
+		cipher_chacha20_qround(x, 1, 6, 11, 12);
+		cipher_chacha20_qround(x, 2, 7, 8, 13);
+		cipher_chacha20_qround(x, 3, 4, 9, 14);
+	}
+
+	for (i = 0; i < 16; i++) 
+		x[i] += ctx->state[i];
+
+	for (i = 0; i < 16; i++) 
+		is_unpack4(x[i], ctx->keystream + i * 4);
+
+	// increment counter
+	ctx->state[12]++;
+}
+
+void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx, 
+		const IUINT8 *key, const IUINT8 *nonce, IUINT32 counter)
+{
+	memset(ctx, 0, sizeof(CRYPTO_CHACHA20_CTX));
+	cipher_chacha20_init_block(ctx, key, nonce);
+	ctx->state[12] = counter;
+	ctx->position = 64;
+}
+
+void CRYPTO_CHACHA20_Apply(CRYPTO_CHACHA20_CTX *ctx, 
+		const void *in, void *out, size_t size)
+{
+	const IUINT8 *src = (const IUINT8*)in;
+	IUINT8 *dst = (IUINT8*)out;
+	size_t i;
+	for (i = size; i > 0; src++, dst++, i--) {
+		if (ctx->position >= 64) {
+			cipher_chacha20_block_next(ctx);
+			ctx->position = 0;
+		}
+		dst[0] = src[0] ^ ctx->keystream[ctx->position];
+		ctx->position++;
+	}
+}
 
 
 //=====================================================================
@@ -839,6 +954,96 @@ void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2])
 		v0 -= (((v1 << 4) ^ (v1 >> 5)) + v1) ^ (sum + key[sum & 3]);
 	}
 	v[0]=v0; v[1]=v1;
+}
+
+
+//=====================================================================
+// CRYPTO XOR: byte mask or string mask
+//=====================================================================
+
+// xor mask with each byte
+void CRYPTO_XOR_Byte(void *in, const void *out, int size, IUINT8 mask)
+{
+	const unsigned char *src = (const unsigned char*)in;
+	unsigned char *dst = (unsigned char*)out;
+	for (; size > 0; src++, dst++, size--) {
+		dst[0] = src[0] ^ mask;
+	}
+}
+
+// xor mask with each uint32
+void CRYPTO_XOR_DWord(void *in, const void *out, int size, IUINT32 mask)
+{
+	const unsigned char *src = (const unsigned char*)in;
+	unsigned char *dst = (unsigned char*)out;
+	unsigned char cc[4];
+	int i;
+	cc[0] = (unsigned char)(mask & 0xff);
+	cc[1] = (unsigned char)((mask >> 8) & 0xff);
+	cc[2] = (unsigned char)((mask >> 16) & 0xff);
+	cc[3] = (unsigned char)((mask >> 24) & 0xff);
+	for (i = 0; i < size; i++) {
+		dst[i] = src[i] ^ cc[i & 3];
+	}
+}
+
+// xor string with each byte
+void CRYPTO_XOR_String(void *in, const void *out, int size, 
+		const unsigned char *mask, int msize, IUINT32 nonce)
+{
+	const unsigned char *src = (const unsigned char*)in;
+	unsigned char *dst = (unsigned char*)out;
+	// xor without nonce
+	if (nonce == 0) {
+		// check if msize is power of 2
+		if ((msize & (msize - 1)) == 0) {
+			int sizemask = msize - 1;
+			int index = 0;
+			for (; size > 0; src++, dst++, size--) {
+				dst[0] = src[0] ^ mask[index & sizemask];
+				index++;
+			}
+		}
+		else {
+			const unsigned char *mptr = mask;
+			const unsigned char *mend = mask + msize;
+			for (; size > 0; src++, dst++, size--) {
+				dst[0] = src[0] ^ mptr[0];
+				mptr++;
+				if (mptr >= mend) {
+					mptr = mask;
+				}
+			}
+		}
+	}
+	else {  // with nonce
+		unsigned char cc[4];
+		int index = 0;
+		cc[0] = (unsigned char)(nonce & 0xff);
+		cc[1] = (unsigned char)((nonce >> 8) & 0xff);
+		cc[2] = (unsigned char)((nonce >> 16) & 0xff);
+		cc[3] = (unsigned char)((nonce >> 24) & 0xff);
+		// check if msize is power of 2
+		if ((msize & (msize - 1)) == 0) {
+			int sizemask = msize - 1;
+			for (; size > 0; src++, dst++, size--) {
+				dst[0] = src[0] ^ (mask[index & sizemask] ^ cc[index & 3]);
+				index++;
+			}
+		}
+		else {
+			const unsigned char *mptr = mask;
+			const unsigned char *mend = mask + msize;
+			for (; size > 0; src++, dst++, size--) {
+				dst[0] = src[0] ^ (mptr[0] ^ cc[index & 3]);
+				index++;
+				mptr++;
+				if (mptr >= mend) {
+					mptr = mask;
+				}
+			}
+		}
+	}
 }
 
 

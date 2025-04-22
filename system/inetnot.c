@@ -48,8 +48,8 @@ struct CAsyncNode
 	int rtt;
 	int ipv6;
 	int afunix;
-	long ts_ping;
-	long ts_idle;
+	IINT64 ts_ping;
+	IINT64 ts_idle;
 };
 
 
@@ -70,8 +70,8 @@ struct CAsyncNotify
 	idict_t *sidblack;			// black list 
 	IUINT32 current;			// current millisec
 	ivalue_t token;				// authentication token
-	long seconds;				// seconds since UTC 1970.1.1 00:00:00
-	long lastsec;				// variable to trigger timer
+	IINT64 seconds;				// seconds since UTC 1970.1.1 00:00:00
+	IINT64 lastsec;				// variable to trigger timer
 	long msgcnt;				// message count
 	long maxsize;				// max data buffer size
 	int use_allow_table;		// whether enable 
@@ -775,7 +775,7 @@ static long async_notify_msg_read(CAsyncNotify *notify, int *event,
 //---------------------------------------------------------------------
 void async_notify_wait(CAsyncNotify *notify, IUINT32 millisec)
 {
-	long seconds;
+	IINT64 seconds;
 
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
 
@@ -1136,7 +1136,7 @@ static void async_notify_cmd_login(CAsyncNotify *notify, CAsyncNode *node)
 	char md5src[33];
 	char md5dst[33];
 	IINT64 ts;
-	long seconds;
+	IINT64 seconds;
 	long hid = node->hid;
 	long hid2 = -1;
 	int size;
@@ -1146,7 +1146,7 @@ static void async_notify_cmd_login(CAsyncNotify *notify, CAsyncNode *node)
 	async_notify_decode_64(data + 12, &ts);
 	memcpy(md5src, data + 20, 32);
 	md5src[32] = 0;
-	seconds = (long)ts;
+	seconds = ts;
 
 	size = (int)it_size(&notify->token);
 	memcpy(data + 20, it_str(&notify->token), size);
@@ -1191,16 +1191,17 @@ static void async_notify_cmd_login(CAsyncNotify *notify, CAsyncNode *node)
 			return;
 		}
 		if (notify->cfg.sign_timeout > 0) {
-			long differ = notify->seconds - seconds;
+			IINT64 differ = notify->seconds - seconds;
 			if (differ < 0) differ = -differ;
-			if (differ > notify->cfg.sign_timeout) {
+			if (differ > (IINT64)notify->cfg.sign_timeout) {
 				async_notify_header_write(data,
 					ASYNC_NOTIFY_MSG_LOGINACK, 2);
 				async_core_send(notify->core, hid, data, 4);
 				async_core_close(notify->core, hid, 8002);
 				async_notify_log(notify, ASYNC_NOTIFY_LOG_WARNING,
-			"[WARNING] error login for hid=%lx: signature timeout %ld/%ld", 
-					hid, seconds, notify->seconds);
+			"[WARNING] error login for hid=%lx: signature timeout %lu/%lu", 
+					hid, (unsigned long)seconds, 
+					(unsigned long)notify->seconds);
 				return;
 			}
 		}
@@ -1433,7 +1434,8 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 	char remote[128];
 	char signature[64];
 	struct sockaddr *rmt = (struct sockaddr*)remote;
-	long hid, hr, seconds;
+	long hid, hr;
+	IINT64 seconds;
 	int keysize;
 
 	// get connection
