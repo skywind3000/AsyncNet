@@ -66,6 +66,10 @@
 #endif
 
 
+//=====================================================================
+// CAsyncLoop - centralized event manager and dispatcher
+//=====================================================================
+
 //---------------------------------------------------------------------
 // internal definitions
 //---------------------------------------------------------------------
@@ -89,8 +93,10 @@ static int async_loop_pending_remove(CAsyncLoop *loop, CAsyncEvent *evt);
 static int async_loop_pending_dispatch(CAsyncLoop *loop);
 static int async_loop_changes_push(CAsyncLoop *loop, int fd);
 static void async_loop_changes_commit(CAsyncLoop *loop);
+static int async_loop_dispatch_post(CAsyncLoop *loop);
 static int async_loop_dispatch_idle(CAsyncLoop *loop);
 static int async_loop_dispatch_once(CAsyncLoop *loop);
+static void async_loop_cleanup(CAsyncLoop *loop);
 
 
 //---------------------------------------------------------------------
@@ -126,6 +132,7 @@ CAsyncLoop *async_loop_new(void)
 	loop->num_events = 0;
 	loop->num_timers = 0;
 	loop->num_semaphore = 0;
+	loop->num_postpone = 0;
 	loop->sid_index = 0;
 
 	loop->exiting = 0;
@@ -150,6 +157,7 @@ CAsyncLoop *async_loop_new(void)
 	loop->array_idle = ib_array_new(NULL);
 	loop->array_once = ib_array_new(NULL);
 
+	ilist_init(&loop->list_post);
 	ilist_init(&loop->list_idle);
 	ilist_init(&loop->list_once);
 
@@ -206,6 +214,7 @@ CAsyncLoop *async_loop_new(void)
 	loop->current = iclock();
 	loop->timestamp = iclock_nano(0);
 	loop->monotonic = iclock_nano(1);
+	loop->iteration = 0;
 
 	itimer_mgr_init(&loop->timer_mgr, 1);
 	itimer_mgr_run(&loop->timer_mgr, loop->current);
@@ -286,6 +295,19 @@ void async_loop_delete(CAsyncLoop *loop)
 		}
 	}
 
+	// remove timers
+	itimer_mgr_destroy(&loop->timer_mgr);
+
+	// remove postpones
+	while (!ilist_is_empty(&loop->list_post)) {
+		ilist_head *it = loop->list_post.next;
+		CAsyncPostpone *postpone = ilist_entry(it, CAsyncPostpone, node);
+		async_post_stop(loop, postpone);
+	}
+
+	// remove other events
+	async_loop_cleanup(loop);
+
 	loop->fds_size = 0;
 	loop->pending = NULL;
 	loop->pending_size = 0;
@@ -327,6 +349,7 @@ void async_loop_delete(CAsyncLoop *loop)
 
 	// remove internal pipe
 	IMUTEX_LOCK(&loop->lock_xfd);
+
 #ifdef __unix
 	#ifndef __AVM2__
 	if (loop->xfd[0] >= 0) close(loop->xfd[0]);
@@ -338,18 +361,37 @@ void async_loop_delete(CAsyncLoop *loop)
 	if (loop->xfd[1] >= 0) iclose(loop->xfd[1]);
 	if (loop->xfd[3] >= 0) iclose(loop->xfd[3]);
 #endif
+
 	loop->xfd[0] = -1;
 	loop->xfd[1] = -1;
 	loop->xfd[2] = 0;
 	loop->xfd[3] = -1;
+
 	IMUTEX_UNLOCK(&loop->lock_xfd);
 
 	IMUTEX_DESTROY(&loop->lock_xfd);
 	IMUTEX_DESTROY(&loop->lock_queue);
 
-	itimer_mgr_destroy(&loop->timer_mgr);
-
 	ikmem_free(loop);
+}
+
+
+//---------------------------------------------------------------------
+// clean up other events before releasing
+//---------------------------------------------------------------------
+static void async_loop_cleanup(CAsyncLoop *loop)
+{
+	// remove idle events
+	while (!ilist_is_empty(&loop->list_idle)) {
+		CAsyncIdle *idle = ilist_entry(loop->list_idle.next, CAsyncIdle, node);
+		async_idle_stop(loop, idle);
+	}
+
+	// remove once events
+	while (!ilist_is_empty(&loop->list_once)) {
+		CAsyncOnce *once = ilist_entry(loop->list_once.next, CAsyncOnce, node);
+		async_once_stop(loop, once);
+	}
 }
 
 
@@ -841,7 +883,7 @@ int async_loop_sem_detach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 
 
 //---------------------------------------------------------------------
-// loop once
+// Run an iteration, receive available events and dispatch them
 //---------------------------------------------------------------------
 int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 {
@@ -929,6 +971,9 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 	loop->timestamp = iclock_nano(0);
 	loop->monotonic = iclock_nano(1);
 
+	// update iteration
+	loop->iteration++;
+
 	// dispatch I/O events
 	cc = async_loop_pending_dispatch(loop);
 
@@ -947,6 +992,9 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 	// dispatch semaphores
 	async_loop_queue_flush(loop);
 	cc += async_loop_sem_dispatch(loop);
+
+	// dispatch postpnes
+	cc += async_loop_dispatch_post(loop);
 
 	loop->depth--;
 
@@ -976,7 +1024,7 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 
 
 //---------------------------------------------------------------------
-// Run until async_loop_exit is called
+// Run async_loop_once() repeatedly until async_loop_exit is called
 //---------------------------------------------------------------------
 void async_loop_run(CAsyncLoop *loop)
 {
@@ -991,6 +1039,30 @@ void async_loop_run(CAsyncLoop *loop)
 		}
 	}
 	loop->exiting = 1;
+}
+
+
+//---------------------------------------------------------------------
+// dispatch postpone events
+//---------------------------------------------------------------------
+static int async_loop_dispatch_post(CAsyncLoop *loop)
+{
+	ilist_head queue;
+	int count = 0;
+	ilist_init(&queue);
+	ilist_splice_init(&loop->list_post, &queue);
+	loop->num_postpone = 0;
+	while (!ilist_is_empty(&queue)) {
+		ilist_head *it = queue.next;
+		CAsyncPostpone *postpone = ilist_entry(it, CAsyncPostpone, node);
+		ilist_del_init(&postpone->node);
+		postpone->active = 0;
+		if (postpone->callback) {
+			postpone->callback(loop, postpone);
+		}
+		count++;
+	}
+	return count;
 }
 
 
@@ -1420,6 +1492,68 @@ int async_sem_post(CAsyncSemaphore *sem)
 
 
 //---------------------------------------------------------------------
+// initialize a CAsyncPostpone object
+//---------------------------------------------------------------------
+void async_post_init(CAsyncPostpone *postpone,
+		void (*callback)(CAsyncLoop *loop, CAsyncPostpone *postpone))
+{
+	ilist_init(&postpone->node);
+	postpone->callback = callback;
+	postpone->active = 0;
+	postpone->user = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// start watching postpone events
+//---------------------------------------------------------------------
+int async_post_start(CAsyncLoop *loop, CAsyncPostpone *postpone)
+{
+	if (postpone->active != 0) {
+		return -1;
+	}
+	assert(ilist_is_empty(&postpone->node));
+	ilist_add_tail(&postpone->node, &loop->list_post);
+	postpone->active = 1;
+	loop->num_postpone++;
+	if (loop->logmask & ASYNC_LOOP_LOG_POST) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_POST,
+			"[postpone] start");
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// stop watching postpone events
+//---------------------------------------------------------------------
+int async_post_stop(CAsyncLoop *loop, CAsyncPostpone *postpone)
+{
+	if (postpone->active == 0) {
+		return -1;
+	}
+	assert(!ilist_is_empty(&postpone->node));
+	ilist_del_init(&postpone->node);
+	postpone->active = 0;
+	loop->num_postpone--;
+	if (loop->logmask & ASYNC_LOOP_LOG_POST) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_POST,
+			"[postpone] stop");
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// returns is the postpone is active
+//---------------------------------------------------------------------
+int async_post_active(const CAsyncPostpone *postpone)
+{
+	return postpone->active;
+}
+
+
+//---------------------------------------------------------------------
 // initialize a CAsyndIdle object
 //---------------------------------------------------------------------
 void async_idle_init(CAsyncIdle *idle,
@@ -1486,6 +1620,15 @@ int async_idle_stop(CAsyncLoop *loop, CAsyncIdle *idle)
 
 
 //---------------------------------------------------------------------
+// returns non-zero if the idle is active
+//---------------------------------------------------------------------
+int async_idle_active(const CAsyncIdle *idle)
+{
+	return idle->active;
+}
+
+
+//---------------------------------------------------------------------
 // initialize a CAsyncOnce object
 //---------------------------------------------------------------------
 void async_once_init(CAsyncOnce *once,
@@ -1548,6 +1691,15 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once)
 			"[once] stop");
 	}
 	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// returns non-zero if the once is active
+//---------------------------------------------------------------------
+int async_once_active(const CAsyncOnce *once)
+{
+	return once->active;
 }
 
 

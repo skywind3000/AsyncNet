@@ -68,6 +68,7 @@ struct CAsyncLoop;
 struct CAsyncEvent;
 struct CAsyncTimer;
 struct CAsyncSemaphore;
+struct CAsyncPostpone;
 struct CAsyncIdle;
 struct CAsyncOnce;
 
@@ -75,12 +76,13 @@ typedef struct CAsyncLoop CAsyncLoop;
 typedef struct CAsyncEvent CAsyncEvent;
 typedef struct CAsyncTimer CAsyncTimer;
 typedef struct CAsyncSemaphore CAsyncSemaphore;
+typedef struct CAsyncPostpone CAsyncPostpone;
 typedef struct CAsyncIdle CAsyncIdle;
 typedef struct CAsyncOnce CAsyncOnce;
 
 
 //---------------------------------------------------------------------
-// CAsyncEvent
+// CAsyncEvent - for I/O events ASYNC_EVENT_READ/WRITE
 //---------------------------------------------------------------------
 struct CAsyncEvent {
 	ilist_head node;
@@ -94,7 +96,7 @@ struct CAsyncEvent {
 
 
 //---------------------------------------------------------------------
-// file descriptor
+// file descriptor - internal usage
 //---------------------------------------------------------------------
 typedef struct CAsyncEntry {
 	int fd;
@@ -105,7 +107,7 @@ typedef struct CAsyncEntry {
 
 
 //---------------------------------------------------------------------
-// pending event
+// pending event - internal usage
 //---------------------------------------------------------------------
 typedef struct CAsyncPending {
 	CAsyncEvent *evt;
@@ -124,7 +126,7 @@ struct CAsyncTimer {
 
 
 //---------------------------------------------------------------------
-// CAsyncSemaphore
+// CAsyncSemaphore - for multi-thread synchronization
 //---------------------------------------------------------------------
 struct CAsyncSemaphore {
 	IINT32 uid;
@@ -137,7 +139,18 @@ struct CAsyncSemaphore {
 
 
 //---------------------------------------------------------------------
-// CAsyncIdle
+// CAsyncPostpone - will be scheduled at the end of an iteration
+//---------------------------------------------------------------------
+struct CAsyncPostpone {
+	ilist_head node;
+	int active;
+	void (*callback)(CAsyncLoop *loop, CAsyncPostpone *postpone);
+	void *user;
+};
+
+
+//---------------------------------------------------------------------
+// CAsyncIdle - will be called when the loop is idle
 //---------------------------------------------------------------------
 struct CAsyncIdle {
 	ilist_head node;
@@ -149,7 +162,7 @@ struct CAsyncIdle {
 
 
 //---------------------------------------------------------------------
-// CAsyncOnce
+// CAsyncOnce - will be called every iteration
 //---------------------------------------------------------------------
 struct CAsyncOnce {
 	ilist_head node;
@@ -161,7 +174,7 @@ struct CAsyncOnce {
 
 
 //---------------------------------------------------------------------
-// CAsyncLoop
+// CAsyncLoop - centralized event manager and dispatcher
 //---------------------------------------------------------------------
 struct CAsyncLoop {
 	CAsyncEntry *fds;
@@ -178,6 +191,7 @@ struct CAsyncLoop {
 	int num_events;
 	int num_timers;
 	int num_semaphore;
+	int num_postpone;
 	int exiting;
 	char *buffer;
 	char *cache;
@@ -187,11 +201,13 @@ struct CAsyncLoop {
 	IUINT32 jiffies;
 	IINT64 timestamp;
 	IINT64 monotonic;
+	IINT64 iteration;
 	IMUTEX_TYPE lock_xfd;
 	IMUTEX_TYPE lock_queue;
 	ib_array *sem_dict;
 	ib_array *array_idle;
 	ib_array *array_once;
+	ilist_head list_post;
 	ilist_head list_idle;
 	ilist_head list_once;
 	struct IVECTOR v_pending;
@@ -223,12 +239,16 @@ struct CAsyncLoop {
 #define ASYNC_LOOP_LOG_EVENT    0x20
 #define ASYNC_LOOP_LOG_TIMER    0x40
 #define ASYNC_LOOP_LOG_SEM      0x80
-#define ASYNC_LOOP_LOG_IDLE     0x100
-#define ASYNC_LOOP_LOG_ONCE     0x200
+#define ASYNC_LOOP_LOG_POST     0x100
+#define ASYNC_LOOP_LOG_IDLE     0x200
+#define ASYNC_LOOP_LOG_ONCE     0x400
+#define ASYNC_LOOP_LOG_USER     0x800
+
+#define ASYNC_LOOP_LOG_CUSTOMIZE(n) ((ASYNC_LOOP_LOG_USER) << (n))
 
 
 //---------------------------------------------------------------------
-// CAsyncLoop functions
+// CAsyncLoop - centralized event manager and dispatcher
 //---------------------------------------------------------------------
 
 // CAsyncLoop ctor
@@ -237,10 +257,10 @@ CAsyncLoop *async_loop_new(void);
 // CAsyncLoop dtor
 void async_loop_delete(CAsyncLoop *loop);
 
-// Loop an epoch
+// Run an iteration, receive available events and dispatch them
 int async_loop_once(CAsyncLoop *loop, IUINT32 millisec);
 
-// Run until async_loop_exit is called
+// Run async_loop_once() repeatedly until async_loop_exit is called
 void async_loop_run(CAsyncLoop *loop);
 
 // Stop the loop
@@ -251,7 +271,7 @@ void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...);
 
 
 //---------------------------------------------------------------------
-// CAsyncEvent functions
+// CAsyncEvent - for I/O events ASYNC_EVENT_READ/WRITE
 //---------------------------------------------------------------------
 
 // init event
@@ -295,7 +315,7 @@ int async_timer_active(const CAsyncTimer *timer);
 
 
 //---------------------------------------------------------------------
-// CAsyncSemaphore
+// CAsyncSemaphore - for multi-thread synchronization
 //---------------------------------------------------------------------
 
 // initialize semaphore
@@ -319,7 +339,25 @@ int async_sem_post(CAsyncSemaphore *sem);
 
 
 //---------------------------------------------------------------------
-// CAsyncIdle
+// CAsyncPostpone - will be called at the end of an iteration
+//---------------------------------------------------------------------
+
+// initialize a CAsyncPostpone object
+void async_post_init(CAsyncPostpone *postpone,
+		void (*callback)(CAsyncLoop *loop, CAsyncPostpone *postpone));
+
+// start watching postpone events
+int async_post_start(CAsyncLoop *loop, CAsyncPostpone *postpone);
+
+// stop watching postpone events
+int async_post_stop(CAsyncLoop *loop, CAsyncPostpone *postpone);
+
+// returns is the postpone is active
+int async_post_active(const CAsyncPostpone *postpone);
+
+
+//---------------------------------------------------------------------
+// CAsyncIdle - will be called when the loop is idle
 //---------------------------------------------------------------------
 
 // initialize a CAsyndIdle object
@@ -332,9 +370,12 @@ int async_idle_start(CAsyncLoop *loop, CAsyncIdle *idle);
 // stop watching idle events
 int async_idle_stop(CAsyncLoop *loop, CAsyncIdle *idle);
 
+// returns non-zero if the idle is active
+int async_idle_active(const CAsyncIdle *idle);
+
 
 //---------------------------------------------------------------------
-// CAsyncOnce
+// CAsyncOnce - will be called every iteration
 //---------------------------------------------------------------------
 
 // initialize a CAsyncOnce object
@@ -347,6 +388,8 @@ int async_once_start(CAsyncLoop *loop, CAsyncOnce *once);
 // stop watching once events
 int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once);
 
+// returns non-zero if the once is active
+int async_once_active(const CAsyncOnce *once);
 
 
 #ifdef __cplusplus
