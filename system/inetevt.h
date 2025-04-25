@@ -229,6 +229,24 @@ struct CAsyncLoop {
 
 
 //---------------------------------------------------------------------
+// utilities
+//---------------------------------------------------------------------
+#define async_loop_timestamp(loop) ((loop)->timestamp)
+#define async_loop_monotonic(loop) ((loop)->monotonic)
+#define async_loop_iteration(loop) ((loop)->iteration)
+#define async_loop_jiffies(loop) ((loop)->jiffies)
+#define async_loop_current(loop) ((loop)->current)
+#define async_loop_logable(loop, channel) ((loop)->logmask & (channel))
+
+#define async_event_is_active(e) ((e)->active != 0)
+#define async_timer_is_active(e) ((e)->timer_node.mgr != NULL)
+#define async_sem_is_active(e) ((e)->loop != NULL)
+#define async_post_is_active(e) ((e)->active != 0)
+#define async_once_is_active(e) ((e)->active != 0)
+#define async_idle_is_active(e) ((e)->active != 0)
+
+
+//---------------------------------------------------------------------
 // LOG MASK
 //---------------------------------------------------------------------
 #define ASYNC_LOOP_LOG_ERROR    0x01

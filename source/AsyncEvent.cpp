@@ -350,16 +350,6 @@ int AsyncEvent::Stop()
 }
 
 
-//---------------------------------------------------------------------
-// is watching ?
-//---------------------------------------------------------------------
-bool AsyncEvent::IsActive() const
-{
-	int cc = async_event_active(&_event);
-	return (cc == 0)? false : true;
-}
-
-
 
 //=====================================================================
 // AsyncTimer
@@ -428,16 +418,6 @@ int AsyncTimer::Start(uint32_t period, int repeat)
 int AsyncTimer::Stop()
 {
 	return async_timer_stop(_loop, &_timer);
-}
-
-
-//---------------------------------------------------------------------
-// is actived
-//---------------------------------------------------------------------
-bool AsyncTimer::IsActive() const
-{
-	int cc = async_timer_active(&_timer);
-	return (cc == 0)? false : true;
 }
 
 
@@ -531,22 +511,92 @@ int AsyncSemaphore::Stop()
 
 
 //---------------------------------------------------------------------
-// is watching ?
-//---------------------------------------------------------------------
-bool AsyncSemaphore::IsActive() const
-{
-	int cc = async_sem_active(&_sem);
-	return (cc == 0)? false : true;
-}
-
-
-//---------------------------------------------------------------------
 // post semaphore from another thread
 //---------------------------------------------------------------------
 int AsyncSemaphore::Post()
 {
 	int cc = async_sem_post(&_sem);
 	return cc;
+}
+
+
+//=====================================================================
+// AsyncPostpone
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncPostpone::~AsyncPostpone()
+{
+	if (_postpone.active) {
+		async_post_stop(_loop, &_postpone);
+	}
+	_loop = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncPostpone::AsyncPostpone(AsyncLoop &loop)
+{
+	async_post_init(&_postpone, InternalCB);
+	_postpone.user = this;
+	_callback = NULL;
+	_loop = loop.GetLoop();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncPostpone::AsyncPostpone(CAsyncLoop *loop)
+{
+	async_post_init(&_postpone, InternalCB);
+	_postpone.user = this;
+	_callback = NULL;
+	_loop = loop;
+}
+
+
+//---------------------------------------------------------------------
+// internal callback
+//---------------------------------------------------------------------
+void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
+{
+	AsyncPostpone *self = (AsyncPostpone*)postpone->user;
+	if (self->_callback != NULL) {
+		self->_callback();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncPostpone::SetCallback(std::function<void()> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// start watching
+//---------------------------------------------------------------------
+int AsyncPostpone::Start()
+{
+	return async_post_start(_loop, &_postpone);
+}
+
+
+//---------------------------------------------------------------------
+// stop watching
+//---------------------------------------------------------------------
+int AsyncPostpone::Stop()
+{
+	return async_post_stop(_loop, &_postpone);
 }
 
 
@@ -561,7 +611,10 @@ int AsyncSemaphore::Post()
 //---------------------------------------------------------------------
 AsyncIdle::~AsyncIdle()
 {
-
+	if (_idle.active) {
+		async_idle_stop(_loop, &_idle);
+	}
+	_loop = NULL;
 }
 
 
@@ -630,15 +683,6 @@ int AsyncIdle::Stop()
 }
 
 
-//---------------------------------------------------------------------
-// is watching ?
-//---------------------------------------------------------------------
-bool AsyncIdle::IsActive() const
-{
-	return (_idle.active != 0) ? true : false;
-}
-
-
 
 //=====================================================================
 // AsyncOnce
@@ -649,7 +693,10 @@ bool AsyncIdle::IsActive() const
 //---------------------------------------------------------------------
 AsyncOnce::~AsyncOnce()
 {
-
+	if (_once.active) {
+		async_once_stop(_loop, &_once);
+	}
+	_loop = NULL;
 }
 
 
@@ -717,14 +764,6 @@ int AsyncOnce::Stop()
 	return cc;
 }
 
-
-//---------------------------------------------------------------------
-// is watching ?
-//---------------------------------------------------------------------
-bool AsyncOnce::IsActive() const
-{
-	return (_once.active != 0) ? true : false;
-}
 
 
 

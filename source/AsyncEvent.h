@@ -64,6 +64,9 @@ public:
 	// get jiffies
 	uint32_t Jiffies() const { return _loop->jiffies; }
 
+	// get iteration count
+	int64_t GetIteration() const { return _loop->iteration; }
+
 	// set log handler
 	void SetLogHandler(std::function<void(const char *msg)> handler);
 
@@ -106,13 +109,17 @@ protected:
 //---------------------------------------------------------------------
 // AsyncEvent
 //---------------------------------------------------------------------
-class AsyncEvent
+class AsyncEvent final
 {
 public:
 	~AsyncEvent();
 
 	AsyncEvent(CAsyncLoop *loop);
 	AsyncEvent(AsyncLoop &loop);
+
+	AsyncEvent(AsyncEvent &&src) = delete;
+	AsyncEvent(const AsyncEvent &) = delete;
+	AsyncEvent &operator=(const AsyncEvent &) = delete;
 
 public:
 
@@ -134,7 +141,7 @@ public:
 	int Stop();
 
 	// is watching ?
-	bool IsActive() const;
+	inline bool IsActive() const { return async_event_is_active(&_event); }
 
 private:
 	static void EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event);
@@ -150,12 +157,16 @@ private:
 //---------------------------------------------------------------------
 // AsyncTimer
 //---------------------------------------------------------------------
-class AsyncTimer
+class AsyncTimer final
 {
 public:
 	~AsyncTimer();
 	AsyncTimer(AsyncLoop &loop);
 	AsyncTimer(CAsyncLoop *loop);
+
+	AsyncTimer(AsyncTimer &&src) = delete;
+	AsyncTimer(const AsyncTimer &) = delete;
+	AsyncTimer &operator=(const AsyncTimer &) = delete;
 
 public:
 
@@ -169,7 +180,7 @@ public:
 	int Stop();
 
 	// is actived
-	bool IsActive() const;
+	inline bool IsActive() const { return async_timer_is_active(&_timer); }
 
 private:
 	static void TimerCB(CAsyncLoop *loop, CAsyncTimer *timer);
@@ -185,12 +196,16 @@ private:
 //---------------------------------------------------------------------
 // AsyncSemaphore
 //---------------------------------------------------------------------
-class AsyncSemaphore
+class AsyncSemaphore final
 {
 public:
 	~AsyncSemaphore();
 	AsyncSemaphore(AsyncLoop &loop);
 	AsyncSemaphore(CAsyncLoop *loop);
+
+	AsyncSemaphore(AsyncSemaphore &&src) = delete;
+	AsyncSemaphore(const AsyncSemaphore &) = delete;
+	AsyncSemaphore &operator=(const AsyncSemaphore &) = delete;
 
 public:
 
@@ -203,11 +218,11 @@ public:
 	// stop watching
 	int Stop();
 
-	// is watching ?
-	bool IsActive() const;
-
 	// post semaphore from another thread
 	int Post();
+
+	// is watching ?
+	inline bool IsActive() const { return async_sem_is_active(&_sem); }
 
 private:
 
@@ -223,9 +238,48 @@ private:
 
 
 //---------------------------------------------------------------------
+// AsyncPostpone
+//---------------------------------------------------------------------
+class AsyncPostpone final
+{
+public:
+	~AsyncPostpone();
+	AsyncPostpone(AsyncLoop &loop);
+	AsyncPostpone(CAsyncLoop *loop);
+
+	AsyncPostpone(AsyncPostpone &&src) = delete;
+	AsyncPostpone(const AsyncPostpone &) = delete;
+	AsyncPostpone &operator=(AsyncPostpone &src) = delete;
+
+public:
+
+	// setup callback
+	void SetCallback(std::function<void()> callback);
+
+	// start watching
+	int Start();
+
+	// stop watching
+	int Stop();
+
+	// is watching ?
+	inline bool IsActive() const { return async_post_is_active(&_postpone); }
+
+
+private:
+	static void InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone);
+
+	std::function<void()> _callback;
+	CAsyncLoop *_loop = NULL;
+
+	CAsyncPostpone _postpone;
+};
+
+
+//---------------------------------------------------------------------
 // AsyncIdle
 //---------------------------------------------------------------------
-class AsyncIdle
+class AsyncIdle final
 {
 public:
 	~AsyncIdle();
@@ -244,13 +298,12 @@ public:
 	int Stop();
 
 	// is watching ?
-	bool IsActive() const;
+	inline bool IsActive() const { return async_idle_is_active(&_idle); }
+
 
 private:
-	
 	static void InternalCB(CAsyncLoop *loop, CAsyncIdle *idle);
 
-private:
 	std::function<void()> _callback;
 
 	CAsyncLoop *_loop = NULL;
@@ -261,7 +314,7 @@ private:
 //---------------------------------------------------------------------
 // AsyncOnce
 //---------------------------------------------------------------------
-class AsyncOnce
+class AsyncOnce final
 {
 public:
 	~AsyncOnce();
@@ -280,13 +333,12 @@ public:
 	int Stop();
 
 	// is watching ?
-	bool IsActive() const;
+	inline bool IsActive() const { return async_once_is_active(&_once); }
+
 
 private:
-	
 	static void InternalCB(CAsyncLoop *loop, CAsyncOnce *idle);
 
-private:
 	std::function<void()> _callback;
 
 	CAsyncLoop *_loop = NULL;
