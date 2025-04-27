@@ -65,6 +65,10 @@
 #define IENABLE_TIMERFD  0
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(disable: 28125)
+#endif
+
 
 //=====================================================================
 // CAsyncLoop - centralized event manager and dispatcher
@@ -284,7 +288,7 @@ void async_loop_delete(CAsyncLoop *loop)
 
 	// remove async semaphores
 	while (1) {
-		IINT32 uid = imnode_head(&loop->semnode);
+		IINT32 uid = (IINT32)imnode_head(&loop->semnode);
 		if (uid < 0) break;
 		if (uid < (int)ib_array_size(loop->sem_dict)) {
 			void *ptr = ib_array_ptr(loop->sem_dict)[uid];
@@ -602,6 +606,11 @@ static int async_loop_pending_dispatch(CAsyncLoop *loop)
 		pending->event = 0;
 		if (evt != NULL) {
 			evt->pending = -1;
+			if (loop->logmask & ASYNC_LOOP_LOG_EVENT) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_EVENT,
+					"[event] active ptr=%p, fd=%d, result=%d", 
+					(void*)evt, evt->fd, event);
+			}
 			if (evt->active) {
 				if (evt->callback) {
 					evt->callback(loop, evt, event);
@@ -830,7 +839,7 @@ int async_loop_sem_attach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	assert(sem->uid < 0);
 	assert(sem->sid < 0);
 
-	uid = imnode_new(&loop->semnode);
+	uid = (int)imnode_new(&loop->semnode);
 	assert(uid >= 0);
 
 	while ((int)ib_array_size(loop->sem_dict) <= uid) {
@@ -1057,6 +1066,10 @@ static int async_loop_dispatch_post(CAsyncLoop *loop)
 		CAsyncPostpone *postpone = ilist_entry(it, CAsyncPostpone, node);
 		ilist_del_init(&postpone->node);
 		postpone->active = 0;
+		if (loop->logmask & ASYNC_LOOP_LOG_POST) {
+			async_loop_log(loop, ASYNC_LOOP_LOG_POST,
+				"[postpone] active ptr=%p", (void*)postpone);
+		}
 		if (postpone->callback) {
 			postpone->callback(loop, postpone);
 		}
@@ -1081,7 +1094,7 @@ static int async_loop_dispatch_idle(CAsyncLoop *loop)
 	}
 	for (it = loop->list_idle.next; it != &loop->list_idle; it = it->next) {
 		CAsyncIdle *m = ilist_entry(it, CAsyncIdle, node);
-		m->pending = ib_array_size(loop->array_idle);
+		m->pending = (int)ib_array_size(loop->array_idle);
 		ib_array_push(loop->array_idle, m);
 	}
 	size = (int)ib_array_size(loop->array_idle);
@@ -1089,6 +1102,10 @@ static int async_loop_dispatch_idle(CAsyncLoop *loop)
 		CAsyncIdle *m = (CAsyncIdle*)ib_array_ptr(loop->array_idle)[i];
 		if (m != NULL) {
 			m->pending = -1;
+			if (loop->logmask & ASYNC_LOOP_LOG_IDLE) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_IDLE,
+					"[idle] active ptr=%p", (void*)m);
+			}
 			if (m->callback) {
 				m->callback(loop, m);
 			}
@@ -1113,7 +1130,7 @@ static int async_loop_dispatch_once(CAsyncLoop *loop)
 	}
 	for (it = loop->list_once.next; it != &loop->list_once; it = it->next) {
 		CAsyncOnce *m = ilist_entry(it, CAsyncOnce, node);
-		m->pending = ib_array_size(loop->array_once);
+		m->pending = (int)ib_array_size(loop->array_once);
 		ib_array_push(loop->array_once, m);
 	}
 	size = (int)ib_array_size(loop->array_once);
@@ -1121,6 +1138,10 @@ static int async_loop_dispatch_once(CAsyncLoop *loop)
 		CAsyncOnce *m = (CAsyncOnce*)ib_array_ptr(loop->array_once)[i];
 		if (m != NULL) {
 			m->pending = -1;
+			if (loop->logmask & ASYNC_LOOP_LOG_ONCE) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_ONCE,
+					"[once] active ptr=%p", (void*)m);
+			}
 			if (m->callback) {
 				m->callback(loop, m);
 			}
@@ -1203,7 +1224,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (evt->active != 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] event starting failed: already started fd=%d", fd);
+				"[warn] event starting failed: already started ptr=%p, fd=%d", 
+				(void*)evt, fd);
 		}
 		return -1;
 	}
@@ -1211,7 +1233,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (fd < 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] event starting failed: bad fd %d", fd);
+				"[warn] event starting failed: bad fd ptr=%p, fd=%d", 
+				(void*)evt, fd);
 		}
 		return -2;
 	}
@@ -1219,7 +1242,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (fd == loop->xfd[ASYNC_LOOP_PIPE_READ]) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] event starting failed: invalid fd %d", fd);
+				"[warn] event starting failed: invalid fd ptr=%p, fd=%d",
+				(void*)evt, fd);
 		}
 		return -3;
 	}
@@ -1227,7 +1251,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (fd == loop->xfd[ASYNC_LOOP_PIPE_WRITE]) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] event starting failed: invalid fd %d", fd);
+				"[warn] event starting failed: invalid fd ptr=%p, fd=%d", 
+				(void*)evt, fd);
 		}
 		return -4;
 	}
@@ -1235,7 +1260,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (fd == loop->xfd[ASYNC_LOOP_PIPE_TIMER]) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] event starting failed: invalid fd %d", fd);
+				"[warn] event starting failed: invalid fd ptr=%p, fd=%d",
+				(void*)evt, fd);
 		}
 		return -5;
 	}
@@ -1259,7 +1285,8 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 
 	if (loop->logmask & ASYNC_LOOP_LOG_EVENT) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_EVENT,
-			"[event] start fd=%d, mask=%d", fd, evt->mask);
+			"[event] start ptr=%p, fd=%d, mask=%d", 
+			(void*)evt, fd, evt->mask);
 	}
 
 	return 0;
@@ -1274,7 +1301,8 @@ int async_event_stop(CAsyncLoop *loop, CAsyncEvent *evt)
 	if (evt->active == 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-			"[warn] event stopping failed: already stopped fd=%d", evt->fd);
+			"[warn] event stopping failed: already stopped ptr=%p, fd=%d", 
+			(void*)evt, evt->fd);
 		}
 		return -1;
 	}
@@ -1294,7 +1322,8 @@ int async_event_stop(CAsyncLoop *loop, CAsyncEvent *evt)
 
 	if (loop->logmask & ASYNC_LOOP_LOG_EVENT) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_EVENT,
-			"[event] stop fd=%d, mask=%d", evt->fd, evt->mask);
+			"[event] stop ptr=%p, fd=%d, mask=%d", 
+			(void*)evt, evt->fd, evt->mask);
 	}
 
 	return 0;
@@ -1317,6 +1346,11 @@ static void async_timer_cb(void *data, void *user)
 {
 	CAsyncLoop *loop = (CAsyncLoop*)data;
 	CAsyncTimer *timer = (CAsyncTimer*)user;
+	if (loop->logmask & ASYNC_LOOP_LOG_TIMER) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_TIMER,
+			"[timer] active ptr=%p, period=%d", 
+			(void*)timer, timer->timer_node.period);
+	}
 	if (timer->callback) {
 		timer->callback(loop, timer);
 	}
@@ -1344,7 +1378,8 @@ int async_timer_start(CAsyncLoop *loop, CAsyncTimer *timer,
 	if (itimer_evt_status(&timer->timer_node) != 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-			"[warn] timer starting failed: already started");
+			"[warn] timer starting failed: already started ptr=%p",
+			(void*)timer);
 		}
 		return -1;
 	}
@@ -1357,7 +1392,8 @@ int async_timer_start(CAsyncLoop *loop, CAsyncTimer *timer,
 
 	if (loop->logmask & ASYNC_LOOP_LOG_TIMER) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_TIMER,
-			"[timer] start period=%d, repeat=%d", period, repeat);
+			"[timer] start ptr=%p, period=%d, repeat=%d", 
+			(void*)timer, period, repeat);
 	}
 
 	return 0;
@@ -1372,7 +1408,8 @@ int async_timer_stop(CAsyncLoop *loop, CAsyncTimer *timer)
 	if (itimer_evt_status(&timer->timer_node) == 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-			"[warn] timer stopping failed: already stopped");
+			"[warn] timer stopping failed: already stopped ptr=%p", 
+			(void*)timer);
 		}
 		return -1;
 	}
@@ -1383,7 +1420,8 @@ int async_timer_stop(CAsyncLoop *loop, CAsyncTimer *timer)
 
 	if (loop->logmask & ASYNC_LOOP_LOG_TIMER) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_TIMER,
-			"[timer] start period=%d", timer->timer_node.period);
+			"[timer] stop ptr=%p, period=%d", 
+			(void*)timer, timer->timer_node.period);
 	}
 
 	return 0;
@@ -1439,6 +1477,13 @@ int async_sem_start(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	IMUTEX_LOCK(&sem->lock);
 	cc = async_loop_sem_attach(loop, sem);
 	IMUTEX_UNLOCK(&sem->lock);
+	if (cc == 0) {
+		if (loop->logmask & ASYNC_LOOP_LOG_SEM) {
+			async_loop_log(loop, ASYNC_LOOP_LOG_SEM,
+				"[sem] start ptr=%p, uid=%d, sid=%d", 
+				(void*)sem, sem->uid, sem->sid);
+		}
+	}
 	return cc;
 }
 
@@ -1452,6 +1497,13 @@ int async_sem_stop(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	IMUTEX_LOCK(&sem->lock);
 	cc = async_loop_sem_detach(loop, sem);
 	IMUTEX_UNLOCK(&sem->lock);
+	if (cc == 0) {
+		if (loop->logmask & ASYNC_LOOP_LOG_SEM) {
+			async_loop_log(loop, ASYNC_LOOP_LOG_SEM,
+				"[sem] stop ptr=%p, uid=%d, sid=%d", 
+				(void*)sem, sem->uid, sem->sid);
+		}
+	}
 	return cc;
 }
 
@@ -1518,7 +1570,7 @@ int async_post_start(CAsyncLoop *loop, CAsyncPostpone *postpone)
 	loop->num_postpone++;
 	if (loop->logmask & ASYNC_LOOP_LOG_POST) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_POST,
-			"[postpone] start");
+			"[postpone] start ptr=%p", (void*)postpone);
 	}
 	return 0;
 }
@@ -1538,7 +1590,7 @@ int async_post_stop(CAsyncLoop *loop, CAsyncPostpone *postpone)
 	loop->num_postpone--;
 	if (loop->logmask & ASYNC_LOOP_LOG_POST) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_POST,
-			"[postpone] stop");
+			"[postpone] stop ptr=%p", (void*)postpone);
 	}
 	return 0;
 }
@@ -1575,7 +1627,8 @@ int async_idle_start(CAsyncLoop *loop, CAsyncIdle *idle)
 	if (idle->active != 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] idle starting failed: already started");
+				"[warn] idle starting failed: already started ptr=%p",
+				(void*)idle);
 		}
 		return -1;
 	}
@@ -1586,7 +1639,7 @@ int async_idle_start(CAsyncLoop *loop, CAsyncIdle *idle)
 	idle->pending = -1;
 	if (loop->logmask & ASYNC_LOOP_LOG_IDLE) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_IDLE,
-			"[idle] start");
+			"[idle] start ptr=%p", (void*)idle);
 	}
 	return 0;
 }
@@ -1600,7 +1653,8 @@ int async_idle_stop(CAsyncLoop *loop, CAsyncIdle *idle)
 	if (idle->active == 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] idle stopping failed: already stopped");
+				"[warn] idle stopping failed: already stopped ptr=%p",
+				(void*)idle);
 		}
 		return -1;
 	}
@@ -1613,7 +1667,7 @@ int async_idle_stop(CAsyncLoop *loop, CAsyncIdle *idle)
 	idle->active = 0;
 	if (loop->logmask & ASYNC_LOOP_LOG_IDLE) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_IDLE,
-			"[idle] stop");
+			"[idle] stop ptr=%p", (void*)idle);
 	}
 	return 0;
 }
@@ -1650,7 +1704,8 @@ int async_once_start(CAsyncLoop *loop, CAsyncOnce *once)
 	if (once->active != 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] once starting failed: already started");
+				"[warn] once starting failed: already started ptr=%p",
+				(void*)once);
 		}
 		return -1;
 	}
@@ -1661,7 +1716,7 @@ int async_once_start(CAsyncLoop *loop, CAsyncOnce *once)
 	once->pending = -1;
 	if (loop->logmask & ASYNC_LOOP_LOG_ONCE) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_ONCE,
-			"[once] start");
+			"[once] start ptr=%p", (void*)once);
 	}
 	return 0;
 }
@@ -1675,7 +1730,8 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once)
 	if (once->active == 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-				"[warn] once stopping failed: already stopped");
+				"[warn] once stopping failed: already stopped ptr=%p",
+				(void*)once);
 		}
 		return -1;
 	}
@@ -1688,7 +1744,7 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once)
 	once->active = 0;
 	if (loop->logmask & ASYNC_LOOP_LOG_ONCE) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_ONCE,
-			"[once] stop");
+			"[once] stop ptr=%p", (void*)once);
 	}
 	return 0;
 }
