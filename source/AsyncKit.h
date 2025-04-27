@@ -27,8 +27,8 @@ public:
 	~AsyncTcp();
 	AsyncTcp(AsyncLoop &loop);
 	AsyncTcp(CAsyncLoop *loop);
+	AsyncTcp(AsyncTcp &&src);
 
-	AsyncTcp(AsyncTcp &&src) = delete;
 	AsyncTcp(const AsyncTcp &) = delete;
 	AsyncTcp &operator=(const AsyncTcp &) = delete;
 
@@ -78,6 +78,9 @@ public:
 	// disable ASYNC_EVENT_READ/WRITE
 	void Disable(int event);
 
+	// move data from recv buffer to send buffer
+	long Move(long size);
+
 private:
 	static int TcpCB(CAsyncTcp *tcp, int event, int args);
 
@@ -88,6 +91,46 @@ private:
 };
 
 
+
+//---------------------------------------------------------------------
+// AsyncListener
+//---------------------------------------------------------------------
+class AsyncListener final
+{
+public:
+	~AsyncListener();
+	AsyncListener(AsyncLoop &loop);
+	AsyncListener(CAsyncLoop *loop);
+	AsyncListener(AsyncListener &&src);
+
+	AsyncListener(const AsyncListener &) = delete;
+	AsyncListener &operator=(const AsyncListener &) = delete;
+
+public:
+
+	void SetCallback(std::function<void(int fd, const sockaddr *addr, int len)> cb);
+
+	inline int GetFd() const { return _listener->fd; }
+	inline int GetError() const { return _listener->error; }
+	inline int GetFamily() const { return _listener->family; }
+
+	// start listening
+	int Start(int flags, const sockaddr *addr, int addrlen);
+
+	// start listening
+	int Start(int flags, int family, const char *text, int port);
+
+	// stop listening
+	void Stop();
+
+private:
+
+	std::function<void(int fd, const sockaddr *addr, int len)> _callback = nullptr;
+	static int ListenCB(CAsyncListener *listener, int fd, const sockaddr *addr, int len);
+
+	CAsyncListener *_listener = NULL;
+	CAsyncLoop *_loop = NULL;
+};
 
 
 

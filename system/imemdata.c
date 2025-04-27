@@ -1046,6 +1046,25 @@ ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 	return s->pos_write - s->pos_read;
 }
 
+/* move data from source to destination */
+ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size)
+{
+	ilong total = 0;
+	while (size > 0) {
+		void *ptr;
+		ilong canread = ims_flat(src, &ptr);
+		ilong toread = (size <= canread)? size : canread;
+		ilong readed = 0;
+		if (canread <= 0) break;
+		readed = ims_write(dst, ptr, toread);
+		assert(readed == toread);
+		ims_drop(src, readed);
+		total += readed;
+		size -= readed;
+	}
+	return total;
+}
+
 
 /**********************************************************************
  * common string operation

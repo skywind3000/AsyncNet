@@ -40,6 +40,12 @@
 
 #include <assert.h>
 
+#ifdef _MSC_VER
+#pragma warning(disable:28125)
+#pragma warning(disable:26115)
+#pragma warning(disable:26117)
+#endif
+
 
 /*===================================================================*/
 /* Network Information                                               */
@@ -1549,6 +1555,8 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	int hr;
 
 	if (sock == NULL) return -1;
+
+	remote = (struct sockaddr*)&rmt.address;
 
 	if (sock->mode == ASYNC_CORE_NODE_LISTEN) {
 		ipv6 = sock->ipv6;

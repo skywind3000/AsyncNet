@@ -1484,6 +1484,21 @@ int isocket_option(int fd, int option, int enable)
 		retval = -1000;
 		#endif
 		break;
+	case ISOCK_IPV6ONLY:
+		#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+		if (fd >= 0) {
+			unsigned long enable = (value)? 1 : 0;
+			int cc = isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+				(const char*)&enable, sizeof(enable));
+			if (cc == 0) {
+				retval = 0;
+			}
+			else {
+				retval = -1000;
+			}
+		}
+		#endif
+		break;
 	}
 
 	return retval;

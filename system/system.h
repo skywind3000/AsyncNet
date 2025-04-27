@@ -1,4 +1,4 @@
-//=====================================================================
+﻿//=====================================================================
 //
 // system.h - system wrap for c++ 
 // 
@@ -32,8 +32,6 @@
 // Queue             线程安全的队列
 // TaskPool          线程池任务管理器
 //
-// CsvReader         CSV文件读取
-// CsvWriter         CSV文件写入
 // HttpRequest       反照 Python的 urllib，非阻塞和阻塞模式
 // Path              仿照 Python的 os.path 路径连接，绝对路径等
 // DateTime          取日期和时间（精确到毫秒的）
@@ -56,6 +54,7 @@
 #include "itoolbox.h"
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <assert.h>
 
 #ifndef NAMESPACE_BEGIN
@@ -68,6 +67,11 @@
 
 #ifndef __cplusplus
 #error This file must be compiled in C++ mode !!
+#endif
+
+#ifdef _MSC_VER
+#pragma warning(disable: 6387)
+#pragma warning(disable: 4819)
 #endif
 
 NAMESPACE_BEGIN(System)
@@ -108,7 +112,7 @@ protected:
 
 // generate a error
 inline SystemError::SystemError(const char *what, int code, int line, const char *file) {
-	int size = (what)? strlen(what) : 0;
+	int size = (what)? (int)strlen(what) : 0;
 	int need = size + 2048;
 	_what = new char[need];
 	assert(_what);
@@ -121,7 +125,7 @@ inline SystemError::SystemError(const char *what, int code, int line, const char
 }
 
 inline SystemError::SystemError(const SystemError &e) {
-	int size = (e._what)? strlen(e._what) : 0;
+	int size = (e._what)? (int)strlen(e._what) : 0;
 	_what = new char[size + 1];
 	memcpy(_what, e._what, size + 1);
 	_code = e._code;
@@ -131,7 +135,7 @@ inline SystemError::SystemError(const SystemError &e) {
 
 inline SystemError& SystemError::operator=(const SystemError &e) {
 	if (_what) delete []_what;	
-	int size = (e._what)? strlen(e._what) : 0;
+	int size = (e._what)? (int)strlen(e._what) : 0;
 	_what = new char[size + 1];
 	assert(_what);
 	memcpy(_what, e._what, size + 1);
@@ -185,8 +189,9 @@ public:
 	const IMUTEX_TYPE& mutex() const { return _mutex; }
 
 private:
-	CriticalSection(const CriticalSection &);
-	CriticalSection& operator=(const CriticalSection &);
+	CriticalSection(const CriticalSection &) = delete;
+	CriticalSection(CriticalSection&&) = delete;
+	CriticalSection& operator=(const CriticalSection &) = delete;
 
 protected:
 	IMUTEX_TYPE _mutex;
@@ -508,6 +513,11 @@ public:
 
 	// 取得 64位的微秒级别时钟（1微秒=1/1000000秒）
 	static IUINT64 GetRealTime() { return iclockrt(); }	// usec
+														
+	// 取得 64位的纳秒级别时钟（1纳秒=1/1000000000秒）
+	static IUINT64 GetNanoTime(bool monotonic = false) { // nsec
+		return iclock_nano(monotonic? 1 : 0); 
+	}
 };
 
 
@@ -517,8 +527,8 @@ public:
 class Timer
 {
 public:
-	Timer() {
-		_timer = iposix_timer_new();
+	Timer(int flags = 0) {
+		_timer = iposix_timer_new(flags);
 		if (_timer == NULL) 
 			SYSTEM_THROW("create Timer failed", 10005);
 	}
@@ -792,7 +802,7 @@ public:
 	const ib_memnode* node_ptr() const { return _node; }
 
 	ilong node_max() const { return _node->node_max; }
-	long size() const { return _node->node_used; }
+	long size() const { return (long)(_node->node_used); }
 
 private:
 	MemNode(const MemNode &);
@@ -855,54 +865,6 @@ protected:
 
 
 
-//---------------------------------------------------------------------
-// 环状缓存
-//---------------------------------------------------------------------
-class RingBuffer
-{
-public:
-	// 初始化环缓存
-	RingBuffer(void *ptr, ilong size) { iring_init(&_ring, ptr, size); }
-
-	// 取得数据大小
-	ilong size() { return iring_dsize(&_ring); }
-
-	// 取得还可以放多少数据
-	ilong space() { return iring_fsize(&_ring); }
-
-	// 写入数据
-	ilong write(const void *ptr, ilong size) { return iring_write(&_ring, ptr, size); }
-
-	// 读取数据，并从缓存中清除已读数据
-	ilong read(void *ptr, ilong size) { return iring_read(&_ring, ptr, size); }
-
-	// 读取数据但不移动读指针（数据不丢弃）
-	ilong peek(void *ptr, ilong size) { return iring_peek(&_ring, ptr, size); }
-
-	// 丢弃数据
-	ilong drop(ilong size) { return iring_drop(&_ring, size); }
-
-	// 清空数据
-	void clear() { iring_clear(&_ring); }
-
-	// 取得当前连续的一片数据地址指针，并返回连续数据的大小
-	ilong flat(void **ptr) { return iring_flat(&_ring, ptr); }
-
-	// 从特定偏移放入数据
-	ilong put(ilong pos, const void *data, ilong size) { return iring_put(&_ring, pos, data, size); }
-
-	// 从特定偏移取得数据
-	ilong get(ilong pos, void *data, ilong size) { return iring_get(&_ring, pos, data, size); }
-
-	// 交换空间（拷贝数据和指针）
-	bool swap(void *ptr, ilong size) { return iring_swap(&_ring, ptr, size)? false : true; }
-
-	// 返回收尾指针和数据大小
-	ilong ring_ptr(char **p1, ilong *s1, char **p2, ilong *s2) { return iring_ptr(&_ring, p1, s1, p2, s2); }
-
-protected:
-	IRING _ring;
-};
 
 
 //---------------------------------------------------------------------
@@ -974,9 +936,9 @@ public:
 		return async_sock_connect(_sock, remote.address(), 0, header);
 	}
 
-	int assign(int fd, int header = 0) {
+	int assign(int fd, int header = 0, bool estab = true) {
 		CriticalScope scope(*_lock);
-		return async_sock_assign(_sock, fd, header);
+		return async_sock_assign(_sock, fd, header, estab? 1 : 0);
 	}
 
 	void close() {
@@ -1162,8 +1124,8 @@ public:
 		return async_core_remain(_core, hid);
 	}
 
-	// 设置缓存控制参数，limited是带发送缓存(remain)超过多少就断开该连接，
-	// 如果远端不接收，或者网络拥塞，这里又一直给它发送数据，则remain越来越大
+	// 设置缓存控制参数，limited是带发送缓存(pending)超过多少就断开该连接，
+	// 如果远端不接收，或者网络拥塞，这里又一直给它发送数据，则pending越来越大
 	// 超过该值后，系统就要主动踢掉该连接，认为它丧失处理能力了。
 	// maxsize是单个数据包的最大大小，默认是2MB。超过该大小认为非法。
 	void set_limit(long buffer_limit, long max_pkt_size) {
@@ -1501,260 +1463,6 @@ protected:
 	IURLD *_urld;
 };
 #endif
-
-//---------------------------------------------------------------------
-// CSV READER
-//---------------------------------------------------------------------
-class CsvReader
-{
-public:
-	CsvReader() {
-		_reader = NULL;
-		_index = 0;
-		_count = 0;
-		_readed = false;
-	}
-
-	virtual ~CsvReader() {
-		close();
-	}
-
-	void close() {
-		if (_reader) icsv_reader_close(_reader);
-		_reader = NULL;
-		_index = 0;
-		_count = 0;
-		_readed = false;
-	}
-
-	// 打开 CSV文件
-	bool open(const char *filename) {
-		close();
-		_reader = icsv_reader_open_file(filename);
-		if (_reader == NULL) return false;
-		_readed = false;
-		return true;
-	}
-
-	// 打开内存
-	bool open(const char *text, ilong size) {
-		close();
-		_reader = icsv_reader_open_memory(text, size);
-		if (_reader == NULL) return false;
-		_readed = false;
-		return true;
-	}
-
-	// 读取一行：返回多少列
-	int read() {
-		if (_reader == NULL) return -1;
-		int retval = icsv_reader_read(_reader);
-		if (retval >= 0) _count = retval;
-		else _count = 0;
-		_index = 0;
-		_readed = true;
-		return retval;
-	}
-
-	// 返回有多少列
-	int size() const { 
-		return _count;
-	}
-
-	// 判断是否文件结束
-	bool eof() const {
-		if (_reader == NULL) return true;
-		return icsv_reader_eof(_reader)? true : false;
-	}
-
-	// 流操作符
-	CsvReader& operator >> (char *ptr) { get(_index++, ptr, 1024); return *this; }
-	CsvReader& operator >> (std::string &str) { get(_index++, str); return *this; }
-	CsvReader& operator >> (ivalue_t *str) { get(_index++, str); return *this; }
-	CsvReader& operator >> (int &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (unsigned int &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (long &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (unsigned long &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (IINT64 &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (IUINT64 &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (float &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (double &value) { get(_index++, value); return *this; }
-	CsvReader& operator >> (const void *p) { if (p == NULL) read(); return *this; }
-
-	// 行复位
-	void reset() { _index = 0; }
-
-	bool get(int pos, char *ptr, int size) {
-		return icsv_reader_get_cstr(_reader, pos, ptr, size) >= 0? true : false;
-	}
-
-	bool get(int pos, ivalue_t *str) {
-		return icsv_reader_get_string(_reader, pos, str) >= 0? true : false;
-	}
-
-	bool get(int pos, std::string& str) {
-		const ivalue_t *src = icsv_reader_get_const(_reader, pos);
-		if (src == NULL) {
-			str.assign("");
-			return false;
-		}
-		str.assign(it_str(src), (size_t)it_size(src));
-		return true;
-	}
-
-	bool get(int pos, long &value) {
-		return icsv_reader_get_long(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, unsigned long &value) {
-		return icsv_reader_get_ulong(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, IINT64 &value) {
-		return icsv_reader_get_int64(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, IUINT64 &value) {
-		return icsv_reader_get_uint64(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, int &value) {
-		return icsv_reader_get_int(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, unsigned int &value) {
-		return icsv_reader_get_uint(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, float &value) {
-		return icsv_reader_get_float(_reader, pos, &value) < 0? false : true;
-	}
-
-	bool get(int pos, double &value) {
-		return icsv_reader_get_double(_reader, pos, &value) < 0? false : true;
-	}
-
-protected:
-	iCsvReader *_reader;
-	int _index;
-	int _count;
-	bool _readed;
-};
-
-
-#define CsvNextRow ((const void*)0)
-
-
-//---------------------------------------------------------------------
-// CSV WRITER
-//---------------------------------------------------------------------
-class CsvWriter
-{
-public:
-	CsvWriter() {
-		_writer = NULL;
-	}
-
-	virtual ~CsvWriter() {
-		close();
-	}
-
-	void close() {
-		if (_writer) {
-			icsv_writer_close(_writer);
-			_writer = NULL;
-		}
-	}
-
-	bool open(const char *filename, bool append = false) {
-		close();
-		_writer = icsv_writer_open(filename, append? 1 : 0);
-		return _writer? true : false;
-	}
-
-	bool write() {
-		if (_writer == NULL) return false;
-		return icsv_writer_write(_writer) == 0? true : false;
-	}
-
-	int size() const {
-		if (_writer == NULL) return 0;
-		return icsv_writer_size(_writer);
-	}
-
-	void clear() {
-		if (_writer) icsv_writer_clear(_writer);
-	}
-
-	void empty() {
-		if (_writer) icsv_writer_empty(_writer);
-	}
-
-	CsvWriter& operator << (const char *src) { push(src); return *this; }
-	CsvWriter& operator << (const std::string &src) { push(src); return *this; }
-	CsvWriter& operator << (long value) { push(value); return *this; }
-	CsvWriter& operator << (unsigned long value) { push(value); return *this; }
-	CsvWriter& operator << (int value) { push(value); return *this; }
-	CsvWriter& operator << (unsigned int value) { push(value); return *this; }
-	CsvWriter& operator << (IINT64 value) { push(value); return *this; }
-	CsvWriter& operator << (IUINT64 value) { push(value); return *this; }
-	CsvWriter& operator << (float value) { push(value); return *this; }
-	CsvWriter& operator << (double value) { push(value); return *this; }
-	CsvWriter& operator << (const void *ptr) { if (ptr == NULL) { write(); } return *this; }
-
-	void push(const char *src, ilong size = -1) { 
-		icsv_writer_push_cstr(_writer, src, size); 
-	}
-
-	void push(const std::string &src) { 
-		icsv_writer_push_cstr(_writer, src.c_str(), (ilong)src.size());
-	}
-
-	void push(const ivalue_t *src) {
-		icsv_writer_push_cstr(_writer, it_str(src), (int)it_size(src));
-	}
-
-	void push(long value, int radix = 10) {
-		icsv_writer_push_long(_writer, value, radix);
-	}
-
-	void push(unsigned long value, int radix = 10) {
-		icsv_writer_push_ulong(_writer, value, radix);
-	}
-
-	void push(int value, int radix = 10) {
-		icsv_writer_push_int(_writer, value, radix);
-	}
-
-	void push(unsigned int value, int radix = 10) {
-		icsv_writer_push_uint(_writer, value, radix);
-	}
-
-	void push(IINT64 value, int radix = 10) {
-		icsv_writer_push_int64(_writer, value, radix);
-	}
-
-	void push(IUINT64 value, int radix = 10) {
-		icsv_writer_push_uint64(_writer, value, radix);
-	}
-
-	void push(float f) {
-		icsv_writer_push_float(_writer, f);
-	}
-
-	void push(double f) {
-		icsv_writer_push_double(_writer, f);
-	}
-
-protected:
-	iCsvWriter *_writer;
-};
-
-
-static inline bool NetworkInit()
-{
-	return (isocket_init() == 0)? true : false;
-}
 
 
 //---------------------------------------------------------------------
@@ -2108,6 +1816,7 @@ typedef std::vector<std::string> StringList;
 // 去除头部尾部多余字符，比如：StringStrip(text, "\r\n\t ")
 static inline void StringStrip(std::string &str, const char *seps) {
 	size_t p1, p2, i;
+	if (str.size() == 0) return;
 	for (p1 = 0; p1 < str.size(); p1++) {
 		char ch = str[p1];
 		int skip = 0;
@@ -2179,7 +1888,7 @@ static inline void StringConfig(const std::string &str, StringList &names, Strin
 	StringSplit(str, lines, "\n\r;,");
 	for (size_t i = 0; i < lines.size(); i++) {
 		std::string &line = lines[i];
-		int pos = line.find('=');
+		int pos = (int)line.find('=');
 		if (pos >= 0) {
 			std::string n = line.substr(0, pos);
 			std::string d = line.substr(pos + 1);
@@ -2304,7 +2013,7 @@ static inline bool Base64Encode(const void *data, int len, std::string &b64) {
 	nchars = ((len + 2) / 3) * 4;
 	result = nchars + ((nchars - 1) / 76) + 1;
 	b64.resize(result + 1);
-	int hr = ibase64_encode(data, len, &b64[0]);
+	int hr = (int)ibase64_encode(data, len, &b64[0]);
 	b64.resize(hr);
 	return true;
 }
@@ -2313,12 +2022,56 @@ static inline bool Base64Decode(const char *b64, int len, std::string &data) {
 	int nbytes;
 	nbytes = ((len + 7) / 4) * 3;
 	data.resize(nbytes + 1);
-	int hr = ibase64_decode((const char*)b64, len, &data[0]);
+	int hr = (int)ibase64_decode((const char*)b64, len, &data[0]);
 	data.resize((hr < 0)? 0 : hr);
 	return (hr < 0)? false : true;
 }
 
-
+static inline std::string StringFormat(const char *fmt, ...)
+{
+	int size = -1;
+	va_list argptr;
+	va_start(argptr, fmt);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	size = (int)vsnprintf(NULL, 0, fmt, argptr); 
+#elif defined(_MSC_VER)
+	size = (int)_vscprintf(fmt, argptr);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	size = (int)_vsnprintf(NULL, 0, fmt, argptr); 
+#else
+	size = (int)vsnprintf(NULL, 0, fmt, argptr); 
+#endif
+	va_end(argptr);
+	if (size < 0) {
+		throw std::runtime_error("string format error");
+	}
+	else {
+		char _buffer[1024];
+		char *buffer = _buffer;
+		size++;
+		if (size >= 1024) {
+			buffer = new char[size + 2];
+		}
+		va_start(argptr, fmt);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+		size = (int)vsnprintf(buffer, size, fmt, argptr); 
+#elif defined(_MSC_VER)
+		int hr = (int)vsprintf(buffer, fmt, argptr);
+		assert(hr + 1 == size);
+		size = hr;
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+		size = (int)_vsnprintf(buffer, size, fmt, argptr); 
+#else
+		size = (int)vsnprintf(buffer, size, fmt, argptr); 
+#endif
+		va_end(argptr);
+		std::string str(buffer, size);
+		if (buffer != _buffer) {
+			delete []buffer;
+		}
+		return str;
+	}
+}
 
 
 

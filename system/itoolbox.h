@@ -1,18 +1,19 @@
+﻿//=====================================================================
+//
+// itoolbox.h - 
+//
+// Created by skywind on 2019/06/12
+// Last Modified: 2019/06/12 20:18:52
+//
 //=====================================================================
-//
-// itoolbox.h - 工具函数大集合
-//
-// NOTE:
-// for more information, please see the readme file.
-//
-//=====================================================================
+#ifndef _ITOOLBOX_H_
+#define _ITOOLBOX_H_
 
-#ifndef __ITOOLBOX_H__
-#define __ITOOLBOX_H__
-
+#include "imembase.h"
 #include "imemdata.h"
+#include "inetbase.h"
 #include "inetcode.h"
-#include "iposix.h"
+#include "isecure.h"
 
 
 #ifdef __cplusplus
@@ -20,10 +21,145 @@ extern "C" {
 #endif
 
 //=====================================================================
-// 控制台工具集
+// Posix IPV4/IPV6 Compatible Socket Address
+//=====================================================================
+typedef union _iPosixAddress {
+	struct sockaddr sa;
+	struct sockaddr_in sin4;
+#ifdef AF_INET6
+	struct sockaddr_in6 sin6;
+#endif
+}	iPosixAddress;
+
+
+// get family from generic sockaddr
+#define iposix_addr_family(pa) ((pa)->sa.sa_family)
+
+#define iposix_addr_v4_ptr(pa) (&((pa)->sin4.sin_addr.s_addr))
+#define iposix_addr_v4_vec(type, pa) ((type*)iposix_addr_v4_ptr(pa))
+#define iposix_addr_v4_port(pa) ((pa)->sin4.sin_port)
+#define iposix_addr_v4_u8(pa) iposix_addr_v4_vec(unsigned char, pa)
+#define iposix_addr_v4_cu8(pa) iposix_addr_v4_vec(const unsigned char, pa)
+
+#ifdef AF_INET6
+#define iposix_addr_v6_ptr(pa) (((pa)->sin6.sin6_addr.s6_addr))
+#define iposix_addr_v6_vec(type, pa) ((type*)iposix_addr_v6_ptr(pa))
+#define iposix_addr_v6_port(pa) ((pa)->sin6.sin6_port)
+#define iposix_addr_v6_u8(pa) iposix_addr_v6_vec(unsigned char, pa)
+#define iposix_addr_v6_cu8(pa) iposix_addr_v6_vec(const unsigned char, pa)
+
+#define iposix_addr_size(pa) \
+	((iposix_addr_family(pa) == AF_INET6)? \
+	 sizeof(struct sockaddr_in6) : sizeof(struct sockaddr))
+#else
+#define iposix_addr_size(pa) (sizeof(struct sockaddr))
+#endif
+
+
+// memset(addr, 0, sizeof(iPosixAddress))
+void iposix_addr_init(iPosixAddress *addr);
+
+void iposix_addr_set_family(iPosixAddress *addr, int family);
+void iposix_addr_set_ip(iPosixAddress *addr, const void *ip);
+void iposix_addr_set_port(iPosixAddress *addr, int port);
+void iposix_addr_set_scope(iPosixAddress *addr, int scope_id);
+
+int iposix_addr_get_family(const iPosixAddress *addr);
+int iposix_addr_get_ip(const iPosixAddress *addr, void *ip);
+int iposix_addr_get_port(const iPosixAddress *addr);
+int iposix_addr_get_size(const iPosixAddress *addr);
+int iposix_addr_get_scope(const iPosixAddress *addr);
+
+int iposix_addr_set_ip_text(iPosixAddress *addr, const char *text);
+char *iposix_addr_get_ip_text(const iPosixAddress *addr, char *text);
+
+int iposix_addr_make(iPosixAddress *addr, int family, const char *t, int p);
+char *iposix_addr_str(const iPosixAddress *addr, char *text);
+
+
+// returns zero if a1 equals to a2
+// returns 1 if a1 is greater than a2
+// returns -1 if a1 is less than a2
+int iposix_addr_compare(const iPosixAddress *a1, const iPosixAddress *a2);
+
+// returns 6 if the text contains colon (an IPv6 address string)
+// otherwise returns 4
+int iposix_addr_version(const char *text);
+
+
+//=====================================================================
+// DNS Resolve
+//=====================================================================
+typedef struct _iPosixRes
+{
+	int size;
+	int *family;
+	unsigned char **address;
+}	iPosixRes;
+
+// create new iPosixRes
+iPosixRes *iposix_res_new(int size);
+
+// remove res
+void iposix_res_free(iPosixRes *res);
+
+// omit duplications
+void iposix_res_unique(iPosixRes *res);
+
+
+// ipv = 0/any, 4/ipv4, 6/ipv6
+iPosixRes *iposix_res_get(const char *hostname, int ipv);
+
+
+//=====================================================================
+// Protocol Reader
+//=====================================================================
+struct CAsyncReader;
+typedef struct CAsyncReader CAsyncReader;
+
+CAsyncReader *async_reader_new(ib_memnode *fnode);
+
+void async_reader_delete(CAsyncReader *reader);
+
+
+#define ISTREAM_READ_BYTE		0
+#define ISTREAM_READ_LINE		1
+#define ISTREAM_READ_BLOCK		2
+
+void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
+
+long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
+
+void async_reader_feed(CAsyncReader *reader, const void *data, long len);
+
+void async_reader_clear(CAsyncReader *reader);
+
+
+//=====================================================================
+// utils
 //=====================================================================
 
-// 前景颜色定义
+int isocket_pair_ex(int *pair);
+
+// can be used to wakeup select
+struct CSelectNotify;
+typedef struct CSelectNotify CSelectNotify;
+
+CSelectNotify* select_notify_new(void);
+
+void select_notify_delete(CSelectNotify *sn);
+
+int select_notify_wait(CSelectNotify *sn, const int *fds, 
+	const int *event, int *revent, int count, long millisec);
+
+int select_notify_wake(CSelectNotify *sn);
+
+
+//=====================================================================
+// Terminal Control
+//=====================================================================
+
+// colors
 #define CTEXT_BLACK			0
 #define CTEXT_RED			1
 #define CTEXT_GREEN			2
@@ -68,156 +204,33 @@ void console_reset(void);
 void console_clear(int color);
 
 
-
 //=====================================================================
-// CSV Reader/Writer
+// utilities
 //=====================================================================
-struct iCsvReader;
-struct iCsvWriter;
 
-typedef struct iCsvReader iCsvReader;
-typedef struct iCsvWriter iCsvWriter;
+// generate a 40 bytes signature
+char* hash_signature_md5(
+		char *out,             // output string with size above 41 bytes
+		const void *in,        // input data
+		int size,              // input size
+		const char *secret,    // secret token
+		int secret_size,       // secret size
+		IUINT32 timestamp);    // time stamp in unix epoch seconds
 
-
-// open csv reader from file 
-iCsvReader *icsv_reader_open_file(const char *filename);
-
-// open csv reader from memory 
-iCsvReader *icsv_reader_open_memory(const char *text, ilong size);
-
-// close csv reader
-void icsv_reader_close(iCsvReader *reader);
-
-// read csv row
-int icsv_reader_read(iCsvReader *reader);
-
-// get column count in current row
-int icsv_reader_size(const iCsvReader *reader);
-
-// returns 1 for end of file, 0 for not end.
-int icsv_reader_eof(const iCsvReader *reader);
-
-// get column string
-ivalue_t *icsv_reader_get(iCsvReader *reader, int pos);
-
-// get column string
-const ivalue_t *icsv_reader_get_const(const iCsvReader *reader, int pos);
-
-// return column string size, -1 for error
-int icsv_reader_get_size(const iCsvReader *reader, int pos);
-
-// return column string, returns string size for success, -1 for error
-int icsv_reader_get_string(const iCsvReader *reader, int pos, ivalue_t *out);
-
-// return column string, returns string size for success, -1 for error
-int icsv_reader_get_cstr(const iCsvReader *reader, int pos, 
-	char *out, int size);
-
-// utils for reader
-int icsv_reader_get_long(const iCsvReader *reader, int i, long *x);
-int icsv_reader_get_ulong(const iCsvReader *reader, int i, unsigned long *x);
-int icsv_reader_get_int(const iCsvReader *reader, int i, int *x);
-int icsv_reader_get_uint(const iCsvReader *reader, int i, unsigned int *x);
-int icsv_reader_get_int64(const iCsvReader *reader, int i, IINT64 *x);
-int icsv_reader_get_uint64(const iCsvReader *reader, int i, IUINT64 *x);
-int icsv_reader_get_float(const iCsvReader *reader, int i, float *x);
-int icsv_reader_get_double(const iCsvReader *reader, int i, double *x);
+// extract timestamp from signature
+IUINT32 hash_signature_time(const char *signature);
 
 
-// open csv writer from file: if filename is NULL, it will open in memory
-iCsvWriter *icsv_writer_open(const char *filename, int append);
-
-// close csv writer
-void icsv_writer_close(iCsvWriter *writer);
-
-// write row and reset
-int icsv_writer_write(iCsvWriter *writer);
-
-// return column count in current row
-int icsv_writer_size(iCsvWriter *writer);
-
-// clear columns in current row
-void icsv_writer_clear(iCsvWriter *writer);
-
-// dump output
-void icsv_writer_dump(iCsvWriter *writer, ivalue_t *out);
-
-// clear output
-void icsv_writer_empty(iCsvWriter *writer);
-
-// push string
-int icsv_writer_push(iCsvWriter *writer, const ivalue_t *str);
-
-// push c string
-int icsv_writer_push_cstr(iCsvWriter *writer, const char *ptr, int size);
-
-
-// utils for writer
-int icsv_writer_push_long(iCsvWriter *writer, long x, int radix);
-int icsv_writer_push_ulong(iCsvWriter *writer, unsigned long x, int radix);
-int icsv_writer_push_int(iCsvWriter *writer, int x, int radix);
-int icsv_writer_push_uint(iCsvWriter *writer, unsigned int x, int radix);
-int icsv_writer_push_int64(iCsvWriter *writer, IINT64 x, int radix);
-int icsv_writer_push_uint64(iCsvWriter *writer, IUINT64 x, int radix);
-int icsv_writer_push_float(iCsvWriter *writer, float x);
-int icsv_writer_push_double(iCsvWriter *writer, double x);
-
-
-//=====================================================================
-// 兼容接口实现
-//=====================================================================
-int inet_open_port(unsigned short port, unsigned long ip, int flag);
-int inet_tcp_estab(int fd);
-int inet_init(void);
-int inet_set_bufsize(int fd, long recvbuf, long sndbuf);
-int inet_updateaddr(int resolvename);
-int inet_sockpair(int fds[2]);
-
-
-//=====================================================================
-// Protocol Reader
-//=====================================================================
-struct CAsyncReader;
-typedef struct CAsyncReader CAsyncReader;
-
-CAsyncReader *async_reader_new(ib_memnode *fnode);
-
-void async_reader_delete(CAsyncReader *reader);
-
-
-#define ISTREAM_READ_BYTE		0
-#define ISTREAM_READ_LINE		1
-#define ISTREAM_READ_BLOCK		2
-
-void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
-
-long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
-
-void async_reader_feed(CAsyncReader *reader, const void *data, long len);
-
-
-
-//=====================================================================
-// Redis Reader
-//=====================================================================
-struct CRedisReader;
-typedef struct CRedisReader CRedisReader;
-
-CRedisReader *redis_reader_new(ib_memnode *fnode);
-
-void redis_reader_delete(CRedisReader *rr);
-
-
-long redis_reader_read(CRedisReader *rr, int *mode, void *data, long maxsize);
-
-void redis_reader_feed(CRedisReader *rr, const void *data, long len);
-
+//---------------------------------------------------------------------
+// signals
+//---------------------------------------------------------------------
+void signal_init();
+int signal_quiting();
 
 
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif
 

@@ -107,7 +107,9 @@ typedef unsigned long long IUINT64;
 #define IASSERT(x) assert(x)
 #endif
 
-
+#ifdef _MSC_VER
+#pragma warning(disable: 6297)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -1185,7 +1187,7 @@ static inline const char *idecodeu(const char *ptr, IUINT64 *v)
 		return ptr + 1;
 	}
 
-	x |= ((IUINT32)(p[1] & 0x7f)) << 7;
+	x |= (IUINT64)(((IUINT32)(p[1] & 0x7f)) << 7);
 	if ((p[1] & 0x80) == 0) {
 		v[0] = x;
 		return ptr + 2;
@@ -1359,6 +1361,9 @@ void ims_clear(struct IMSTREAM *s);
 
 /* get flat ptr and size */
 ilong ims_flat(const struct IMSTREAM *s, void **pointer);
+
+/* move data from source to destination */
+ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
 
 
 

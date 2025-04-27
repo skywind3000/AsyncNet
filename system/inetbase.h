@@ -324,13 +324,14 @@ typedef SOCKET Socket;
 /*===================================================================*/
 /* Global Macro Definition                                           */
 /*===================================================================*/
-#define ISOCK_NOBLOCK	1		/* flag - non-block       */
-#define ISOCK_REUSEADDR	2		/* flag - reuse address   */
-#define ISOCK_NODELAY	3		/* flag - no delay        */
-#define ISOCK_NOPUSH	4		/* flag - no push         */
-#define ISOCK_CLOEXEC	5		/* flag - FD_CLOEXEC      */
+#define ISOCK_NOBLOCK   1		/* flag - non-block       */
+#define ISOCK_REUSEADDR 2		/* flag - reuse address   */
+#define ISOCK_NODELAY   3		/* flag - no delay        */
+#define ISOCK_NOPUSH    4		/* flag - no push         */
+#define ISOCK_CLOEXEC   5		/* flag - FD_CLOEXEC      */
 #define ISOCK_REUSEPORT 8		/* flag - reuse port(bsd) */
-#define ISOCK_UNIXREUSE	16		/* use reuseaddr in bsd   */
+#define ISOCK_UNIXREUSE 16		/* use reuseaddr in bsd   */
+#define ISOCK_IPV6ONLY  32		/* flag - ipv6 only       */
 
 #define ISOCK_ERECV		1		/* event - recv           */
 #define ISOCK_ESEND		2		/* event - send           */

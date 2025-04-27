@@ -18,7 +18,23 @@ AsyncTcp::~AsyncTcp()
 {
 	if (_tcp) {
 		async_tcp_delete(_tcp);
+		_tcp = NULL;
 	}
+	_loop = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncTcp::AsyncTcp(AsyncTcp &&src)
+{
+	_tcp = src._tcp;
+	_loop = src._loop;
+	_callback = src._callback;
+	src._tcp = NULL;
+	src._loop = NULL;
+	src._callback = nullptr;
 }
 
 
@@ -163,6 +179,125 @@ void AsyncTcp::Disable(int event)
 	async_tcp_disable(_tcp, event);
 }
 
+
+//---------------------------------------------------------------------
+// move data from recv buffer to send buffer
+//---------------------------------------------------------------------
+long AsyncTcp::Move(long size)
+{
+	return (long)async_tcp_move(_tcp, size);
+}
+
+
+
+//=====================================================================
+// AsyncListener
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncListener::~AsyncListener()
+{
+	if (_listener) {
+		async_listener_delete(_listener);
+		_listener = NULL;
+	}
+	_loop = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncListener::AsyncListener(AsyncListener &&src)
+{
+	_listener = src._listener;
+	_loop = src._loop;
+	_callback = src._callback;
+	src._listener = NULL;
+	src._loop = NULL;
+	src._callback = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncListener::AsyncListener(CAsyncLoop *loop)
+{
+	_loop = loop;
+	_listener = async_listener_new(_loop, ListenCB);
+	_listener->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncListener::AsyncListener(AsyncLoop &loop)
+{
+	_loop = loop.GetLoop();
+	_listener = async_listener_new(_loop, ListenCB);
+	_listener->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+int AsyncListener::ListenCB(CAsyncListener *listener, int fd, const sockaddr *addr, int len)
+{
+	AsyncListener *self = (AsyncListener*)listener->user;
+	if (self->_callback) {
+		self->_callback(fd, addr, len);
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// set callback
+//---------------------------------------------------------------------
+void AsyncListener::SetCallback(std::function<void(int fd, const sockaddr *addr, int len)> cb)
+{
+	_callback = cb;
+	if (cb) {
+		_listener->callback = ListenCB;
+	}
+	else {
+		_listener->callback = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// start listening
+//---------------------------------------------------------------------
+int AsyncListener::Start(int flags, const sockaddr *addr, int addrlen)
+{
+	return async_listener_start(_listener, 2000, flags, addr, addrlen);
+}
+
+
+//---------------------------------------------------------------------
+// start listening
+//---------------------------------------------------------------------
+int AsyncListener::Start(int flags, int family, const char *text, int port)
+{
+	PosixAddress addr;
+	addr.Make(family, text, port);
+	return Start(flags, addr.address(), addr.size());
+}
+
+
+//---------------------------------------------------------------------
+// stop listening
+//---------------------------------------------------------------------
+void AsyncListener::Stop()
+{
+	async_listener_stop(_listener);
+}
 
 
 
