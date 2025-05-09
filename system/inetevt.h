@@ -202,6 +202,7 @@ struct CAsyncLoop {
 	IINT64 timestamp;
 	IINT64 monotonic;
 	IINT64 iteration;
+	IINT64 reseted;
 	IMUTEX_TYPE lock_xfd;
 	IMUTEX_TYPE lock_queue;
 	ib_array *sem_dict;

@@ -220,6 +220,8 @@ CAsyncLoop *async_loop_new(void)
 	loop->monotonic = iclock_nano(1);
 	loop->iteration = 0;
 
+	loop->reseted = 0;
+
 	itimer_mgr_init(&loop->timer_mgr, 1);
 	itimer_mgr_run(&loop->timer_mgr, loop->current);
 
@@ -718,6 +720,11 @@ static void async_loop_changes_commit(CAsyncLoop *loop)
 				ipoll_del(loop->poller, fd);
 				if (mask != 0) {
 					ipoll_add(loop->poller, fd, event, loop);
+				}
+				loop->reseted++;
+				if (loop->logmask & ASYNC_LOOP_LOG_POLL) {
+					async_loop_log(loop, ASYNC_LOOP_LOG_POLL,
+						"[poll] ipoll_reset(%d, %d)", fd, event);
 				}
 			}
 		}
