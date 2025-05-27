@@ -460,6 +460,7 @@ void ib_array_replace(ib_array *array, size_t index, void *item);
 void* ib_array_pop(ib_array *array);
 void* ib_array_pop_left(ib_array *array);
 void ib_array_remove(ib_array *array, size_t index);
+void ib_array_clear(ib_array *array);
 void ib_array_insert_before(ib_array *array, size_t index, void *item);
 void* ib_array_pop_at(ib_array *array, size_t index);
 void ib_array_for_each(ib_array *array, void (*iterator)(void *item));
@@ -505,7 +506,11 @@ struct ib_root
 /*--------------------------------------------------------------------*/
 /* NODE MACROS                                                        */
 /*--------------------------------------------------------------------*/
-#define IB_OFFSET(TYPE, MEMBER)    ((size_t) &((TYPE *)0)->MEMBER)
+#if (!defined(offsetof)) || (defined(IHAVE_NOT_OFFSETOF))
+#define IB_OFFSET(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#else
+#define IB_OFFSET(TYPE, MEMBER) offsetof(TYPE, MEMBER)
+#endif
 
 #define IB_NODE2DATA(n, o)    ((void *)((size_t)(n) - (o)))
 #define IB_DATA2NODE(d, o)    ((struct ib_node*)((size_t)(d) + (o)))

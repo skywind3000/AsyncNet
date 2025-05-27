@@ -33,7 +33,7 @@ public:
 	AsyncLoop(AsyncLoop &&src);
 
 	AsyncLoop(const AsyncLoop &) = delete;
-	AsyncLoop &operator=(const AsyncLoop &) = delete;
+	AsyncLoop& operator=(const AsyncLoop &) = delete;
 
 public:
 
@@ -49,6 +49,9 @@ public:
 
 	// exit RunEndless()
 	void Exit();
+
+	// publish data to a topic
+	void Publish(int topic, const void *data, int size);
 
 	// write log
 	void Log(int channel, const char *fmt, ...);
@@ -119,7 +122,7 @@ public:
 
 	AsyncEvent(AsyncEvent &&src) = delete;
 	AsyncEvent(const AsyncEvent &) = delete;
-	AsyncEvent &operator=(const AsyncEvent &) = delete;
+	AsyncEvent& operator=(const AsyncEvent &) = delete;
 
 public:
 
@@ -166,7 +169,7 @@ public:
 
 	AsyncTimer(AsyncTimer &&src) = delete;
 	AsyncTimer(const AsyncTimer &) = delete;
-	AsyncTimer &operator=(const AsyncTimer &) = delete;
+	AsyncTimer& operator=(const AsyncTimer &) = delete;
 
 public:
 
@@ -205,7 +208,7 @@ public:
 
 	AsyncSemaphore(AsyncSemaphore &&src) = delete;
 	AsyncSemaphore(const AsyncSemaphore &) = delete;
-	AsyncSemaphore &operator=(const AsyncSemaphore &) = delete;
+	AsyncSemaphore& operator=(const AsyncSemaphore &) = delete;
 
 public:
 
@@ -249,7 +252,7 @@ public:
 
 	AsyncPostpone(AsyncPostpone &&src) = delete;
 	AsyncPostpone(const AsyncPostpone &) = delete;
-	AsyncPostpone &operator=(AsyncPostpone &src) = delete;
+	AsyncPostpone& operator=(AsyncPostpone &src) = delete;
 
 public:
 
@@ -286,6 +289,10 @@ public:
 	AsyncIdle(AsyncLoop &loop);
 	AsyncIdle(CAsyncLoop *loop);
 
+	AsyncIdle(AsyncIdle &&src) = delete;
+	AsyncIdle(const AsyncIdle &) = delete;
+	AsyncIdle& operator=(AsyncIdle &src) = delete;
+
 public:
 
 	// setup callback
@@ -321,6 +328,10 @@ public:
 	AsyncOnce(AsyncLoop &loop);
 	AsyncOnce(CAsyncLoop *loop);
 
+	AsyncOnce(AsyncOnce &&src) = delete;
+	AsyncOnce(const AsyncOnce &) = delete;
+	AsyncOnce& operator=(AsyncOnce &src) = delete;
+
 public:
 
 	// setup callback
@@ -343,6 +354,44 @@ private:
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncOnce _once;
+};
+
+
+//---------------------------------------------------------------------
+// AsyncSubscribe
+//---------------------------------------------------------------------
+class AsyncSubscribe final
+{
+public:
+	~AsyncSubscribe();
+	AsyncSubscribe(AsyncLoop &loop);
+	AsyncSubscribe(CAsyncLoop *loop);
+
+	AsyncSubscribe(AsyncSubscribe &&src) = delete;
+	AsyncSubscribe(const AsyncSubscribe &) = delete;
+	AsyncSubscribe& operator=(AsyncSubscribe &src) = delete;
+
+public:
+
+	// setup callback
+	void SetCallback(std::function<int(const void *data, int size)> callback);
+
+	// start subscribing to a topic
+	int Start(int topic);
+
+	// stop subscribing
+	int Stop();
+
+	// is watching ?
+	inline bool IsActive() const { return async_sub_is_active(&_subscribe); }
+
+private:
+	static int InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub, 
+			const void *data, int size);
+
+	std::function<int(const void *data, int size)> _callback;
+	CAsyncLoop *_loop = NULL;
+	CAsyncSubscribe _subscribe;
 };
 
 

@@ -652,6 +652,23 @@ void ib_array_remove(ib_array *array, size_t index)
 	array->size--;
 }
 
+void ib_array_clear(ib_array *array)
+{
+	int hr;
+	if (array->fn_destroy) {
+		size_t index;
+		for (index = 0; index < array->size; index++) {
+			array->fn_destroy(array->items[index]);
+		}
+	}
+	array->size = 0;
+	hr = iv_obj_resize(&array->vec, void*, array->size);
+	ib_array_update(array);
+	if (hr) {
+		assert(hr == 0);
+	}
+}
+
 void ib_array_insert_before(ib_array *array, size_t index, void *item)
 {
 	int hr = iv_obj_insert(&array->vec, void*, index, &item);
@@ -2185,7 +2202,7 @@ size_t ib_hash_seed = 0x11223344;
 
 size_t ib_hash_func_uint(const void *key)
 {
-#if 0
+#ifndef IB_HASH_INT_DIRECT
 	size_t x = (size_t)key;
 	return (x * 2654435761u) ^ ib_hash_seed;
 #else
@@ -2195,7 +2212,7 @@ size_t ib_hash_func_uint(const void *key)
 
 size_t ib_hash_func_int(const void *key)
 {
-#if 0
+#ifndef IB_HASH_INT_DIRECT
 	size_t x = (size_t)key;
 	return (x * 2654435761u) ^ ib_hash_seed;
 #else
@@ -2264,8 +2281,8 @@ int ib_hash_compare_uint(const void *key1, const void *key2)
 
 int ib_hash_compare_int(const void *key1, const void *key2)
 {
-	ilong x = (ilong)key1;
-	ilong y = (ilong)key2;
+	ilong x = (ilong)((size_t)key1);
+	ilong y = (ilong)((size_t)key2);
 	if (x == y) return 0;
 	return (x < y)? -1 : 1;
 }

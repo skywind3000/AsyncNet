@@ -28,8 +28,8 @@ AsyncLoop::~AsyncLoop()
 		if (_loop != NULL) {
 			async_loop_delete(_loop);
 		}
-		_loop = NULL;
 	}
+	_loop = NULL;
 }
 
 
@@ -41,6 +41,7 @@ AsyncLoop::AsyncLoop()
 	_loop = async_loop_new();
 	_loop->self = this;
 	_borrow = false;
+	_ptr = NULL;
 }
 
 
@@ -51,6 +52,7 @@ AsyncLoop::AsyncLoop(CAsyncLoop *loop)
 {
 	_loop = loop;
 	_loop->self = this;
+	_ptr = NULL;
 	_borrow = true;
 }
 
@@ -67,12 +69,14 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	this->_cb_once = src._cb_once;
 	this->_cb_idle = src._cb_idle;
 	this->_cb_timer = src._cb_timer;
+	this->_ptr = src._ptr;
 	src._loop = NULL;
 	src._borrow = false;
 	src._cb_log = NULL;
 	src._cb_once = NULL;
 	src._cb_idle = NULL;
 	src._cb_timer = NULL;
+	src._ptr = NULL;
 	if (src._log_cache.size() > 0) {
 		this->_log_cache = std::move(src._log_cache);
 	} else {
@@ -105,6 +109,15 @@ void AsyncLoop::RunEndless()
 void AsyncLoop::Exit()
 {
 	async_loop_exit(_loop);
+}
+
+
+//---------------------------------------------------------------------
+// publish data to a topic
+//---------------------------------------------------------------------
+void AsyncLoop::Publish(int topic, const void *data, int size)
+{
+	async_loop_pub(_loop, topic, data, size);
 }
 
 
@@ -766,9 +779,91 @@ int AsyncOnce::Stop()
 
 
 
+//=====================================================================
+// AsyncSubscribe
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncSubscribe::~AsyncSubscribe()
+{
+	if (_subscribe.active) {
+		async_sub_stop(_loop, &_subscribe);
+	}
+	_loop = NULL;
+	_callback = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSubscribe::AsyncSubscribe(CAsyncLoop *loop)
+{
+	_loop = loop;
+	async_sub_init(&_subscribe, InternalCB);
+	_subscribe.user = this;
+	_callback = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSubscribe::AsyncSubscribe(AsyncLoop &loop)
+{
+	_loop = loop.GetLoop();
+	async_sub_init(&_subscribe, InternalCB);
+	_subscribe.user = this;
+	_callback = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// setup callback
+//---------------------------------------------------------------------
+void AsyncSubscribe::SetCallback(std::function<int(const void *data, int size)> callback)
+{
+	_callback = callback;
+}
+
+
+//---------------------------------------------------------------------
+// internal callback
+//---------------------------------------------------------------------
+int AsyncSubscribe::InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub, 
+		const void *data, int size)
+{
+	AsyncSubscribe *self = (AsyncSubscribe*)sub->user;
+	if (self->_callback != nullptr) {
+		return self->_callback(data, size);
+	}
+	return 0; // no callback
+}
+
+
+//---------------------------------------------------------------------
+// start subscribing to a topic
+//---------------------------------------------------------------------
+int AsyncSubscribe::Start(int topic)
+{
+	return async_sub_start(_loop, &_subscribe, topic);
+}
+
+
+//---------------------------------------------------------------------
+// stop subscribing
+//---------------------------------------------------------------------
+int AsyncSubscribe::Stop()
+{
+	return async_sub_stop(_loop, &_subscribe);
+}
+
 
 
 NAMESPACE_END(System);
+
 
 
 

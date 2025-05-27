@@ -72,6 +72,7 @@
 #ifdef _MSC_VER
 #pragma warning(disable: 6387)
 #pragma warning(disable: 4819)
+#pragma warning(disable: 28125)
 #endif
 
 NAMESPACE_BEGIN(System)

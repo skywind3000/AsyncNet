@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <assert.h>
 
+#include "imemkind.h"
 #include "inetbase.h"
 #include "inetevt.h"
 #include "inetkit.h"
@@ -31,7 +32,7 @@ static void async_tcp_evt_timer(CAsyncLoop *loop, CAsyncTimer *timer);
 // setup a new connection
 //---------------------------------------------------------------------
 CAsyncTcp *async_tcp_new(CAsyncLoop *loop,
-	int (*callback)(CAsyncTcp *tcp, int event, int args))
+	void (*callback)(CAsyncTcp *tcp, int event, int args))
 {
 	CAsyncTcp *tcp;
 
@@ -48,6 +49,9 @@ CAsyncTcp *async_tcp_new(CAsyncLoop *loop,
 	tcp->eof = 0;
 	tcp->error = -1;
 	tcp->enabled = 0;
+
+	tcp->postread = NULL;
+	tcp->prewrite = NULL;
 
 	ims_init(&tcp->sendbuf, &loop->memnode, 0, 0);
 	ims_init(&tcp->recvbuf, &loop->memnode, 0, 0);
@@ -72,6 +76,7 @@ CAsyncTcp *async_tcp_new(CAsyncLoop *loop,
 void async_tcp_delete(CAsyncTcp *tcp)
 {
 	CAsyncLoop *loop;
+
 	assert(tcp != NULL);
 
 	loop = tcp->loop;
@@ -119,7 +124,8 @@ static void async_tcp_dispatch(CAsyncTcp *tcp, int event, int args)
 {
 	if (tcp->loop && (tcp->loop->logmask & ASYNC_LOOP_LOG_TCP)) {
 		async_loop_log(tcp->loop, ASYNC_LOOP_LOG_TCP,
-			"[tcp] tcp dispatch event=%d, args=%d", event, args);
+			"[tcp] tcp dispatch fd=%d, event=%d, args=%d", 
+			tcp->fd, event, args);
 	}
 	if (tcp->callback) {
 		tcp->callback(tcp, event, args);
@@ -332,6 +338,9 @@ long async_tcp_try_reading(CAsyncTcp *tcp)
 			}
 			break;
 		}
+		if (tcp->postread != NULL) {
+			tcp->postread(tcp, buffer, retval);
+		}
 		ims_write(&tcp->recvbuf, buffer, retval);
 		total += retval;
 		if (retval < canread) break;
@@ -348,9 +357,10 @@ long async_tcp_try_writing(CAsyncTcp *tcp)
 	ilong total = 0;
 	while (tcp->sendbuf.size > 0) {
 		void *ptr = NULL;
+		long retval;
 		long size = (long)ims_flat(&tcp->sendbuf, &ptr);
 		if (size <= 0) break;
-		ilong retval = isend(tcp->fd, ptr, size, 0);
+		retval = isend(tcp->fd, ptr, size, 0);
 		if (retval == 0) break;
 		else if (retval < 0) {
 			retval = ierrno();
@@ -497,7 +507,22 @@ long async_tcp_read(CAsyncTcp *tcp, void *ptr, long size)
 //---------------------------------------------------------------------
 long async_tcp_write(CAsyncTcp *tcp, const void *ptr, long size)
 {
-	ims_write(&tcp->sendbuf, ptr, size);
+	if (tcp->prewrite == NULL) {
+		ims_write(&tcp->sendbuf, ptr, size);
+	}
+	else {
+		const char *lptr = (const char*)ptr;
+		char *data = tcp->buffer;
+		for (; size > 0; ) {
+			long canwrite = ASYNC_LOOP_BUFFER_SIZE;
+			long need = (canwrite < size)? canwrite : size;
+			memcpy(data, lptr, need);
+			tcp->prewrite(tcp, data, need);
+			ims_write(&tcp->sendbuf, data, need);
+			lptr += need;
+			size -= need;
+		}
+	}
 	if (tcp->sendbuf.size > 0) {
 		if (tcp->enabled & ASYNC_EVENT_WRITE) {
 			if (!async_event_active(&tcp->evt_write)) {
@@ -645,7 +670,7 @@ void async_listener_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 // create a new listener
 //---------------------------------------------------------------------
 CAsyncListener *async_listener_new(CAsyncLoop *loop,
-	int (*callback)(CAsyncListener *listener, int fd, 
+	void (*callback)(CAsyncListener *listener, int fd, 
 		const struct sockaddr *addr, int len))
 {
 	CAsyncListener *listener;
@@ -759,6 +784,473 @@ void async_listener_stop(CAsyncListener *listener)
 	if (listener->fd >= 0) {
 		iclose(listener->fd);
 		listener->fd = -1;
+	}
+}
+
+
+//=====================================================================
+// CAsyncUdp
+//=====================================================================
+
+static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask);
+static void async_udp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask);
+
+
+//---------------------------------------------------------------------
+// create a new CAsyncUdp object
+//---------------------------------------------------------------------
+CAsyncUdp *async_udp_new(CAsyncLoop *loop,
+	void (*callback)(CAsyncUdp *udp, int event, int args))
+{
+	CAsyncUdp *udp;
+
+	assert(loop);
+
+	udp = (CAsyncUdp*)ikmem_malloc(sizeof(CAsyncUdp));
+	if (udp == NULL) return NULL;
+
+	udp->loop = loop;
+	udp->callback = callback;
+	udp->user = NULL;
+	udp->data = loop->cache;
+	udp->fd = -1;
+	udp->enabled = 0;
+	udp->error = -1;
+
+	async_event_init(&udp->evt_read, async_udp_evt_read, -1, ASYNC_EVENT_READ);
+	async_event_init(&udp->evt_write, async_udp_evt_write, -1, ASYNC_EVENT_WRITE);
+
+	udp->evt_read.user = udp;
+	udp->evt_write.user = udp;
+
+	return udp;
+}
+
+
+//---------------------------------------------------------------------
+// delete CAsyncUdp object
+//---------------------------------------------------------------------
+void async_udp_delete(CAsyncUdp *udp)
+{
+	CAsyncLoop *loop;
+
+	assert(udp);
+	assert(udp->loop);
+
+	if (udp->fd >= 0) {
+		async_udp_close(udp);
+	}
+
+	loop = udp->loop;
+
+	udp->loop = NULL;
+	udp->callback = NULL;
+	udp->user = NULL;
+	udp->fd = -1;
+	udp->data = NULL;
+	udp->error = -1;
+	udp->enabled = 0;
+
+	if (async_event_active(&udp->evt_read)) {
+		async_event_stop(loop, &udp->evt_read);
+	}
+
+	if (async_event_active(&udp->evt_write)) {
+		async_event_stop(loop, &udp->evt_write);
+	}
+
+	ikmem_free(udp);
+}
+
+
+//---------------------------------------------------------------------
+// close udp
+//---------------------------------------------------------------------
+void async_udp_close(CAsyncUdp *udp)
+{
+	if (async_event_active(&udp->evt_read)) {
+		async_event_stop(udp->loop, &udp->evt_read);
+	}
+
+	if (async_event_active(&udp->evt_write)) {
+		async_event_stop(udp->loop, &udp->evt_write);
+	}
+
+	if (udp->fd >= 0) {
+		iclose(udp->fd);
+		udp->fd = -1;
+	}
+
+	udp->error = -1;
+	udp->enabled = 0;
+}
+
+
+//---------------------------------------------------------------------
+// open an udp socket
+//---------------------------------------------------------------------
+int async_udp_open(CAsyncUdp *udp, const struct sockaddr *addr, int addrlen, int flags)
+{
+	struct sockaddr local;
+	int family = (addr)? addr->sa_family : AF_INET;
+	int fd;
+	int ff = 0;
+
+	assert(udp);
+
+	if (udp->fd >= 0) {
+		async_udp_close(udp);
+	}
+
+	if (flags & ASYNC_UDP_FLAG_REUSEPORT) {
+		ff |= ISOCK_REUSEPORT;
+	}
+	else {
+		ff |= ISOCK_UNIXREUSE;
+	}
+
+	if (family == AF_INET6) {
+		if ((flags & ASYNC_UDP_FLAG_V6ONLY) == 0) {
+			ff |= 0x400;
+		}
+	}
+
+	if (addr == NULL) {
+		addr = &local;
+		memset(&local, 0, sizeof(local));
+		local.sa_family = AF_INET;
+	}
+
+	fd = isocket_udp_open(addr, addrlen, ff);
+
+	if (fd < 0) return -10;
+
+	return async_udp_assign(udp, fd);
+}
+
+
+//---------------------------------------------------------------------
+// assign an existing socket
+//---------------------------------------------------------------------
+int async_udp_assign(CAsyncUdp *udp, int fd)
+{
+	assert(udp);
+
+	udp->fd = fd;
+	udp->error = -1;
+	udp->enabled = 0;
+
+	fd = isocket_udp_init(fd, 0);
+
+	if (fd < 0) {
+		iclose(udp->fd);
+		udp->fd = -1;
+		return -1;
+	}
+
+	isocket_enable(udp->fd, ISOCK_NOBLOCK);
+	isocket_enable(udp->fd, ISOCK_CLOEXEC);
+
+	async_event_set(&udp->evt_read, fd, ASYNC_EVENT_READ);
+	async_event_set(&udp->evt_write, fd, ASYNC_EVENT_WRITE);
+
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// enable ASYNC_EVENT_READ/WRITE
+//---------------------------------------------------------------------
+void async_udp_enable(CAsyncUdp *udp, int event)
+{
+	if (event & ASYNC_EVENT_READ) {
+		udp->enabled |= ASYNC_EVENT_READ;
+		if (!async_event_is_active(&udp->evt_read)) {
+			async_event_start(udp->loop, &udp->evt_read);
+		}
+	}
+	if (event & ASYNC_EVENT_WRITE) {
+		udp->enabled |= ASYNC_EVENT_WRITE;
+		if (!async_event_is_active(&udp->evt_write)) {
+			async_event_start(udp->loop, &udp->evt_write);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// disable ASYNC_EVENT_READ/WRITE
+//---------------------------------------------------------------------
+void async_udp_disable(CAsyncUdp *udp, int event)
+{
+	if (event & ASYNC_EVENT_READ) {
+		udp->enabled &= ~ASYNC_EVENT_READ;
+		if (async_event_is_active(&udp->evt_read)) {
+			async_event_stop(udp->loop, &udp->evt_read);
+		}
+	}
+	if (event & ASYNC_EVENT_WRITE) {
+		udp->enabled &= ~ASYNC_EVENT_WRITE;
+		if (async_event_is_active(&udp->evt_write)) {
+			async_event_stop(udp->loop, &udp->evt_write);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// dispatch event
+//---------------------------------------------------------------------
+static void async_udp_dispatch(CAsyncUdp *udp, int event, int args)
+{
+	CAsyncLoop *loop = udp->loop;
+	if (loop && (loop->logmask & ASYNC_LOOP_LOG_UDP)) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_UDP,
+			"[udp] udp dispatch fd=%d, event=%d, args=%d", 
+			udp->fd, event, args);
+	}
+	if (udp->callback) {
+		udp->callback(udp, event, args);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// event: read
+//---------------------------------------------------------------------
+static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
+{
+	CAsyncUdp *udp = (CAsyncUdp*)evt->user;
+	if ((udp->enabled & ASYNC_EVENT_READ) == 0) {
+		if (async_event_is_active(&udp->evt_read)) {
+			async_event_stop(loop, &udp->evt_read);
+		}
+	}	
+	else {
+		async_udp_dispatch(udp, ASYNC_EVENT_READ, 0);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// event: write
+//---------------------------------------------------------------------
+static void async_udp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
+{
+	CAsyncUdp *udp = (CAsyncUdp*)evt->user;
+	if ((udp->enabled & ASYNC_EVENT_WRITE) == 0) {
+		if (async_event_is_active(&udp->evt_write)) {
+			async_event_stop(loop, &udp->evt_write);
+		}
+		return;
+	}
+	else {
+		async_udp_dispatch(udp, ASYNC_EVENT_WRITE, 0);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// send data
+//---------------------------------------------------------------------
+int async_udp_sendto(CAsyncUdp *udp, const void *ptr, long size, 
+	const struct sockaddr *addr, int addrlen)
+{
+	int hr = isendto(udp->fd, ptr, size, 0, addr, addrlen);
+	if (hr < 0) {
+		udp->error = ierrno();
+	}
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// receive from
+//---------------------------------------------------------------------
+int async_udp_recvfrom(CAsyncUdp *udp, void *ptr, long size, 
+	struct sockaddr *addr, int *addrlen)
+{
+	int hr = irecvfrom(udp->fd, ptr, size, 0, addr, addrlen);
+	if (hr < 0) {
+		udp->error = ierrno();
+	}
+	return hr;
+}
+
+
+
+//=====================================================================
+// CAsyncMessage
+//=====================================================================
+static void async_msg_evt_sem(CAsyncLoop *loop, CAsyncSemaphore *sem);
+
+
+//---------------------------------------------------------------------
+// create a new message
+//---------------------------------------------------------------------
+CAsyncMessage *async_msg_new(CAsyncLoop *loop,
+	int (*callback)(CAsyncMessage *message, int mid, 
+		IINT32 wparam, IINT32 lparam, const void *ptr, int size))
+{
+	CAsyncMessage *msg;
+
+	msg = (CAsyncMessage*)ikmem_malloc(sizeof(CAsyncMessage));
+	assert(msg != NULL);
+
+	msg->loop = loop;
+	msg->callback = callback;
+	msg->signaled = 0;
+	msg->user = NULL;
+	msg->active = 0;
+	msg->busy = 0;
+	msg->releasing = 0;
+
+	ims_init(&msg->queue, NULL, 4096, 4096);
+	async_sem_init(&msg->evt_sem, async_msg_evt_sem);
+	msg->evt_sem.user = msg;
+
+	msg->num_sem_post = 0;
+	msg->num_msg_post = 0;
+	msg->num_msg_read = 0;
+
+	IMUTEX_INIT(&msg->lock);
+
+	return msg;
+}
+
+
+//---------------------------------------------------------------------
+// delete message
+//---------------------------------------------------------------------
+void async_msg_delete(CAsyncMessage *msg)
+{
+	CAsyncLoop *loop = NULL;
+	assert(msg);
+	loop = msg->loop;
+	if (msg->busy != 0) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_ERROR,
+			"[msg] async_msg_delete: CAsyncMessage object is busy");
+		msg->releasing = 1;
+		return;
+	}
+	if (async_sem_is_active(&msg->evt_sem)) {
+		async_sem_stop(loop, &msg->evt_sem);
+	}
+	IMUTEX_LOCK(&msg->lock);
+	ims_destroy(&msg->queue);
+	msg->signaled = 0;
+	IMUTEX_UNLOCK(&msg->lock);
+	IMUTEX_DESTROY(&msg->lock);
+	async_sem_destroy(&msg->evt_sem);
+	msg->user = NULL;
+	msg->releasing = 0;
+	ikmem_free(msg);
+}
+
+
+//---------------------------------------------------------------------
+// start message listening
+//---------------------------------------------------------------------
+int async_msg_start(CAsyncMessage *msg)
+{
+	int cc;
+	if (async_sem_is_active(&msg->evt_sem)) {
+		return -1;
+	}
+	assert(msg->active == 0);
+	IMUTEX_LOCK(&msg->lock);
+	msg->signaled = 0;
+	IMUTEX_UNLOCK(&msg->lock);
+	cc = async_sem_start(msg->loop, &msg->evt_sem);
+	if (cc == 0) {
+		IMUTEX_LOCK(&msg->lock);
+		msg->active = 1;
+		IMUTEX_UNLOCK(&msg->lock);
+	}
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// stop message listening
+//---------------------------------------------------------------------
+int async_msg_stop(CAsyncMessage *msg)
+{
+	int cc;
+	if (!async_sem_is_active(&msg->evt_sem)) {
+		return -1;
+	}
+	assert(msg->active != 0);
+	cc = async_sem_stop(msg->loop, &msg->evt_sem);
+	if (cc == 0) {
+		IMUTEX_LOCK(&msg->lock);
+		msg->active = 0;
+		IMUTEX_UNLOCK(&msg->lock);
+	}
+	return cc;
+}
+
+
+//---------------------------------------------------------------------
+// post message from another thread
+//---------------------------------------------------------------------
+int async_msg_post(CAsyncMessage *msg, int mid, 
+	IINT32 wparam, IINT32 lparam, const void *ptr, int size)
+{
+	int signaled = 0;
+	int active = 0;
+	if (size + 16 >= ASYNC_LOOP_BUFFER_SIZE) {
+		return -1;
+	}
+	IMUTEX_LOCK(&msg->lock);
+	active = msg->active;
+	if (active) {
+		iposix_msg_push(&msg->queue, mid, wparam, lparam, ptr, size);
+		signaled = msg->signaled;
+		msg->signaled = 1;
+		msg->num_msg_post++;
+		if (signaled == 0) {
+			msg->num_sem_post++;
+		}
+	}
+	IMUTEX_UNLOCK(&msg->lock);
+	if (signaled == 0) {
+		if (active) {
+			async_sem_post(&msg->evt_sem);
+		}
+	}
+	return active? 0 : -1;
+}
+
+
+//---------------------------------------------------------------------
+// message handler
+//---------------------------------------------------------------------
+static void async_msg_evt_sem(CAsyncLoop *loop, CAsyncSemaphore *sem)
+{
+	CAsyncMessage *msg = (CAsyncMessage*)sem->user;
+	char *data = loop->cache;
+	int size;
+	msg->busy = 1;
+	while (1) {
+		IINT32 wparam = 0, lparam = 0, mid;
+		if (msg->releasing) break;
+		IMUTEX_LOCK(&msg->lock);
+		msg->signaled = 0;
+		size = iposix_msg_read(&msg->queue, &mid, &wparam, &lparam, data, 
+				ASYNC_LOOP_BUFFER_SIZE);
+		IMUTEX_UNLOCK(&msg->lock);
+		if (size < 0) break;
+		data[size] = '\0';   // ensure null-termination
+		msg->num_msg_read++;
+		if (msg->callback) {
+			msg->callback(msg, (int)mid, wparam, lparam, data, size);
+		}
+	}
+	msg->busy = 0;
+	if (msg->releasing) {
+		msg->releasing = 0;
+		async_msg_delete(msg);
 	}
 }
 

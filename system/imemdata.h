@@ -108,6 +108,7 @@ typedef unsigned long long IUINT64;
 #endif
 
 #ifdef _MSC_VER
+#pragma warning(disable: 4616)
 #pragma warning(disable: 6297)
 #endif
 
@@ -1721,6 +1722,8 @@ static inline void icrypt_xor_str(const void *src, void *dst,
 		}
 	}
 }
+
+
 
 
 #ifdef __cplusplus

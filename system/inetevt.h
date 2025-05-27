@@ -71,6 +71,7 @@ struct CAsyncSemaphore;
 struct CAsyncPostpone;
 struct CAsyncIdle;
 struct CAsyncOnce;
+struct CAsyncSubscribe;
 
 typedef struct CAsyncLoop CAsyncLoop;
 typedef struct CAsyncEvent CAsyncEvent;
@@ -79,6 +80,7 @@ typedef struct CAsyncSemaphore CAsyncSemaphore;
 typedef struct CAsyncPostpone CAsyncPostpone;
 typedef struct CAsyncIdle CAsyncIdle;
 typedef struct CAsyncOnce CAsyncOnce;
+typedef struct CAsyncSubscribe CAsyncSubscribe;
 
 
 //---------------------------------------------------------------------
@@ -174,53 +176,82 @@ struct CAsyncOnce {
 
 
 //---------------------------------------------------------------------
+// CAsyncSubscribe - for subscribing to topics
+//---------------------------------------------------------------------
+struct CAsyncSubscribe {
+	ilist_head node;
+	int active;
+	int pending;
+	int topic;
+	int (*callback)(CAsyncLoop *loop, CAsyncSubscribe *sub, 
+			const void *data, int size);
+	void *user;
+};
+
+
+//---------------------------------------------------------------------
+// CAsyncTopic - for topic management
+//---------------------------------------------------------------------
+typedef struct CAsyncTopic {
+	struct ib_hash_node hash_node;
+	ilist_head list_head;
+}	CAsyncTopic;
+
+
+//---------------------------------------------------------------------
 // CAsyncLoop - centralized event manager and dispatcher
 //---------------------------------------------------------------------
 struct CAsyncLoop {
-	CAsyncEntry *fds;
-	int fds_size;
-	CAsyncPending *pending;
-	int pending_size;
-	int pending_index;
-	int *changes;
-	int changes_size;
-	int changes_index;
-	int xfd[4];
-	int watching;
-	int depth;
-	int num_events;
-	int num_timers;
-	int num_semaphore;
-	int num_postpone;
-	int exiting;
-	char *buffer;
-	char *cache;
-	ipolld poller;
-	IUINT32 sid_index;
-	IUINT32 current;
-	IUINT32 jiffies;
-	IINT64 timestamp;
-	IINT64 monotonic;
-	IINT64 iteration;
-	IINT64 reseted;
-	IMUTEX_TYPE lock_xfd;
-	IMUTEX_TYPE lock_queue;
-	ib_array *sem_dict;
-	ib_array *array_idle;
-	ib_array *array_once;
-	ilist_head list_post;
-	ilist_head list_idle;
-	ilist_head list_once;
-	struct IVECTOR v_pending;
-	struct IVECTOR v_changes;
-	struct IVECTOR v_queue;
-	struct IVECTOR v_semaphore;
-	struct IMEMNODE semnode;
-	struct IMEMNODE memnode;
-	void *self;
-	void *user;
-	int logmask;
-	void *logger;
+	CAsyncEntry *fds;              // file descriptor entries
+	int fds_size;                  // size of fds array
+	CAsyncPending *pending;        // pending events
+	int pending_size;              // size of pending array
+	int pending_index;             // index of pending events
+	int *changes;                  // changes of file descriptors
+	int changes_size;              // size of changes array
+	int changes_index;             // index of changes
+	int xfd[4];                    // extra file descriptors for wakeup
+	int watching;                  // number of watching events
+	int depth;                     // depth of the loop
+	int num_events;                // number of events
+	int num_timers;                // number of timers
+	int num_semaphore;             // number of semaphores
+	int num_postpone;              // number of postpone events
+	int exiting;                   // exit flag
+	char *internal;                // a static buffer for internal usage
+	char *buffer;                  // a static buffer for arbitrary usage
+	char *cache;                   // an extra buffer for external usage
+	ipolld poller;                 // poller for I/O events
+	IUINT32 sid_index;             // sid index
+	IUINT32 current;               // current time in milliseconds
+	IUINT32 jiffies;               // jiffies for timers
+	IINT64 timestamp;              // current time in nanoseconds
+	IINT64 monotonic;              // monotonic time in nanoseconds;
+	IINT64 iteration;              // iteration count
+	IINT64 reseted;                // fd reset count
+	IMUTEX_TYPE lock_xfd;          // lock for xfd
+	IMUTEX_TYPE lock_queue;        // lock for pending queue
+	ib_array *sem_dict;            // semaphore dictionary
+	ib_array *array_idle;          // idle array
+	ib_array *array_once;          // once array
+	ilist_head list_post;          // postpone list
+	ilist_head list_idle;          // idle list
+	ilist_head list_once;          // once list
+	struct IVECTOR v_pending;      // pending events vector
+	struct IVECTOR v_changes;      // changes vector
+	struct IVECTOR v_queue;        // queue vector for pending events
+	struct IVECTOR v_semaphore;    // semaphore vector for semaphores
+	struct IMEMNODE semnode;       // semaphore memory node
+	struct IMEMNODE memnode;       // memory node for internal usage
+	void *self;         // this pointer for loop object (for C++ wrapper)
+	void *user;         // user data pointer for loop object
+	void *extension;    // external data pointer for extension;
+	int logmask;        // log mask for loop object
+	void *logger;       // logger for loop object, can be NULL
+	struct IMSTREAM topic_queue;
+	struct ib_hash_table topic_table;
+	struct ib_fastbin topic_bins;
+	struct ib_array *topic_array;
 	void (*writelog)(void *logger, const char *msg);
 	void (*on_once)(CAsyncLoop *loop);
 	void (*on_timer)(CAsyncLoop *loop);
@@ -245,23 +276,25 @@ struct CAsyncLoop {
 #define async_post_is_active(e) ((e)->active != 0)
 #define async_once_is_active(e) ((e)->active != 0)
 #define async_idle_is_active(e) ((e)->active != 0)
+#define async_sub_is_active(e) ((e)->active != 0)
 
 
 //---------------------------------------------------------------------
 // LOG MASK
 //---------------------------------------------------------------------
-#define ASYNC_LOOP_LOG_ERROR    0x01
-#define ASYNC_LOOP_LOG_WARN     0x02
-#define ASYNC_LOOP_LOG_INFO     0x04
-#define ASYNC_LOOP_LOG_DEBUG    0x08
-#define ASYNC_LOOP_LOG_POLL     0x10
-#define ASYNC_LOOP_LOG_EVENT    0x20
-#define ASYNC_LOOP_LOG_TIMER    0x40
-#define ASYNC_LOOP_LOG_SEM      0x80
-#define ASYNC_LOOP_LOG_POST     0x100
-#define ASYNC_LOOP_LOG_IDLE     0x200
-#define ASYNC_LOOP_LOG_ONCE     0x400
-#define ASYNC_LOOP_LOG_USER     0x800
+#define ASYNC_LOOP_LOG_ERROR      0x01
+#define ASYNC_LOOP_LOG_WARN       0x02
+#define ASYNC_LOOP_LOG_INFO       0x04
+#define ASYNC_LOOP_LOG_DEBUG      0x08
+#define ASYNC_LOOP_LOG_POLL       0x10
+#define ASYNC_LOOP_LOG_EVENT      0x20
+#define ASYNC_LOOP_LOG_TIMER      0x40
+#define ASYNC_LOOP_LOG_SEM        0x80
+#define ASYNC_LOOP_LOG_POST       0x100
+#define ASYNC_LOOP_LOG_IDLE       0x200
+#define ASYNC_LOOP_LOG_ONCE       0x400
+#define ASYNC_LOOP_LOG_SUB        0x800
+#define ASYNC_LOOP_LOG_USER       0x1000
 
 #define ASYNC_LOOP_LOG_CUSTOMIZE(n) ((ASYNC_LOOP_LOG_USER) << (n))
 
@@ -271,7 +304,7 @@ struct CAsyncLoop {
 //---------------------------------------------------------------------
 
 // CAsyncLoop ctor
-CAsyncLoop *async_loop_new(void);
+CAsyncLoop* async_loop_new(void);
 
 // CAsyncLoop dtor
 void async_loop_delete(CAsyncLoop *loop);
@@ -284,6 +317,9 @@ void async_loop_run(CAsyncLoop *loop);
 
 // Stop the loop
 void async_loop_exit(CAsyncLoop *loop);
+
+// publish data to a topic
+void async_loop_pub(CAsyncLoop *loop, int topic, const void *data, int size);
 
 // write log
 void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...);
@@ -409,6 +445,22 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once);
 
 // returns non-zero if the once is active
 int async_once_active(const CAsyncOnce *once);
+
+
+//---------------------------------------------------------------------
+// CAsyncSubscribe - for subscribing to topics
+//---------------------------------------------------------------------
+
+// initialize a CAsyncSubscribe object
+void async_sub_init(CAsyncSubscribe *sub, int (*callback)(CAsyncLoop *loop, 
+		CAsyncSubscribe *sub, const void *data, int size));
+
+// start watching topic
+int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic);
+
+// stop watching topic
+int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub);
+
 
 
 #ifdef __cplusplus
