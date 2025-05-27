@@ -1,6 +1,6 @@
 //=====================================================================
 //
-// inetevt.h - Compact async event library for efficient I/O handling
+// inetevt.c - Compact async event library for efficient I/O handling
 // skywind3000 (at) gmail.com, 2006-2016
 //
 // DESCRIPTION:
@@ -16,6 +16,7 @@
 // - Semaphores for thread synchronization 
 // - Idle event handling for background tasks
 // - One-time event execution
+// - Topic subscription and publishing
 // - Cross-platform support
 //
 // The CAsyncLoop serves as the central event dispatcher, managing

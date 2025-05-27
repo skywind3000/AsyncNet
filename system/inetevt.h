@@ -16,6 +16,7 @@
 // - Semaphores for thread synchronization 
 // - Idle event handling for background tasks
 // - One-time event execution
+// - Topic subscription and publishing
 // - Cross-platform support
 //
 // The CAsyncLoop serves as the central event dispatcher, managing
