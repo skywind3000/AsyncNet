@@ -123,12 +123,12 @@ struct ITCPCB
 
 	IUINT32 snd_una, snd_nxt, snd_wnd, last_send, slen;
 	ilist_head slist;
-	iring_t scache;
+	struct IRING scache;
 	char *sbuf;
 
 	IUINT32 rcv_nxt, rcv_wnd, last_recv, rlen;
 	ilist_head rlist;
-	iring_t rcache;
+	struct IRING rcache;
 	char *rbuf;
 
 	IUINT32 mtu, mss, omtu, largest;

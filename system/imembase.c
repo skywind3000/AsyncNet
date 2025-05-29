@@ -3,6 +3,12 @@
  * imembase.c - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
+ * Provides efficient memory operations, dynamic containers, and data
+ * structures including allocators, vectors, memory pools, AVL trees,
+ * hash tables, strings, and arrays with cross-platform support.
+ * 
+ * For more information, please see the readme file.
+ *
  **********************************************************************/
 
 #include "imembase.h"
@@ -1262,11 +1268,23 @@ void ib_fastbin_init(struct ib_fastbin *fb, size_t obj_size)
 	fb->maximum = (align <= 2)? fb->page_size : 0x10000;
 }
 
+static inline void* ib_read_ptr(const void *src)
+{
+	void *ptr;
+	memcpy(&ptr, src, sizeof(void*));
+	return ptr;
+}
+
+static inline void ib_write_ptr(void *dst, const void *ptr)
+{
+	memcpy(dst, &ptr, sizeof(void*));
+}
+
 void ib_fastbin_destroy(struct ib_fastbin *fb)
 {
 	while (fb->pages) {
 		void *page = fb->pages;
-		void *next = IB_NEXT(page);
+		void *next = ib_read_ptr(page);
 		fb->pages = next;
 		ikmem_free(page);
 	}
@@ -1282,14 +1300,14 @@ void* ib_fastbin_new(struct ib_fastbin *fb)
 	void *obj;
 	obj = fb->next;
 	if (obj) {
-		fb->next = IB_NEXT(fb->next);
+		fb->next = ib_read_ptr(fb->next);
 		return obj;
 	}
 	if (fb->start + obj_size > fb->endup) {
 		char *page = (char*)ikmem_malloc(fb->page_size);
 		size_t lineptr = (size_t)page;
 		ASSERTION(page);
-		IB_NEXT(page) = fb->pages;
+		ib_write_ptr(page, fb->pages);
 		fb->pages = page;
 		lineptr = (lineptr + sizeof(void*) + 15) & (~15);
 		fb->start = (char*)lineptr;
@@ -1306,7 +1324,7 @@ void* ib_fastbin_new(struct ib_fastbin *fb)
 
 void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 {
-	IB_NEXT(ptr) = fb->next;
+	ib_write_ptr(ptr, fb->next);
 	fb->next = ptr;
 }
 

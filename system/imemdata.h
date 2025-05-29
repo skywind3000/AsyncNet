@@ -14,8 +14,8 @@
  *
  **********************************************************************/
 
-#ifndef __IMEMDATA_H__
-#define __IMEMDATA_H__
+#ifndef _IMEMDATA_H_
+#define _IMEMDATA_H_
 
 #include "imembase.h"
 
@@ -27,7 +27,7 @@
 
 
 /**********************************************************************
- * Global Macros
+ * INTEGER DEFINITION
  **********************************************************************/
 #ifndef __IINT64_DEFINED
 #define __IINT64_DEFINED
@@ -45,26 +45,6 @@ typedef unsigned __int64 IUINT64;
 #else
 typedef unsigned long long IUINT64;
 #endif
-#endif
-
-#ifndef INLINE
-#if defined(__GNUC__)
-
-#if (__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 1))
-#define INLINE         __inline__ __attribute__((always_inline))
-#else
-#define INLINE         __inline__
-#endif
-
-#elif (defined(_MSC_VER) || defined(__BORLANDC__) || defined(__WATCOMC__))
-#define INLINE __inline
-#else
-#define INLINE 
-#endif
-#endif
-
-#if (!defined(__cplusplus)) && (!defined(inline))
-#define inline INLINE
 #endif
 
 
@@ -115,6 +95,231 @@ typedef unsigned long long IUINT64;
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+
+/*====================================================================*/
+/* IRING: The struct definition of the ring buffer                    */
+/*====================================================================*/
+struct IRING			/* ci-buffer type */
+{
+	char *data;			/* buffer ptr */
+	ilong capacity;		/* buffer capacity */
+	ilong head;			/* read ptr */
+};
+
+
+/* init circle cache */
+void iring_init(struct IRING *ring, void *buffer, ilong capacity);
+
+/* move head forward */
+ilong iring_advance(struct IRING *ring, ilong offset);
+
+/* fetch data from given position */
+ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len);
+
+/* store data to certain position */
+ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len);
+
+/* get flat ptr and returns flat size */
+ilong iring_flat(const struct IRING *ring, void **pointer);
+
+/* fill data into position */
+ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len);
+
+/* swap internal buffer */
+void iring_swap(struct IRING *ring, void *buffer, ilong capacity);
+
+
+/*====================================================================*/
+/* IMSTREAM: In-Memory FIFO Buffer                                    */
+/*====================================================================*/
+struct IMSTREAM
+{
+	struct IMEMNODE *fixed_pages;
+	struct ILISTHEAD head;
+	struct ILISTHEAD lru;
+	iulong pos_read;
+	iulong pos_write;
+	iulong size;
+	iulong lrusize;
+	ilong hiwater;
+	ilong lowater; 
+};
+
+/* init memory stream */
+void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high);
+
+/* destroy memory stream */
+void ims_destroy(struct IMSTREAM *s);
+
+/* get data size */
+ilong ims_dsize(const struct IMSTREAM *s);
+
+/* write data into memory stream */
+ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size);
+
+/* read (and drop) data from memory stream */
+ilong ims_read(struct IMSTREAM *s, void *ptr, ilong size);
+
+/* peek (no drop) data from memory stream */
+ilong ims_peek(const struct IMSTREAM *s, void *ptr, ilong size);
+
+/* drop data from memory stream */
+ilong ims_drop(struct IMSTREAM *s, ilong size);
+
+/* clear stream */
+void ims_clear(struct IMSTREAM *s);
+
+/* get flat ptr and size */
+ilong ims_flat(const struct IMSTREAM *s, void **pointer);
+
+/* move data from source to destination */
+ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
+
+
+/*====================================================================*/
+/* Common string operation (not be defined in some compiler)          */
+/*====================================================================*/
+#define ITOUPPER(a) (((a) >= 97 && (a) <= 122) ? ((a) - 32) : (a))
+
+#define ILONG_MAX	((ilong)((~0ul) >> 1))
+#define ILONG_MIN	(-ILONG_MAX - 1)
+
+#define IINT64_MAX	((IINT64)((~((IUINT64)0)) >> 1))
+#define IINT64_MIN	(-IINT64_MAX - 1)
+
+
+/* strcasestr implementation */
+char* istrcasestr(char* s1, char* s2);  
+
+/* strncasecmp implementation */
+int istrncasecmp(char* s1, char* s2, size_t num);
+
+/* strsep implementation */
+char *istrsep(char **stringp, const char *delim);
+
+/* strtol implementation */
+long istrtol(const char *nptr, const char **endptr, int ibase);
+
+/* strtoul implementation */
+unsigned long istrtoul(const char *nptr, const char **endptr, int ibase);
+
+/* istrtoll implementation */
+IINT64 istrtoll(const char *nptr, const char **endptr, int ibase);
+
+/* istrtoull implementation */
+IUINT64 istrtoull(const char *nptr, const char **endptr, int ibase);
+
+/* iltoa implementation */
+int iltoa(long val, char *buf, int radix);
+
+/* iultoa implementation */
+int iultoa(unsigned long val, char *buf, int radix);
+
+/* iltoa implementation */
+int illtoa(IINT64 val, char *buf, int radix);
+
+/* iultoa implementation */
+int iulltoa(IUINT64 val, char *buf, int radix);
+
+/* istrstrip implementation */
+char *istrstrip(char *ptr, const char *delim);
+
+/* string escape */
+ilong istrsave(const char *src, ilong size, char *out);
+
+/* string un-escape */
+ilong istrload(const char *src, ilong size, char *out);
+
+/* csv tokenizer */
+const char *istrcsvtok(const char *text, ilong *next, ilong *size);
+
+
+/*====================================================================*/
+/* BASE64 / BASE32 / BASE16                                           */
+/*====================================================================*/
+
+/* encode data as a base64 string, returns string size,
+   if dst == NULL, returns how many bytes needed for encode (>=real) */
+ilong ibase64_encode(const void *src, ilong size, char *dst);
+
+/* decode a base64 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase64_decode(const char *src, ilong size, void *dst);
+
+/* encode data as a base32 string, returns string size,
+   if dst == NULL, returns how many bytes needed for encode (>=real) */
+ilong ibase32_encode(const void *src, ilong size, char *dst);
+
+/* decode a base32 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase32_decode(const char *src, ilong size, void *dst);
+
+/* encode data as a base16 string, returns string size,
+   the 'dst' output size is (2 * size). '\0' isn't appended */
+ilong ibase16_encode(const void *src, ilong size, char *dst);
+
+/* decode a base16 string into data, returns data size 
+   if dst == NULL, returns how many bytes needed for decode (>=real) */
+ilong ibase16_decode(const char *src, ilong size, void *dst);
+
+
+/*====================================================================*/
+/* RC4                                                                */
+/*====================================================================*/
+
+/* rc4 init */
+void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
+	const unsigned char *key, int keylen);
+
+/* rc4_crypt */
+void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
+	const unsigned char *src, unsigned char *dst, ilong size);
+
+
+/*====================================================================*/
+/* UTF-8/16/32 conversion                                             */
+/*====================================================================*/
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+		IUINT16 **targetStart, IUINT16 *targetEnd, int strict);
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+		IUINT32 **targetStart, IUINT32 *targetEnd, int strict);
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+		IUINT8 **targetStart, IUINT8 *targetEnd, int strict);
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+		IUINT32 **targetStart, IUINT32 *targetEnd, int strict);
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+		IUINT8 **targetStart, IUINT8 *targetEnd, int strict);
+
+/* returns 0 for success, -1 for source exhausted,
+ * -2 for target exhausted, -3 for invalid character */
+int iconv_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+		IUINT16 **targetStart, IUINT16 *targetEnd, int strict);
+
+/* check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal */
+int iconv_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd);
+
+/* count characters in UTF-8 string, returns -1 for illegal sequence */
+int iconv_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd);
+
+/* count characters in UTF-16 string, returns -1 for illegal sequence */
+int iconv_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd);
+
 
 
 /**********************************************************************
@@ -1281,94 +1486,6 @@ static inline IUINT32 iexbyte32(IUINT32 dword)
 
 
 /**********************************************************************
- * IRING: The struct definition of the ring buffer
- **********************************************************************/
-struct IRING			/* ci-buffer type */
-{
-	char *data;			/* buffer ptr */
-	ilong capacity;		/* buffer capacity */
-	ilong head;			/* read ptr */
-};
-
-typedef struct IRING iring_t;
-
-
-/**********************************************************************
- * Functions: Basic Operation on a cache
- **********************************************************************/
-
-/* init circle cache */
-void iring_init(struct IRING *ring, void *buffer, ilong capacity);
-
-/* move head forward */
-ilong iring_advance(struct IRING *ring, ilong offset);
-
-/* fetch data from given position */
-ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len);
-
-/* store data to certain position */
-ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len);
-
-/* get flat ptr and returns flat size */
-ilong iring_flat(const struct IRING *ring, void **pointer);
-
-/* fill data into position */
-ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len);
-
-/* swap internal buffer */
-void iring_swap(struct IRING *ring, void *buffer, ilong capacity);
-
-
-
-/**********************************************************************
- * IMSTREAM: The struct definition of the memory stream descriptor
- **********************************************************************/
-struct IMSTREAM
-{
-	struct IMEMNODE *fixed_pages;
-	struct ILISTHEAD head;
-	struct ILISTHEAD lru;
-	iulong pos_read;
-	iulong pos_write;
-	iulong size;
-	iulong lrusize;
-	ilong hiwater;
-	ilong lowater; 
-};
-
-/* init memory stream */
-void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high);
-
-/* destroy memory stream */
-void ims_destroy(struct IMSTREAM *s);
-
-/* get data size */
-ilong ims_dsize(const struct IMSTREAM *s);
-
-/* write data into memory stream */
-ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size);
-
-/* read (and drop) data from memory stream */
-ilong ims_read(struct IMSTREAM *s, void *ptr, ilong size);
-
-/* peek (no drop) data from memory stream */
-ilong ims_peek(const struct IMSTREAM *s, void *ptr, ilong size);
-
-/* drop data from memory stream */
-ilong ims_drop(struct IMSTREAM *s, ilong size);
-
-/* clear stream */
-void ims_clear(struct IMSTREAM *s);
-
-/* get flat ptr and size */
-ilong ims_flat(const struct IMSTREAM *s, void **pointer);
-
-/* move data from source to destination */
-ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
-
-
-
-/**********************************************************************
  * 32 bits unsigned integer operation
  **********************************************************************/
 static inline IUINT32 _imin(IUINT32 a, IUINT32 b) {
@@ -1407,65 +1524,6 @@ static inline void _ibit_set(void *data, ilong index, int value)
 	mask = ~((unsigned char)1 << offset);
 	ptr[0] = (ptr[0] & mask) | (val << offset);
 }
-
-
-/**********************************************************************
- * common string operation (not be defined in some compiler)
- **********************************************************************/
-
-#define ITOUPPER(a) (((a) >= 97 && (a) <= 122) ? ((a) - 32) : (a))
-
-#define ILONG_MAX	((ilong)((~0ul) >> 1))
-#define ILONG_MIN	(-ILONG_MAX - 1)
-
-#define IINT64_MAX	((IINT64)((~((IUINT64)0)) >> 1))
-#define IINT64_MIN	(-IINT64_MAX - 1)
-
-
-/* strcasestr implementation */
-char* istrcasestr(char* s1, char* s2);  
-
-/* strncasecmp implementation */
-int istrncasecmp(char* s1, char* s2, size_t num);
-
-/* strsep implementation */
-char *istrsep(char **stringp, const char *delim);
-
-/* strtol implementation */
-long istrtol(const char *nptr, const char **endptr, int ibase);
-
-/* strtoul implementation */
-unsigned long istrtoul(const char *nptr, const char **endptr, int ibase);
-
-/* istrtoll implementation */
-IINT64 istrtoll(const char *nptr, const char **endptr, int ibase);
-
-/* istrtoull implementation */
-IUINT64 istrtoull(const char *nptr, const char **endptr, int ibase);
-
-/* iltoa implementation */
-int iltoa(long val, char *buf, int radix);
-
-/* iultoa implementation */
-int iultoa(unsigned long val, char *buf, int radix);
-
-/* iltoa implementation */
-int illtoa(IINT64 val, char *buf, int radix);
-
-/* iultoa implementation */
-int iulltoa(IUINT64 val, char *buf, int radix);
-
-/* istrstrip implementation */
-char *istrstrip(char *ptr, const char *delim);
-
-/* string escape */
-ilong istrsave(const char *src, ilong size, char *out);
-
-/* string un-escape */
-ilong istrload(const char *src, ilong size, char *out);
-
-/* csv tokenizer */
-const char *istrcsvtok(const char *text, ilong *next, ilong *size);
 
 
 /**********************************************************************
@@ -1630,49 +1688,6 @@ istring_list_t *istring_list_split(const char *text, ilong len,
 /* join string list */
 int istring_list_join(const istring_list_t *strings, const char *str, 
 	ilong size, ivalue_t *output);
-
-
-/**********************************************************************
- * BASE64 / BASE32 / BASE16
- **********************************************************************/
-
-/* encode data as a base64 string, returns string size,
-   if dst == NULL, returns how many bytes needed for encode (>=real) */
-ilong ibase64_encode(const void *src, ilong size, char *dst);
-
-/* decode a base64 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
-ilong ibase64_decode(const char *src, ilong size, void *dst);
-
-/* encode data as a base32 string, returns string size,
-   if dst == NULL, returns how many bytes needed for encode (>=real) */
-ilong ibase32_encode(const void *src, ilong size, char *dst);
-
-/* decode a base32 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
-ilong ibase32_decode(const char *src, ilong size, void *dst);
-
-/* encode data as a base16 string, returns string size,
-   the 'dst' output size is (2 * size). '\0' isn't appended */
-ilong ibase16_encode(const void *src, ilong size, char *dst);
-
-/* decode a base16 string into data, returns data size 
-   if dst == NULL, returns how many bytes needed for decode (>=real) */
-ilong ibase16_decode(const char *src, ilong size, void *dst);
-
-
-
-/**********************************************************************
- * RC4
- **********************************************************************/
-
-/* rc4 init */
-void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
-	const unsigned char *key, int keylen);
-
-/* rc4_crypt */
-void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
-	const unsigned char *src, unsigned char *dst, ilong size);
 
 
 /**********************************************************************

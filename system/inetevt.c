@@ -280,6 +280,7 @@ CAsyncLoop* async_loop_new(void)
 //---------------------------------------------------------------------
 void async_loop_delete(CAsyncLoop *loop)
 {
+	void *ptr;
 	int i;
 
 	assert(loop != NULL);
@@ -373,6 +374,12 @@ void async_loop_delete(CAsyncLoop *loop)
 	loop->topic_array = NULL;
 	ims_destroy(&loop->topic_queue);
 	ib_fastbin_destroy(&loop->topic_bins);
+
+	ptr = ib_hash_swap(&loop->topic_table, NULL, 0);
+
+	if (ptr) {
+		ikmem_free(ptr);
+	}
 
 	imnode_destroy(&loop->memnode);
 	imnode_destroy(&loop->semnode);
@@ -1830,6 +1837,21 @@ static CAsyncTopic* async_loop_topic_get(CAsyncLoop *loop, int topic)
 		ib_hash_node_key(&loop->topic_table, &topic_ptr->hash_node, 
 				(void*)uint_key);
 		ib_hash_add(&loop->topic_table, &topic_ptr->hash_node);
+		if (loop->topic_table.count * 2 > loop->topic_table.index_size) {
+			size_t required = loop->topic_table.count * 2;
+			size_t initsize = 4;
+			size_t allocate;
+			void *ptr, *old;
+			while (initsize < required) { 
+				initsize *= 2; 
+			}
+			allocate = initsize * sizeof(struct ib_hash_index);
+			ptr = (char*)ikmem_malloc(allocate);
+			old = ib_hash_swap(&loop->topic_table, ptr, allocate);
+			if (old) {
+				ikmem_free(old);
+			}
+		}
 	}
 	return topic_ptr;
 }

@@ -3,10 +3,16 @@
  * imembase.h - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
+ * Provides efficient memory operations, dynamic containers, and data
+ * structures including allocators, vectors, memory pools, AVL trees,
+ * hash tables, strings, and arrays with cross-platform support.
+ * 
+ * For more information, please see the readme file.
+ *
  **********************************************************************/
 
-#ifndef __IMEMBASE_H__
-#define __IMEMBASE_H__
+#ifndef _IMEMBASE_H_
+#define _IMEMBASE_H_
 
 #ifdef IHAVE_CONFIG_H
 #include "config.h"
@@ -17,9 +23,9 @@
 #include <string.h>
 
 
-/**********************************************************************
- * 32BIT INTEGER DEFINITION 
- **********************************************************************/
+/*====================================================================*/
+/* PORTABLE 32BIT INTEGER DEFINITION                                  */
+/*====================================================================*/
 #ifndef __INTEGER_32_BITS__
 #define __INTEGER_32_BITS__
 #if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
@@ -68,9 +74,9 @@
 #endif
 
 
-/**********************************************************************
- * Global Macros
- **********************************************************************/
+/*====================================================================*/
+/* 8/16/32 BIT INTEGER DEFINITION                                     */
+/*====================================================================*/
 #ifndef __IUINT8_DEFINED
 #define __IUINT8_DEFINED
 typedef unsigned char IUINT8;
@@ -849,8 +855,8 @@ struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm,
 		struct ib_hash_entry *n);
 
 struct ib_hash_entry* ib_map_find(struct ib_hash_map *hm, const void *key);
-void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval);
 
+void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval);
 
 struct ib_hash_entry* ib_map_add(struct ib_hash_map *hm, 
 		void *key, void *value, int *success);
