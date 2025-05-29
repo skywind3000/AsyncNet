@@ -321,6 +321,267 @@ int iconv_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd);
 int iconv_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd);
 
 
+/*====================================================================*/
+/* INTEGER ENCODING/DECODING                                          */
+/*====================================================================*/
+
+/* encode 8 bits unsigned int */
+static inline char *iencode8u(char *p, unsigned char c) {
+	*(unsigned char*)p++ = c;
+	return p;
+}
+
+/* decode 8 bits unsigned int */
+static inline const char *idecode8u(const char *p, unsigned char *c) {
+	*c = *(unsigned char*)p++;
+	return p;
+}
+
+/* encode 16 bits unsigned int (lsb) */
+static inline char *iencode16u_lsb(char *p, unsigned short w) {
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
+	*(unsigned char*)(p + 0) = (w & 255);
+	*(unsigned char*)(p + 1) = (w >> 8);
+#else
+	memcpy(p, &w, 2);
+#endif
+	p += 2;
+	return p;
+}
+
+/* decode 16 bits unsigned int (lsb) */
+static inline const char *idecode16u_lsb(const char *p, unsigned short *w) {
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
+	*w = *(const unsigned char*)(p + 1);
+	*w = *(const unsigned char*)(p + 0) + (*w << 8);
+#else
+	memcpy(w, p, 2);
+#endif
+	p += 2;
+	return p;
+}
+
+/* encode 16 bits unsigned int (msb) */
+static inline char *iencode16u_msb(char *p, unsigned short w) {
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
+	memcpy(p, &w, 2);
+#else
+	*(unsigned char*)(p + 0) = (w >> 8);
+	*(unsigned char*)(p + 1) = (w & 255);
+#endif
+	p += 2;
+	return p;
+}
+
+/* decode 16 bits unsigned int (msb) */
+static inline const char *idecode16u_msb(const char *p, unsigned short *w) {
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
+	memcpy(w, p, 2);
+#else
+	*w = *(const unsigned char*)(p + 0);
+	*w = *(const unsigned char*)(p + 1) + (*w << 8);
+#endif
+	p += 2;
+	return p;
+}
+
+/* encode 32 bits unsigned int (lsb) */
+static inline char *iencode32u_lsb(char *p, IUINT32 l) {
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
+	*(unsigned char*)(p + 0) = (unsigned char)((l >>  0) & 0xff);
+	*(unsigned char*)(p + 1) = (unsigned char)((l >>  8) & 0xff);
+	*(unsigned char*)(p + 2) = (unsigned char)((l >> 16) & 0xff);
+	*(unsigned char*)(p + 3) = (unsigned char)((l >> 24) & 0xff);
+#else
+	memcpy(p, &l, 4);
+#endif
+	p += 4;
+	return p;
+}
+
+/* decode 32 bits unsigned int (lsb) */
+static inline const char *idecode32u_lsb(const char *p, IUINT32 *l) {
+#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
+	*l = *(const unsigned char*)(p + 3);
+	*l = *(const unsigned char*)(p + 2) + (*l << 8);
+	*l = *(const unsigned char*)(p + 1) + (*l << 8);
+	*l = *(const unsigned char*)(p + 0) + (*l << 8);
+#else 
+	memcpy(l, p, 4);
+#endif
+	p += 4;
+	return p;
+}
+
+/* encode 32 bits unsigned int (msb) */
+static inline char *iencode32u_msb(char *p, IUINT32 l) {
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
+	memcpy(p, &l, 4);
+#else
+	*(unsigned char*)(p + 0) = (unsigned char)((l >> 24) & 0xff);
+	*(unsigned char*)(p + 1) = (unsigned char)((l >> 16) & 0xff);
+	*(unsigned char*)(p + 2) = (unsigned char)((l >>  8) & 0xff);
+	*(unsigned char*)(p + 3) = (unsigned char)((l >>  0) & 0xff);
+#endif
+	p += 4;
+	return p;
+}
+
+/* decode 32 bits unsigned int (msb) */
+static inline const char *idecode32u_msb(const char *p, IUINT32 *l) {
+#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
+	memcpy(l, p, 4);
+#else 
+	*l = *(const unsigned char*)(p + 0);
+	*l = *(const unsigned char*)(p + 1) + (*l << 8);
+	*l = *(const unsigned char*)(p + 2) + (*l << 8);
+	*l = *(const unsigned char*)(p + 3) + (*l << 8);
+#endif
+	p += 4;
+	return p;
+}
+
+/* encode 8 bits int */
+static inline char *iencode8i(char *p, char c) {
+	iencode8u(p, (unsigned char)c);
+	return p + 1;
+}
+
+/* decode 8 bits int */
+static inline const char *idecode8i(const char *p, char *c) {
+	idecode8u(p, (unsigned char*)c);
+	return p + 1;
+}
+
+/* encode 16 bits int */
+static inline char *iencode16i_lsb(char *p, short w) {
+	iencode16u_lsb(p, (unsigned short)w);
+	return p + 2;
+}
+
+/* decode 16 bits int */
+static inline const char *idecode16i_lsb(const char *p, short *w) {
+	idecode16u_lsb(p, (unsigned short*)w);
+	return p + 2;
+}
+
+/* encode 16 bits int */
+static inline char *iencode16i_msb(char *p, short w) {
+	iencode16u_msb(p, (unsigned short)w);
+	return p + 2;
+}
+
+/* decode 16 bits int */
+static inline const char *idecode16i_msb(const char *p, short *w) {
+	idecode16u_msb(p, (unsigned short*)w);
+	return p + 2;
+}
+
+/* encode 32 bits int */
+static inline char *iencode32i_lsb(char *p, IINT32 l) {
+	iencode32u_lsb(p, (IUINT32)l);
+	return p + 4;
+}
+
+/* decode 32 bits int */
+static inline const char *idecode32i_lsb(const char *p, IINT32 *w) {
+	IUINT32 x;
+	idecode32u_lsb(p, &x);
+	if (x & 0x80000000) {
+		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
+	}	else {
+		*w = (long)x;
+	}
+	return p + 4;
+}
+
+/* encode 32 bits int */
+static inline char *iencode32i_msb(char *p, IINT32 l) {
+	iencode32u_msb(p, (IUINT32)l);
+	return p + 4;
+}
+
+/* decode 32 bits int */
+static inline const char *idecode32i_msb(const char *p, IINT32 *w) {
+	IUINT32 x;
+	idecode32u_msb(p, &x);
+	if (x & 0x80000000) {
+		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
+	}	else {
+		*w = (long)x;
+	}
+	return p + 4;
+}
+
+/* encode float */
+static inline char *iencodef_lsb(char *p, float f) {
+	union { IUINT32 intpart; float floatpart; } vv;
+	vv.floatpart = f;
+	return iencode32u_lsb(p, vv.intpart);
+}
+
+/* decode float */
+static inline const char *idecodef_lsb(const char *p, float *f) {
+	union { IUINT32 intpart; float floatpart; } vv;
+	p = idecode32u_lsb(p, &vv.intpart);
+	*f = vv.floatpart;
+	return p;
+}
+
+/* encode float */
+static inline char *iencodef_msb(char *p, float f) {
+	union { IUINT32 intpart; float floatpart; } vv;
+	vv.floatpart = f;
+	return iencode32u_msb(p, vv.intpart);
+}
+
+/* decode float */
+static inline const char *idecodef_msb(const char *p, float *f) {
+	union { IUINT32 intpart; float floatpart; } vv;
+	p = idecode32u_msb(p, &vv.intpart);
+	*f = vv.floatpart;
+	return p;
+}
+
+
+/* encode string (string = ptr + size) */
+static inline char *iencodes(char *p, const void *ptr, ilong size) {
+	p = iencode16u_lsb(p, (unsigned short)size);
+	if (ptr) memcpy(p, ptr, size);
+	return p + size;
+}
+
+/* decode string (string = ptr + size) */
+static inline const char *idecodes(const char *p, void *ptr, ilong *size) {
+	unsigned short length;
+	ilong min = 0xffff;
+	p = idecode16u_lsb(p, &length);
+	if (size) {
+		if (*size > 0) min = *size;
+		*size = length;
+	}
+	if (ptr) {
+		min = min < length ? min : length;
+		memcpy(ptr, p, min);
+	}
+	return p + length;
+}
+
+/* encode c-string (endup with zero) */
+static inline char *iencodestr(char *p, const char *str) {
+	long len = (long)strlen(str) + 1;
+	return iencodes(p, str, len);
+}
+
+/* decode c-string (endup with zero) */
+static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
+	unsigned short size;
+	idecode16u_lsb(p, &size);
+	if (maxlen <= 0) maxlen = size + 1;
+	str[maxlen - 1] = 0;
+	return idecodes(p, str, &maxlen);
+}
+
 
 /**********************************************************************
  * VALUE OPERATION:
@@ -995,294 +1256,8 @@ int idict_del_i(idict_t *dict, ilong key);
  * Cross-Platform Data Encode / Decode                               
  **********************************************************************/
 
-/* encode 8 bits unsigned int */
-static inline char *iencode8u(char *p, unsigned char c)
-{
-	*(unsigned char*)p++ = c;
-	return p;
-}
-
-/* decode 8 bits unsigned int */
-static inline const char *idecode8u(const char *p, unsigned char *c)
-{
-	*c = *(unsigned char*)p++;
-	return p;
-}
-
-/* encode 16 bits unsigned int (lsb) */
-static inline char *iencode16u_lsb(char *p, unsigned short w)
-{
-#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
-	*(unsigned char*)(p + 0) = (w & 255);
-	*(unsigned char*)(p + 1) = (w >> 8);
-#else
-	memcpy(p, &w, 2);
-#endif
-	p += 2;
-	return p;
-}
-
-/* decode 16 bits unsigned int (lsb) */
-static inline const char *idecode16u_lsb(const char *p, unsigned short *w)
-{
-#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
-	*w = *(const unsigned char*)(p + 1);
-	*w = *(const unsigned char*)(p + 0) + (*w << 8);
-#else
-	memcpy(w, p, 2);
-#endif
-	p += 2;
-	return p;
-}
-
-/* encode 16 bits unsigned int (msb) */
-static inline char *iencode16u_msb(char *p, unsigned short w)
-{
-#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	memcpy(p, &w, 2);
-#else
-	*(unsigned char*)(p + 0) = (w >> 8);
-	*(unsigned char*)(p + 1) = (w & 255);
-#endif
-	p += 2;
-	return p;
-}
-
-/* decode 16 bits unsigned int (msb) */
-static inline const char *idecode16u_msb(const char *p, unsigned short *w)
-{
-#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	memcpy(w, p, 2);
-#else
-	*w = *(const unsigned char*)(p + 0);
-	*w = *(const unsigned char*)(p + 1) + (*w << 8);
-#endif
-	p += 2;
-	return p;
-}
-
-/* encode 32 bits unsigned int (lsb) */
-static inline char *iencode32u_lsb(char *p, IUINT32 l)
-{
-#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
-	*(unsigned char*)(p + 0) = (unsigned char)((l >>  0) & 0xff);
-	*(unsigned char*)(p + 1) = (unsigned char)((l >>  8) & 0xff);
-	*(unsigned char*)(p + 2) = (unsigned char)((l >> 16) & 0xff);
-	*(unsigned char*)(p + 3) = (unsigned char)((l >> 24) & 0xff);
-#else
-	memcpy(p, &l, 4);
-#endif
-	p += 4;
-	return p;
-}
-
-/* decode 32 bits unsigned int (lsb) */
-static inline const char *idecode32u_lsb(const char *p, IUINT32 *l)
-{
-#if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
-	*l = *(const unsigned char*)(p + 3);
-	*l = *(const unsigned char*)(p + 2) + (*l << 8);
-	*l = *(const unsigned char*)(p + 1) + (*l << 8);
-	*l = *(const unsigned char*)(p + 0) + (*l << 8);
-#else 
-	memcpy(l, p, 4);
-#endif
-	p += 4;
-	return p;
-}
-
-/* encode 32 bits unsigned int (msb) */
-static inline char *iencode32u_msb(char *p, IUINT32 l)
-{
-#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	memcpy(p, &l, 4);
-#else
-	*(unsigned char*)(p + 0) = (unsigned char)((l >> 24) & 0xff);
-	*(unsigned char*)(p + 1) = (unsigned char)((l >> 16) & 0xff);
-	*(unsigned char*)(p + 2) = (unsigned char)((l >>  8) & 0xff);
-	*(unsigned char*)(p + 3) = (unsigned char)((l >>  0) & 0xff);
-#endif
-	p += 4;
-	return p;
-}
-
-/* decode 32 bits unsigned int (msb) */
-static inline const char *idecode32u_msb(const char *p, IUINT32 *l)
-{
-#if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
-	memcpy(l, p, 4);
-#else 
-	*l = *(const unsigned char*)(p + 0);
-	*l = *(const unsigned char*)(p + 1) + (*l << 8);
-	*l = *(const unsigned char*)(p + 2) + (*l << 8);
-	*l = *(const unsigned char*)(p + 3) + (*l << 8);
-#endif
-	p += 4;
-	return p;
-}
-
-/* encode 8 bits int */
-static inline char *iencode8i(char *p, char c)
-{
-	iencode8u(p, (unsigned char)c);
-	return p + 1;
-}
-
-/* decode 8 bits int */
-static inline const char *idecode8i(const char *p, char *c)
-{
-	idecode8u(p, (unsigned char*)c);
-	return p + 1;
-}
-
-/* encode 16 bits int */
-static inline char *iencode16i_lsb(char *p, short w)
-{
-	iencode16u_lsb(p, (unsigned short)w);
-	return p + 2;
-}
-
-/* decode 16 bits int */
-static inline const char *idecode16i_lsb(const char *p, short *w)
-{
-	idecode16u_lsb(p, (unsigned short*)w);
-	return p + 2;
-}
-
-/* encode 16 bits int */
-static inline char *iencode16i_msb(char *p, short w)
-{
-	iencode16u_msb(p, (unsigned short)w);
-	return p + 2;
-}
-
-/* decode 16 bits int */
-static inline const char *idecode16i_msb(const char *p, short *w)
-{
-	idecode16u_msb(p, (unsigned short*)w);
-	return p + 2;
-}
-
-/* encode 32 bits int */
-static inline char *iencode32i_lsb(char *p, IINT32 l)
-{
-	iencode32u_lsb(p, (IUINT32)l);
-	return p + 4;
-}
-
-/* decode 32 bits int */
-static inline const char *idecode32i_lsb(const char *p, IINT32 *w)
-{
-	IUINT32 x;
-	idecode32u_lsb(p, &x);
-	if (x & 0x80000000) {
-		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
-	}	else {
-		*w = (long)x;
-	}
-	return p + 4;
-}
-
-/* encode 32 bits int */
-static inline char *iencode32i_msb(char *p, IINT32 l)
-{
-	iencode32u_msb(p, (IUINT32)l);
-	return p + 4;
-}
-
-/* decode 32 bits int */
-static inline const char *idecode32i_msb(const char *p, IINT32 *w)
-{
-	IUINT32 x;
-	idecode32u_msb(p, &x);
-	if (x & 0x80000000) {
-		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
-	}	else {
-		*w = (long)x;
-	}
-	return p + 4;
-}
-
-/* encode float */
-static inline char *iencodef_lsb(char *p, float f)
-{
-	union { IUINT32 intpart; float floatpart; } vv;
-	vv.floatpart = f;
-	return iencode32u_lsb(p, vv.intpart);
-}
-
-/* decode float */
-static inline const char *idecodef_lsb(const char *p, float *f)
-{
-	union { IUINT32 intpart; float floatpart; } vv;
-	p = idecode32u_lsb(p, &vv.intpart);
-	*f = vv.floatpart;
-	return p;
-}
-
-/* encode float */
-static inline char *iencodef_msb(char *p, float f)
-{
-	union { IUINT32 intpart; float floatpart; } vv;
-	vv.floatpart = f;
-	return iencode32u_msb(p, vv.intpart);
-}
-
-/* decode float */
-static inline const char *idecodef_msb(const char *p, float *f)
-{
-	union { IUINT32 intpart; float floatpart; } vv;
-	p = idecode32u_msb(p, &vv.intpart);
-	*f = vv.floatpart;
-	return p;
-}
-
-
-/* encode string (string = ptr + size) */
-static inline char *iencodes(char *p, const void *ptr, ilong size)
-{
-	p = iencode16u_lsb(p, (unsigned short)size);
-	if (ptr) memcpy(p, ptr, size);
-	return p + size;
-}
-
-/* decode string (string = ptr + size) */
-static inline const char *idecodes(const char *p, void *ptr, ilong *size)
-{
-	unsigned short length;
-	ilong min = 0xffff;
-	p = idecode16u_lsb(p, &length);
-	if (size) {
-		if (*size > 0) min = *size;
-		*size = length;
-	}
-	if (ptr) {
-		min = min < length ? min : length;
-		memcpy(ptr, p, min);
-	}
-	return p + length;
-}
-
-/* encode c-string (endup with zero) */
-static inline char *iencodestr(char *p, const char *str)
-{
-	long len = (long)strlen(str) + 1;
-	return iencodes(p, str, len);
-}
-
-/* decode c-string (endup with zero) */
-static inline const char *idecodestr(const char *p, char *str, ilong maxlen)
-{
-	unsigned short size;
-	idecode16u_lsb(p, &size);
-	if (maxlen <= 0) maxlen = size + 1;
-	str[maxlen - 1] = 0;
-	return idecodes(p, str, &maxlen);
-}
-
 /* encode auto-type value */
-static inline char *iencodev(char *p, const ivalue_t *v)
-{
+static inline char *iencodev(char *p, const ivalue_t *v) {
 	switch (it_type(v))
 	{
 	case ITYPE_STR:
@@ -1302,8 +1277,7 @@ static inline char *iencodev(char *p, const ivalue_t *v)
 }
 
 /* decode auto-type value */
-static inline const char *idecodev(const char *p, ivalue_t *v)
-{
+static inline const char *idecodev(const char *p, ivalue_t *v) {
 	unsigned short size;
 	IINT32 x;
 	switch (it_type(v))
@@ -1382,8 +1356,7 @@ static inline char *iencodeu(char *ptr, IUINT64 v)
 
 
 /* decode auto size unsigned integer */
-static inline const char *idecodeu(const char *ptr, IUINT64 *v)
-{
+static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
 	const unsigned char *p = (const unsigned char*)ptr;
 	IUINT64 x = 0;
 
@@ -1448,8 +1421,7 @@ static inline const char *idecodeu(const char *ptr, IUINT64 *v)
 }
 
 /* encode auto size integer */
-static inline char *iencodei(char *p, IINT64 value)
-{
+static inline char *iencodei(char *p, IINT64 value) {
 	IUINT64 x, y;
 	y = *(IUINT64*)&value;
 	if (y & ((IUINT64)1 << 63)) x = ((~y) << 1) | 1;
@@ -1458,8 +1430,7 @@ static inline char *iencodei(char *p, IINT64 value)
 }
 
 /* decode auto size integer */
-static inline const char *idecodei(const char *p, IINT64 *value)
-{
+static inline const char *idecodei(const char *p, IINT64 *value) {
 	IUINT64 x, y;
 	p = idecodeu(p, &x);
 	if ((x & 1) == 0) y = x >> 1;
@@ -1469,14 +1440,12 @@ static inline const char *idecodei(const char *p, IINT64 *value)
 }
 
 /* swap byte order of int16 */
-static inline unsigned short iexbyte16(unsigned short word)
-{
+static inline unsigned short iexbyte16(unsigned short word) {
 	return ((word & 0xff) << 8) | ((word >> 8) & 0xff);
 }
 
 /* swap byte order of int32 */
-static inline IUINT32 iexbyte32(IUINT32 dword)
-{
+static inline IUINT32 iexbyte32(IUINT32 dword) {
 	IUINT32 b1 = (dword >>  0) & 0xff;
 	IUINT32 b2 = (dword >>  8) & 0xff;
 	IUINT32 b3 = (dword >> 16) & 0xff;
