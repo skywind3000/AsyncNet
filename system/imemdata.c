@@ -1381,7 +1381,7 @@ static const IUINT32 iconv_first_mark[7] = { 0x00, 0x00, 0xC0,
 	0xE0, 0xF0, 0xF8, 0xFC };
 
 /* check if a UTF-8 character is legal */
-static inline int iconv_utf8_is_legal(const IUINT8 *source, int length) {
+static inline int iposix_utf8_legal(const IUINT8 *source, int length) {
 	const IUINT8 *srcptr = source + length;
 	IUINT8 a;
 	switch (length) {
@@ -1405,17 +1405,17 @@ static inline int iconv_utf8_is_legal(const IUINT8 *source, int length) {
 }
 
 /* check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal */
-int iconv_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd) {
+int iposix_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd) {
 	int length = iconv_utf8_trailing[*source] + 1;
 	if (source + length > srcEnd) {
 		return 0;
 	}
-	return iconv_utf8_is_legal(source, length);
+	return iposix_utf8_legal(source, length);
 }
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for destination exhausted, -3 for invalid character */
-int iconv_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		IUINT16 **targetStart, IUINT16 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1428,7 +1428,7 @@ int iconv_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 			result = ICONV_SRC_EXHAUSTED; break;
 		}
 		/* Do this check whether lenient or strict */
-		if (! iconv_utf8_is_legal(source, extraBytesToRead+1)) {
+		if (! iposix_utf8_legal(source, extraBytesToRead+1)) {
 			result = ICONV_INVALID_CHAR;
 			break;
 		}
@@ -1490,7 +1490,7 @@ int iconv_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		IUINT32 **targetStart, IUINT32 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1503,7 +1503,7 @@ int iconv_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 			result = ICONV_SRC_EXHAUSTED; break;
 		}
 		/* Do this check whether lenient or strict */
-		if (! iconv_utf8_is_legal(source, extraBytesToRead+1)) {
+		if (! iposix_utf8_legal(source, extraBytesToRead+1)) {
 			result = ICONV_INVALID_CHAR;
 			break;
 		}
@@ -1553,7 +1553,7 @@ int iconv_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+int iposix_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		IUINT8 **targetStart, IUINT8 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1634,7 +1634,7 @@ int iconv_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+int iposix_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		IUINT32 **targetStart, IUINT32 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1685,7 +1685,7 @@ int iconv_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 	*targetStart = target;
 #ifdef ICONV_DEBUG
 if (result == ICONV_INVALID_CHAR) {
-	fprintf(stderr, "iconv_utf_16to32 illegal seq 0x%04x,%04x\n", ch, ch2);
+	fprintf(stderr, "iposix_utf_16to32 illegal seq 0x%04x,%04x\n", ch, ch2);
 	fflush(stderr);
 }
 #endif
@@ -1694,7 +1694,7 @@ if (result == ICONV_INVALID_CHAR) {
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		IUINT8 **targetStart, IUINT8 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1756,7 +1756,7 @@ int iconv_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		IUINT16 **targetStart, IUINT16 *targetEnd, int strict)
 {
 	int result = 0;
@@ -1807,7 +1807,7 @@ int iconv_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 
 
 /* count characters in UTF-8 string, returns -1 for illegal sequence */
-int iconv_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd)
+int iposix_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd)
 {
 	int count = 0;
 	while (source < srcEnd) {
@@ -1822,7 +1822,7 @@ int iconv_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd)
 }
 
 /* count characters in UTF-16 string, returns -1 for illegal sequence */
-int iconv_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
+int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
 {
 	int count = 0;
 	while (source < srcEnd) {
@@ -1844,6 +1844,47 @@ int iconv_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
 		count++;
 	}
 	return count;
+}
+
+
+/*====================================================================*/
+/* EXTENSION FUNCTIONS                                                */
+/*====================================================================*/
+
+/* push message into stream */
+void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
+		IINT32 lparam, const void *data, IINT32 size)
+{
+	char head[16];
+	iencode32u_lsb(head + 0, 16 + size);
+	iencode32i_lsb(head + 4, msg);
+	iencode32i_lsb(head + 8, wparam);
+	iencode32i_lsb(head + 12, lparam);
+	ims_write(queue, head, 16);
+	ims_write(queue, data, size);
+}
+
+
+/* read message from stream */
+IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg, 
+		IINT32 *wparam, IINT32 *lparam, void *data, IINT32 maxsize)
+{
+	IINT32 length, size, cc;
+	char head[16];
+	if (queue->size < 16) return -1;
+	ims_peek(queue, &length, 4);
+	assert(length >= 16);
+	size = length - 16;
+	if ((IINT32)(queue->size) < length) return -1;
+	if (data == NULL) return size;
+	if (maxsize < (int)size) return -2;
+	ims_read(queue, head, 16);
+	idecode32i_lsb(head + 4, msg);
+	idecode32i_lsb(head + 8, wparam);
+	idecode32i_lsb(head + 12, lparam);
+	cc = (IINT32)ims_read(queue, data, size);
+	assert(cc == size);
+	return size;
 }
 
 

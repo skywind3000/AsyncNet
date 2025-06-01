@@ -70,18 +70,18 @@ struct CAsyncEvent;
 struct CAsyncTimer;
 struct CAsyncSemaphore;
 struct CAsyncPostpone;
+struct CAsyncSubscribe;
 struct CAsyncIdle;
 struct CAsyncOnce;
-struct CAsyncSubscribe;
 
 typedef struct CAsyncLoop CAsyncLoop;
 typedef struct CAsyncEvent CAsyncEvent;
 typedef struct CAsyncTimer CAsyncTimer;
 typedef struct CAsyncSemaphore CAsyncSemaphore;
 typedef struct CAsyncPostpone CAsyncPostpone;
+typedef struct CAsyncSubscribe CAsyncSubscribe;
 typedef struct CAsyncIdle CAsyncIdle;
 typedef struct CAsyncOnce CAsyncOnce;
-typedef struct CAsyncSubscribe CAsyncSubscribe;
 
 
 //---------------------------------------------------------------------
@@ -153,6 +153,29 @@ struct CAsyncPostpone {
 
 
 //---------------------------------------------------------------------
+// CAsyncSubscribe - for subscribing to topics
+//---------------------------------------------------------------------
+struct CAsyncSubscribe {
+	ilist_head node;
+	int active;
+	int pending;
+	int topic;
+	int (*callback)(CAsyncLoop *loop, CAsyncSubscribe *sub, 
+			const void *data, int size);
+	void *user;
+};
+
+
+//---------------------------------------------------------------------
+// CAsyncTopic - for topic management
+//---------------------------------------------------------------------
+typedef struct CAsyncTopic {
+	struct ib_hash_node hash_node;
+	ilist_head list_head;
+}	CAsyncTopic;
+
+
+//---------------------------------------------------------------------
 // CAsyncIdle - will be called when the loop is idle
 //---------------------------------------------------------------------
 struct CAsyncIdle {
@@ -177,29 +200,6 @@ struct CAsyncOnce {
 
 
 //---------------------------------------------------------------------
-// CAsyncSubscribe - for subscribing to topics
-//---------------------------------------------------------------------
-struct CAsyncSubscribe {
-	ilist_head node;
-	int active;
-	int pending;
-	int topic;
-	int (*callback)(CAsyncLoop *loop, CAsyncSubscribe *sub, 
-			const void *data, int size);
-	void *user;
-};
-
-
-//---------------------------------------------------------------------
-// CAsyncTopic - for topic management
-//---------------------------------------------------------------------
-typedef struct CAsyncTopic {
-	struct ib_hash_node hash_node;
-	ilist_head list_head;
-}	CAsyncTopic;
-
-
-//---------------------------------------------------------------------
 // CAsyncLoop - centralized event manager and dispatcher
 //---------------------------------------------------------------------
 struct CAsyncLoop {
@@ -218,7 +218,9 @@ struct CAsyncLoop {
 	int num_timers;                // number of timers
 	int num_semaphore;             // number of semaphores
 	int num_postpone;              // number of postpone events
+	int num_subscribe;             // number of subscriptions
 	int exiting;                   // exit flag
+	int instance;                  // set to non-zero for instance mode
 	char *internal;                // a static buffer for internal usage
 	char *buffer;                  // a static buffer for arbitrary usage
 	char *cache;                   // an extra buffer for external usage
@@ -230,6 +232,7 @@ struct CAsyncLoop {
 	IINT64 monotonic;              // monotonic time in nanoseconds;
 	IINT64 iteration;              // iteration count
 	IINT64 reseted;                // fd reset count
+	IINT32 interval;               // interval for timer (default to 1ms)
 	IMUTEX_TYPE lock_xfd;          // lock for xfd
 	IMUTEX_TYPE lock_queue;        // lock for pending queue
 	ib_array *sem_dict;            // semaphore dictionary
@@ -311,7 +314,7 @@ CAsyncLoop* async_loop_new(void);
 void async_loop_delete(CAsyncLoop *loop);
 
 // Run an iteration, receive available events and dispatch them
-int async_loop_once(CAsyncLoop *loop, IUINT32 millisec);
+int async_loop_once(CAsyncLoop *loop, IINT32 millisec);
 
 // Run async_loop_once() repeatedly until async_loop_exit is called
 void async_loop_run(CAsyncLoop *loop);
@@ -413,6 +416,21 @@ int async_post_active(const CAsyncPostpone *postpone);
 
 
 //---------------------------------------------------------------------
+// CAsyncSubscribe - for subscribing to topics
+//---------------------------------------------------------------------
+
+// initialize a CAsyncSubscribe object
+void async_sub_init(CAsyncSubscribe *sub, int (*callback)(CAsyncLoop *loop, 
+		CAsyncSubscribe *sub, const void *data, int size));
+
+// start watching topic
+int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic);
+
+// stop watching topic
+int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub);
+
+
+//---------------------------------------------------------------------
 // CAsyncIdle - will be called when the loop is idle
 //---------------------------------------------------------------------
 
@@ -446,21 +464,6 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once);
 
 // returns non-zero if the once is active
 int async_once_active(const CAsyncOnce *once);
-
-
-//---------------------------------------------------------------------
-// CAsyncSubscribe - for subscribing to topics
-//---------------------------------------------------------------------
-
-// initialize a CAsyncSubscribe object
-void async_sub_init(CAsyncSubscribe *sub, int (*callback)(CAsyncLoop *loop, 
-		CAsyncSubscribe *sub, const void *data, int size));
-
-// start watching topic
-int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic);
-
-// stop watching topic
-int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub);
 
 
 

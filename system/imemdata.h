@@ -283,42 +283,42 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		IUINT16 **targetStart, IUINT16 *targetEnd, int strict);
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
+int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		IUINT32 **targetStart, IUINT32 *targetEnd, int strict);
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+int iposix_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		IUINT8 **targetStart, IUINT8 *targetEnd, int strict);
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
+int iposix_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		IUINT32 **targetStart, IUINT32 *targetEnd, int strict);
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		IUINT8 **targetStart, IUINT8 *targetEnd, int strict);
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
-int iconv_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
+int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		IUINT16 **targetStart, IUINT16 *targetEnd, int strict);
 
 /* check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal */
-int iconv_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd);
+int iposix_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd);
 
 /* count characters in UTF-8 string, returns -1 for illegal sequence */
-int iconv_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd);
+int iposix_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd);
 
 /* count characters in UTF-16 string, returns -1 for illegal sequence */
-int iconv_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd);
+int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd);
 
 
 /*====================================================================*/
@@ -581,6 +581,21 @@ static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
 	str[maxlen - 1] = 0;
 	return idecodes(p, str, &maxlen);
 }
+
+
+/*====================================================================*/
+/* EXTENSION FUNCTIONS                                                */
+/*====================================================================*/
+
+/* push message into stream */
+void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
+		IINT32 lparam, const void *data, IINT32 size);
+
+/* read message from stream */
+IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg, 
+		IINT32 *wparam, IINT32 *lparam, void *data, IINT32 maxsize);
+
+
 
 
 /**********************************************************************

@@ -10,7 +10,7 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include "imemkind.h"
+#include "imemdata.h"
 #include "inetbase.h"
 #include "inetevt.h"
 #include "inetkit.h"

@@ -145,9 +145,12 @@ CAsyncLoop* async_loop_new(void)
 	loop->num_timers = 0;
 	loop->num_semaphore = 0;
 	loop->num_postpone = 0;
+	loop->num_subscribe = 0;
 	loop->sid_index = 0;
 
+	loop->interval = 1;
 	loop->exiting = 0;
+	loop->instance = 0;
 
 	iv_init(&loop->v_pending, NULL);
 	iv_init(&loop->v_changes, NULL);
@@ -942,23 +945,36 @@ int async_loop_sem_detach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 //---------------------------------------------------------------------
 // Run an iteration, receive available events and dispatch them
 //---------------------------------------------------------------------
-int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
+int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 {
 	int recursion = (loop->depth > 0)? 1 : 0;
 	int cc = 0;
 	int idle = 1;
 
+	if (recursion) {
+		return 0;
+	}
+
 	loop->depth++;
+
+	// check instance mode
+	if (loop->instance) {
+		loop->instance = 0;
+		millisec = 0;
+	}
+
+	// check unprocessed events
+	if (loop->topic_queue.size > 0) {
+		millisec = 0;
+	}
+	else if (!ilist_is_empty(&loop->list_post)) {
+		millisec = 0;
+	}
 
 	// commit fd/mask changes
 	if (loop->changes_index > 0) {
 		async_loop_changes_commit(loop);
 		idle = 0;
-	}
-
-	if (recursion) {
-		loop->depth--;
-		return 0;
 	}
 
 	// wait poller
@@ -1050,6 +1066,9 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 	async_loop_queue_flush(loop);
 	cc += async_loop_sem_dispatch(loop);
 
+	// dispatch subscribe
+	cc += async_loop_topic_dispatch(loop);
+
 	// dispatch postpnes
 	cc += async_loop_dispatch_post(loop);
 
@@ -1076,8 +1095,6 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 		}
 	}
 
-	async_loop_topic_dispatch(loop);
-
 	return cc;
 }
 
@@ -1087,12 +1104,12 @@ int async_loop_once(CAsyncLoop *loop, IUINT32 millisec)
 //---------------------------------------------------------------------
 void async_loop_run(CAsyncLoop *loop)
 {
-	IUINT32 waitms = 1;
+	IINT32 waitms = loop->interval;
 	if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
 		waitms = 20;
 	}
 	while (loop->exiting == 0) {
-		int cc = async_loop_once(loop, waitms);
+		int cc = async_loop_once(loop, (IUINT32)waitms);
 		if (cc < 0) {
 			break;
 		}
@@ -1921,6 +1938,7 @@ static int async_loop_topic_dispatch(CAsyncLoop *loop)
 	CAsyncTopic *topic = NULL;
 	IINT32 length, tid;
 	char *buffer = loop->internal;
+	int count = 0;
 	while (1) {
 		if (stream->size < 8) break;
 		ims_peek(stream, &length, sizeof(IINT32));
@@ -1937,8 +1955,9 @@ static int async_loop_topic_dispatch(CAsyncLoop *loop)
 		if (topic != NULL) {
 			async_loop_topic_cast(loop, topic, buffer, length);
 		}
+		count++;
 	}
-	return 0;
+	return count;
 }
 
 
@@ -1994,6 +2013,7 @@ int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic)
 	ilist_add_tail(&sub->node, &tp->list_head);
 	sub->pending = -1;
 	sub->active = 1;
+	loop->num_subscribe++;
 	if (loop->logmask & ASYNC_LOOP_LOG_SUB) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_SUB,
 			"[sub] start subscribe ptr=%p, topic=%d", 
@@ -2015,7 +2035,15 @@ int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub)
 	if (sub->pending >= 0) {
 		void **ptrs = ib_array_ptr(loop->topic_array);
 		CAsyncSubscribe *ptr = (CAsyncSubscribe*)ptrs[sub->pending];
-		assert(ptr == sub);
+		if (ptr != sub) {
+			if (loop->logmask & ASYNC_LOOP_LOG_ERROR) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_ERROR,
+					"[error] subscribe stopping failed: ptr=%p, topic=%d",
+					(void*)sub, sub->topic);
+			}
+			assert(ptr == sub);
+			return -1;
+		}
 		ptrs[sub->pending] = NULL;
 		sub->pending = -1;
 	}
@@ -2036,6 +2064,7 @@ int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub)
 	if (ilist_is_empty(&topic->list_head)) {
 		async_loop_topic_release(loop, topic);
 	}
+	loop->num_subscribe--;
 	if (loop->logmask & ASYNC_LOOP_LOG_SUB) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_SUB,
 			"[sub] stop subscribe ptr=%p, topic=%d", 
