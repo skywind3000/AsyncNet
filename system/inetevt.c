@@ -235,6 +235,7 @@ CAsyncLoop* async_loop_new(void)
 	loop->iteration = 0;
 
 	loop->reseted = 0;
+	loop->proceeds = 0;
 
 	itimer_mgr_init(&loop->timer_mgr, 1);
 	itimer_mgr_run(&loop->timer_mgr, loop->current);
@@ -1071,6 +1072,9 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 
 	// dispatch postpnes
 	cc += async_loop_dispatch_post(loop);
+
+	// accumulate number of dispatched events
+	loop->proceeds += (IINT64)cc;
 
 	loop->depth--;
 

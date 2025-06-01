@@ -232,6 +232,7 @@ struct CAsyncLoop {
 	IINT64 monotonic;              // monotonic time in nanoseconds;
 	IINT64 iteration;              // iteration count
 	IINT64 reseted;                // fd reset count
+	IINT64 proceeds;               // number of events dispatched
 	IINT32 interval;               // interval for timer (default to 1ms)
 	IMUTEX_TYPE lock_xfd;          // lock for xfd
 	IMUTEX_TYPE lock_queue;        // lock for pending queue
