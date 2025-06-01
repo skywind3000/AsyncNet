@@ -1119,6 +1119,29 @@ void async_loop_run(CAsyncLoop *loop)
 
 
 //---------------------------------------------------------------------
+// setup interval (async_loop_once wait time, aka epoll wait time)
+//---------------------------------------------------------------------
+void async_loop_interval(CAsyncLoop *loop, IINT32 millisec)
+{
+	if (millisec <= 0) {
+		millisec = 10;
+	}
+	loop->interval = millisec;
+#ifdef IHAVE_TIMERFD
+	if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
+		int fd = loop->xfd[ASYNC_LOOP_PIPE_TIMER];
+		struct itimerspec ts;
+		ts.it_value.tv_sec = (time_t)(millisec / 1000);
+		ts.it_value.tv_nsec = ((long)(millisec % 1000)) * 1000000;
+		ts.it_interval.tv_sec = ts.it_value.tv_sec;
+		ts.it_interval.tv_nsec = ts.it_value.tv_nsec;
+		timerfd_settime(fd, 0, &ts, NULL);
+	}
+#endif
+}
+
+
+//---------------------------------------------------------------------
 // dispatch postpone events
 //---------------------------------------------------------------------
 static int async_loop_dispatch_post(CAsyncLoop *loop)

@@ -50,6 +50,9 @@ public:
 	// exit RunEndless()
 	void Exit();
 
+	// setup interval (async_loop_once wait time, aka. epoll wait time)
+	void SetInterval(int millisec);
+
 	// publish data to a topic
 	void Publish(int topic, const void *data, int size);
 

@@ -113,6 +113,20 @@ void AsyncLoop::Exit()
 
 
 //---------------------------------------------------------------------
+// setup interval (async_loop_once wait time, aka. epoll wait time)
+//---------------------------------------------------------------------
+void AsyncLoop::SetInterval(int millisec)
+{
+	if (millisec < 0) {
+		millisec = 10; // default interval
+	}
+	if (_loop->poller) {
+		async_loop_interval(_loop, millisec);
+	}
+}
+
+
+//---------------------------------------------------------------------
 // publish data to a topic
 //---------------------------------------------------------------------
 void AsyncLoop::Publish(int topic, const void *data, int size)

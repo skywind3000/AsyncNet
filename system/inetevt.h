@@ -322,6 +322,9 @@ void async_loop_run(CAsyncLoop *loop);
 // Stop the loop
 void async_loop_exit(CAsyncLoop *loop);
 
+// setup interval (async_loop_once wait time, aka. epoll wait time)
+void async_loop_interval(CAsyncLoop *loop, IINT32 millisec);
+
 // publish data to a topic
 void async_loop_pub(CAsyncLoop *loop, int topic, const void *data, int size);
 
