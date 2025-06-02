@@ -87,7 +87,8 @@ public:
 private:
 	static void TcpCB(CAsyncTcp *tcp, int event, int args);
 
-	std::function<void(int event, int args)> _callback = nullptr;
+	typedef std::function<void(int event, int args)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncTcp *_tcp = NULL;
@@ -131,8 +132,9 @@ public:
 
 private:
 
-	std::function<void(int fd, const sockaddr *addr, int len)> _callback = nullptr;
 	static void ListenCB(CAsyncListener *listener, int fd, const sockaddr *addr, int len);
+	typedef std::function<void(int fd, const sockaddr *addr, int len)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncListener *_listener = NULL;
 	CAsyncLoop *_loop = NULL;
@@ -197,8 +199,11 @@ public:
 
 private:
 
-	std::function<void(int event, int args)> _callback = nullptr;
 	static void UdpCB(CAsyncUdp *udp, int event, int args);
+	typedef std::function<void(int event, int args)> Callback;
+
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncUdp *_udp = NULL;
@@ -248,7 +253,9 @@ public:
 
 private:
 	static int MsgCB(CAsyncMessage *msg, int mid, IINT32 wparam, IINT32 lparam, const void *ptr, int size);
-	std::function<void(int, int, int, const void *, int)> _callback = nullptr;
+	typedef std::function<void(int, int, int, const void *, int)> Callback;
+
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncMessage *_msg = NULL;
 };

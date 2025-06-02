@@ -24,6 +24,10 @@ NAMESPACE_BEGIN(System);
 //---------------------------------------------------------------------
 AsyncLoop::~AsyncLoop()
 {
+	if (_loop != NULL) {
+		_loop->self = NULL;
+		_loop->writelog = NULL;
+	}
 	if (_borrow == false) {
 		if (_loop != NULL) {
 			async_loop_delete(_loop);
@@ -142,7 +146,7 @@ void AsyncLoop::OnLog(void *logger, const char *text)
 {
 	AsyncLoop *self = (AsyncLoop*)logger;
 	if (self) {
-		if (self->_cb_log != NULL) {
+		if (self->_cb_log != nullptr) {
 			self->_cb_log(text);
 		}
 	}
@@ -156,7 +160,7 @@ void AsyncLoop::OnOnce(CAsyncLoop *loop)
 {
 	AsyncLoop *self = (AsyncLoop*)loop->self;
 	if (self) {
-		if (self->_cb_once != NULL) {
+		if (self->_cb_once != nullptr) {
 			self->_cb_once();
 		}
 	}
@@ -170,7 +174,7 @@ void AsyncLoop::OnTimer(CAsyncLoop *loop)
 {
 	AsyncLoop *self = (AsyncLoop*)loop->self;
 	if (self) {
-		if (self->_cb_timer != NULL) {
+		if (self->_cb_timer != nullptr) {
 			self->_cb_timer();
 		}
 	}
@@ -184,7 +188,7 @@ void AsyncLoop::OnIdle(CAsyncLoop *loop)
 {
 	AsyncLoop *self = (AsyncLoop*)loop->self;
 	if (self) {
-		if (self->_cb_idle != NULL) {
+		if (self->_cb_idle != nullptr) {
 			self->_cb_idle();
 		}
 	}
@@ -215,7 +219,7 @@ void AsyncLoop::SetLogHandler(std::function<void(const char *msg)> handler)
 void AsyncLoop::Log(int channel, const char *fmt, ...)
 {
 	if (channel & _loop->logmask) {
-		if (_loop->writelog != NULL) {
+		if (_loop->writelog != nullptr) {
 			va_list argptr;
 			char *buffer;
 			if (_log_cache.size() < 1024) {
@@ -225,7 +229,7 @@ void AsyncLoop::Log(int channel, const char *fmt, ...)
 			va_start(argptr, fmt);
 			vsprintf(buffer, fmt, argptr);
 			va_end(argptr);
-			if (_cb_log != NULL) {
+			if (_cb_log != nullptr) {
 				_cb_log(buffer);
 			}
 		}
@@ -299,7 +303,7 @@ AsyncEvent::AsyncEvent(CAsyncLoop *loop)
 	async_event_init(&_event, EventCB, -1, 0);
 	_event.user = this;
 	_loop = loop;
-	_callback = NULL;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -311,7 +315,7 @@ AsyncEvent::AsyncEvent(AsyncLoop &loop)
 	async_event_init(&_event, EventCB, -1, 0);
 	_event.user = this;
 	_loop = loop.GetLoop();
-	_callback = NULL;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -321,8 +325,9 @@ AsyncEvent::AsyncEvent(AsyncLoop &loop)
 void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
 {
 	AsyncEvent *self = (AsyncEvent*)evt->user;
-	if (self->_callback != NULL) {
-		self->_callback(event);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)(event);
 	}
 }
 
@@ -332,7 +337,7 @@ void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
 //---------------------------------------------------------------------
 void AsyncEvent::SetCallback(std::function<void(int)> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -402,7 +407,7 @@ AsyncTimer::AsyncTimer(AsyncLoop &loop)
 	async_timer_init(&_timer, TimerCB);
 	_timer.user = this;
 	_loop = loop.GetLoop();
-	_callback = NULL;
+	*_cb_ptr = nullptr;
 }
 
 
@@ -414,7 +419,7 @@ AsyncTimer::AsyncTimer(CAsyncLoop *loop)
 	async_timer_init(&_timer, TimerCB);
 	_timer.user = this;
 	_loop = loop;
-	_callback = NULL;
+	*_cb_ptr = nullptr;
 }
 
 
@@ -424,8 +429,9 @@ AsyncTimer::AsyncTimer(CAsyncLoop *loop)
 void AsyncTimer::TimerCB(CAsyncLoop *loop, CAsyncTimer *timer)
 {
 	AsyncTimer *self = (AsyncTimer*)timer->user;
-	if (self->_callback != NULL) {
-		self->_callback();
+	if ((*self->_cb_ptr) != nullptr) {
+		std::shared_ptr<AsyncTimer::Callback> ref_ptr = self->_cb_ptr;
+		(*ref_ptr)();
 	}
 }
 
@@ -453,7 +459,7 @@ int AsyncTimer::Stop()
 //---------------------------------------------------------------------
 void AsyncTimer::SetCallback(std::function<void()> callback)
 {
-	_callback = callback;
+	*_cb_ptr = callback;
 }
 
 
@@ -480,7 +486,7 @@ AsyncSemaphore::AsyncSemaphore(AsyncLoop &loop)
 	async_sem_init(&_sem, NotifyCB);
 	_sem.user = this;
 	_loop = loop.GetLoop();
-	_callback = NULL;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -492,7 +498,7 @@ AsyncSemaphore::AsyncSemaphore(CAsyncLoop *loop)
 	async_sem_init(&_sem, NotifyCB);
 	_sem.user = this;
 	_loop = loop;
-	_callback = NULL;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -502,8 +508,9 @@ AsyncSemaphore::AsyncSemaphore(CAsyncLoop *loop)
 void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
 {
 	AsyncSemaphore *self = (AsyncSemaphore*)(notify->user);
-	if (self->_callback != NULL) {
-		self->_callback();
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)();
 	}
 }
 
@@ -513,7 +520,7 @@ void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
 //---------------------------------------------------------------------
 void AsyncSemaphore::SetCallback(std::function<void()> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -571,8 +578,8 @@ AsyncPostpone::AsyncPostpone(AsyncLoop &loop)
 {
 	async_post_init(&_postpone, InternalCB);
 	_postpone.user = this;
-	_callback = NULL;
 	_loop = loop.GetLoop();
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -583,8 +590,8 @@ AsyncPostpone::AsyncPostpone(CAsyncLoop *loop)
 {
 	async_post_init(&_postpone, InternalCB);
 	_postpone.user = this;
-	_callback = NULL;
 	_loop = loop;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -594,8 +601,9 @@ AsyncPostpone::AsyncPostpone(CAsyncLoop *loop)
 void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
 {
 	AsyncPostpone *self = (AsyncPostpone*)postpone->user;
-	if (self->_callback != NULL) {
-		self->_callback();
+	if ((*self->_cb_ptr) != NULL) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)();
 	}
 }
 
@@ -605,7 +613,7 @@ void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
 //---------------------------------------------------------------------
 void AsyncPostpone::SetCallback(std::function<void()> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -652,8 +660,8 @@ AsyncIdle::AsyncIdle(AsyncLoop &loop)
 {
 	async_idle_init(&_idle, InternalCB);
 	_idle.user = this;
-	_callback = NULL;
 	_loop = loop.GetLoop();
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -664,8 +672,8 @@ AsyncIdle::AsyncIdle(CAsyncLoop *loop)
 {
 	async_idle_init(&_idle, InternalCB);
 	_idle.user = this;
-	_callback = NULL;
 	_loop = loop;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -675,8 +683,9 @@ AsyncIdle::AsyncIdle(CAsyncLoop *loop)
 void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
 {
 	AsyncIdle *self = (AsyncIdle*)idle->user;
-	if (self->_callback != NULL) {
-		self->_callback();
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)();
 	}
 }
 
@@ -686,7 +695,7 @@ void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
 //---------------------------------------------------------------------
 void AsyncIdle::SetCallback(std::function<void()> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -734,8 +743,8 @@ AsyncOnce::AsyncOnce(AsyncLoop &loop)
 {
 	async_once_init(&_once, InternalCB);
 	_once.user = this;
-	_callback = NULL;
 	_loop = loop.GetLoop();
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -746,8 +755,8 @@ AsyncOnce::AsyncOnce(CAsyncLoop *loop)
 {
 	async_once_init(&_once, InternalCB);
 	_once.user = this;
-	_callback = NULL;
 	_loop = loop;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -756,7 +765,7 @@ AsyncOnce::AsyncOnce(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 void AsyncOnce::SetCallback(std::function<void()> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -766,8 +775,9 @@ void AsyncOnce::SetCallback(std::function<void()> callback)
 void AsyncOnce::InternalCB(CAsyncLoop *loop, CAsyncOnce *once)
 {
 	AsyncOnce *self = (AsyncOnce*)once->user;
-	if (self->_callback != NULL) {
-		self->_callback();
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)();
 	}
 }
 
@@ -806,7 +816,7 @@ AsyncSubscribe::~AsyncSubscribe()
 		async_sub_stop(_loop, &_subscribe);
 	}
 	_loop = NULL;
-	_callback = nullptr;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -818,7 +828,7 @@ AsyncSubscribe::AsyncSubscribe(CAsyncLoop *loop)
 	_loop = loop;
 	async_sub_init(&_subscribe, InternalCB);
 	_subscribe.user = this;
-	_callback = nullptr;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -830,7 +840,7 @@ AsyncSubscribe::AsyncSubscribe(AsyncLoop &loop)
 	_loop = loop.GetLoop();
 	async_sub_init(&_subscribe, InternalCB);
 	_subscribe.user = this;
-	_callback = nullptr;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -839,7 +849,7 @@ AsyncSubscribe::AsyncSubscribe(AsyncLoop &loop)
 //---------------------------------------------------------------------
 void AsyncSubscribe::SetCallback(std::function<int(const void *data, int size)> callback)
 {
-	_callback = callback;
+	(*_cb_ptr) = callback;
 }
 
 
@@ -850,8 +860,10 @@ int AsyncSubscribe::InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub,
 		const void *data, int size)
 {
 	AsyncSubscribe *self = (AsyncSubscribe*)sub->user;
-	if (self->_callback != nullptr) {
-		return self->_callback(data, size);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		int hr = (*ref_ptr)(data, size);
+		return hr;
 	}
 	return 0; // no callback
 }

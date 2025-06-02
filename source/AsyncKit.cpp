@@ -31,14 +31,15 @@ AsyncTcp::~AsyncTcp()
 //---------------------------------------------------------------------
 // move ctor
 //---------------------------------------------------------------------
-AsyncTcp::AsyncTcp(AsyncTcp &&src)
+AsyncTcp::AsyncTcp(AsyncTcp &&src):
+	_cb_ptr(std::move(src._cb_ptr))
 {
 	_tcp = src._tcp;
 	_loop = src._loop;
-	_callback = src._callback;
 	src._tcp = NULL;
 	src._loop = NULL;
-	src._callback = nullptr;
+	_tcp->callback = TcpCB;
+	_tcp->user = this;
 }
 
 
@@ -50,6 +51,8 @@ AsyncTcp::AsyncTcp(AsyncLoop &loop)
 	_loop = loop.GetLoop();
 	_tcp = async_tcp_new(_loop, TcpCB);
 	_tcp->user = this;
+	_tcp->callback = TcpCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -61,6 +64,8 @@ AsyncTcp::AsyncTcp(CAsyncLoop *loop)
 	_loop = loop;
 	_tcp = async_tcp_new(_loop, TcpCB);
 	_tcp->user = this;
+	_tcp->callback = TcpCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -70,8 +75,9 @@ AsyncTcp::AsyncTcp(CAsyncLoop *loop)
 void AsyncTcp::TcpCB(CAsyncTcp *tcp, int event, int args)
 {
 	AsyncTcp *self = (AsyncTcp*)tcp->user;
-	if (self->_callback) {
-		self->_callback(event, args);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)(event, args);
 	}
 }
 
@@ -81,13 +87,8 @@ void AsyncTcp::TcpCB(CAsyncTcp *tcp, int event, int args)
 //---------------------------------------------------------------------
 void AsyncTcp::SetCallback(std::function<void(int event, int args)> cb)
 {
-	_callback = cb;
-	if (cb != nullptr) {
-		_tcp->callback = TcpCB;
-	}
-	else {
-		_tcp->callback = NULL;
-	}
+	(*_cb_ptr) = cb;
+	_tcp->callback = TcpCB;
 }
 
 
@@ -218,6 +219,8 @@ AsyncUdp::AsyncUdp(AsyncLoop &loop)
 	_loop = loop.GetLoop();
 	_udp = async_udp_new(_loop, UdpCB);
 	_udp->user = this;
+	_udp->callback = UdpCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -229,19 +232,23 @@ AsyncUdp::AsyncUdp(CAsyncLoop *loop)
 	_loop = loop;
 	_udp = async_udp_new(_loop, UdpCB);
 	_udp->user = this;
+	_udp->callback = UdpCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
 //---------------------------------------------------------------------
 // move ctor
 //---------------------------------------------------------------------
-AsyncUdp::AsyncUdp(AsyncUdp &&src)
+AsyncUdp::AsyncUdp(AsyncUdp &&src):
+	_cb_ptr(std::move(src._cb_ptr))
 {
 	_loop = src._loop;
 	_udp = src._udp;
 	_udp->user = this;
 	src._udp = NULL;
 	src._loop = NULL;
+	_udp->callback = UdpCB;
 }
 
 
@@ -250,7 +257,8 @@ AsyncUdp::AsyncUdp(AsyncUdp &&src)
 //---------------------------------------------------------------------
 void AsyncUdp::SetCallback(std::function<void(int event, int args)> cb)
 {
-	_callback = cb;
+	(*_cb_ptr) = cb;
+	_udp->callback = UdpCB;
 }
 
 
@@ -260,8 +268,9 @@ void AsyncUdp::SetCallback(std::function<void(int event, int args)> cb)
 void AsyncUdp::UdpCB(CAsyncUdp *udp, int event, int args)
 {
 	AsyncUdp *self = (AsyncUdp*)udp->user;
-	if (self->_callback != NULL) {
-		self->_callback(event, args);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)(event, args);
 	}
 }
 
@@ -391,13 +400,12 @@ AsyncListener::~AsyncListener()
 // move ctor
 //---------------------------------------------------------------------
 AsyncListener::AsyncListener(AsyncListener &&src):
-	_callback(src._callback),
+	_cb_ptr(std::move(src._cb_ptr)),
 	_listener(src._listener),
 	_loop(src._loop)
 {
 	src._listener = NULL;
 	src._loop = NULL;
-	src._callback = nullptr;
 }
 
 
@@ -409,6 +417,8 @@ AsyncListener::AsyncListener(CAsyncLoop *loop)
 	_loop = loop;
 	_listener = async_listener_new(_loop, ListenCB);
 	_listener->user = this;
+	_listener->callback = ListenCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -420,6 +430,8 @@ AsyncListener::AsyncListener(AsyncLoop &loop)
 	_loop = loop.GetLoop();
 	_listener = async_listener_new(_loop, ListenCB);
 	_listener->user = this;
+	_listener->callback = ListenCB;
+	(*_cb_ptr) = nullptr;
 }
 
 
@@ -429,8 +441,9 @@ AsyncListener::AsyncListener(AsyncLoop &loop)
 void AsyncListener::ListenCB(CAsyncListener *listener, int fd, const sockaddr *addr, int len)
 {
 	AsyncListener *self = (AsyncListener*)listener->user;
-	if (self->_callback) {
-		self->_callback(fd, addr, len);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)(fd, addr, len);
 	}
 }
 
@@ -440,13 +453,8 @@ void AsyncListener::ListenCB(CAsyncListener *listener, int fd, const sockaddr *a
 //---------------------------------------------------------------------
 void AsyncListener::SetCallback(std::function<void(int fd, const sockaddr *addr, int len)> cb)
 {
-	_callback = cb;
-	if (cb) {
-		_listener->callback = ListenCB;
-	}
-	else {
-		_listener->callback = NULL;
-	}
+	(*_cb_ptr) = cb;
+	_listener->callback = ListenCB;
 }
 
 
@@ -532,8 +540,9 @@ AsyncMessage::AsyncMessage(CAsyncLoop *loop)
 int AsyncMessage::MsgCB(CAsyncMessage *msg, int mid, IINT32 wparam, IINT32 lparam, const void *ptr, int size)
 {
 	AsyncMessage *self = (AsyncMessage*)msg->user;
-	if (self->_callback) {
-		self->_callback(mid, (int)wparam, (int)lparam, ptr, size);
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_cb = self->_cb_ptr;
+		(*ref_cb)(mid, (int)wparam, (int)lparam, ptr, size);
 	}
 	return 0;
 }
@@ -543,11 +552,12 @@ int AsyncMessage::MsgCB(CAsyncMessage *msg, int mid, IINT32 wparam, IINT32 lpara
 // move ctor
 //---------------------------------------------------------------------
 AsyncMessage::AsyncMessage(AsyncMessage &&src):
-	_callback(src._callback),
+	_cb_ptr(std::move(src._cb_ptr)),
 	_msg(src._msg)
 {
 	src._msg = NULL;
-	src._callback = nullptr;
+	_msg->callback = MsgCB;
+	_msg->user = this;
 }
 
 
@@ -556,13 +566,8 @@ AsyncMessage::AsyncMessage(AsyncMessage &&src):
 //---------------------------------------------------------------------
 void AsyncMessage::SetCallback(std::function<void(int, int, int, const void *, int)> cb)
 {
-	_callback = cb;
-	if (cb != nullptr) {
-		_msg->callback = MsgCB;
-	}
-	else {
-		_msg->callback = NULL;
-	}
+	(*_cb_ptr) = cb;
+	_msg->callback = MsgCB;
 }
 
 

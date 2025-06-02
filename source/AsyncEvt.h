@@ -14,6 +14,7 @@
 
 #include <string>
 #include <functional>
+#include <memory>
 
 #include "../system/inetevt.h"
 #include "../system/system.h"
@@ -153,7 +154,8 @@ private:
 	static void EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event);
 
 private:
-	std::function<void(int event)> _callback;
+	typedef std::function<void(int)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncEvent _event;
@@ -192,7 +194,8 @@ private:
 	static void TimerCB(CAsyncLoop *loop, CAsyncTimer *timer);
 
 private:
-	std::function<void()> _callback;
+	typedef std::function<void()> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncTimer _timer;
@@ -235,7 +238,8 @@ private:
 	static void NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *msg);
 
 private:
-	std::function<void()> _callback;
+	typedef std::function<void()> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncSemaphore _sem;
@@ -275,7 +279,9 @@ public:
 private:
 	static void InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone);
 
-	std::function<void()> _callback;
+	typedef std::function<void()> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+
 	CAsyncLoop *_loop = NULL;
 
 	CAsyncPostpone _postpone;
@@ -314,7 +320,8 @@ public:
 private:
 	static void InternalCB(CAsyncLoop *loop, CAsyncIdle *idle);
 
-	std::function<void()> _callback;
+	typedef std::function<void()> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncIdle _idle;
@@ -353,7 +360,8 @@ public:
 private:
 	static void InternalCB(CAsyncLoop *loop, CAsyncOnce *idle);
 
-	std::function<void()> _callback;
+	typedef std::function<void()> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncOnce _once;
@@ -392,7 +400,9 @@ private:
 	static int InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub, 
 			const void *data, int size);
 
-	std::function<int(const void *data, int size)> _callback;
+	typedef std::function<int(const void *data, int size)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+
 	CAsyncLoop *_loop = NULL;
 	CAsyncSubscribe _subscribe;
 };
