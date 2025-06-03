@@ -270,20 +270,6 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 }
 
 
-//---------------------------------------------------------------------
-// returns non-zero, if there are expired timers
-//---------------------------------------------------------------------
-int itimer_core_expired(const itimer_core *core)
-{
-	const ilist_head *vec;
-	vec = core->tv1.vec + (core->timer_jiffies & ITVR_MASK);
-	if (!ilist_is_empty(vec)) {
-		return 1;
-	}
-	return 0;
-}
-
-
 
 //=====================================================================
 // Timer Manager
@@ -372,7 +358,12 @@ static void itimer_evt_cb(void *p)
 	// reschedule or stop ?
 	if (stop == 0) {
 		IUINT32 interval = mgr->interval;
-		IUINT32 expires = (evt->slap - current + interval - 1) / interval;
+		IUINT32 expires = 0;
+		if (interval > 1) {
+			expires = (evt->slap - current + interval - 1) / interval;
+		}	else {
+			expires = (evt->slap - current);
+		}
 		if (expires >= 0x70000000) expires = 0x70000000;
 		itimer_node_add(&mgr->core, &evt->node, mgr->jiffies + expires);
 	}	else {
@@ -430,7 +421,11 @@ void itimer_evt_start(itimer_mgr *mgr, itimer_evt *evt,
 	evt->repeat = (repeat <= 0)? -1 : repeat;
 	evt->slap = mgr->current + period;
 	evt->mgr = mgr;
-	expires = (evt->slap - mgr->current + interval - 1) / interval;
+	if (interval > 1) {
+		expires = (evt->slap - mgr->current + interval - 1) / interval;
+	}	else {
+		expires = (evt->slap - mgr->current);
+	}
 	if (expires >= 0x70000000) expires = 0x70000000;
 	itimer_node_add(&mgr->core, &evt->node, mgr->jiffies + expires);
 	evt->running = 0;

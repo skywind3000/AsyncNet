@@ -139,7 +139,6 @@ CAsyncLoop* async_loop_new(void)
 	loop->num_timers = 0;
 	loop->num_semaphore = 0;
 	loop->num_postpone = 0;
-	loop->num_subscribe = 0;
 	loop->sid_index = 0;
 
 	loop->interval = 1;

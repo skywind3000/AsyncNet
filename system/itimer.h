@@ -260,9 +260,6 @@ void itimer_core_destroy(itimer_core *core);
 // run timer core 
 void itimer_core_run(itimer_core *core, IUINT32 jiffies);
 
-// returns non-zero, if there are expired timers
-int itimer_core_expired(const itimer_core *core);
-
 
 // initialize node
 void itimer_node_init(itimer_node *node, void (*fn)(void*), void *data);

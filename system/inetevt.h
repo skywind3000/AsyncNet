@@ -150,15 +150,6 @@ struct CAsyncPostpone {
 
 
 //---------------------------------------------------------------------
-// CAsyncTopic - for topic management
-//---------------------------------------------------------------------
-typedef struct CAsyncTopic {
-	struct ib_hash_node hash_node;
-	ilist_head list_head;
-}	CAsyncTopic;
-
-
-//---------------------------------------------------------------------
 // CAsyncIdle - will be called when the loop is idle
 //---------------------------------------------------------------------
 struct CAsyncIdle {
@@ -201,7 +192,6 @@ struct CAsyncLoop {
 	int num_timers;                // number of timers
 	int num_semaphore;             // number of semaphores
 	int num_postpone;              // number of postpone events
-	int num_subscribe;             // number of subscriptions
 	int exiting;                   // exit flag
 	int instant;                   // set to non-zero for instant mode
 	char *internal;                // a static buffer for internal usage
