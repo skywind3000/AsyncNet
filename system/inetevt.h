@@ -267,8 +267,7 @@ struct CAsyncLoop {
 #define ASYNC_LOOP_LOG_POST       0x100
 #define ASYNC_LOOP_LOG_IDLE       0x200
 #define ASYNC_LOOP_LOG_ONCE       0x400
-#define ASYNC_LOOP_LOG_SUB        0x800
-#define ASYNC_LOOP_LOG_USER       0x1000
+#define ASYNC_LOOP_LOG_USER       0x800
 
 #define ASYNC_LOOP_LOG_CUSTOMIZE(n) ((ASYNC_LOOP_LOG_USER) << (n))
 
