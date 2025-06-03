@@ -16,7 +16,6 @@
 // - Semaphores for thread synchronization 
 // - Idle event handling for background tasks
 // - One-time event execution
-// - Topic subscription and publishing
 // - Cross-platform support
 //
 // The CAsyncLoop serves as the central event dispatcher, managing
@@ -103,11 +102,6 @@ static int async_loop_dispatch_idle(CAsyncLoop *loop);
 static int async_loop_dispatch_once(CAsyncLoop *loop);
 static void async_loop_cleanup(CAsyncLoop *loop);
 
-static CAsyncTopic *async_loop_topic_find(CAsyncLoop *loop, int topic);
-static CAsyncTopic *async_loop_topic_get(CAsyncLoop *loop, int topic);
-static int async_loop_topic_release(CAsyncLoop *loop, CAsyncTopic *topic);
-static int async_loop_topic_dispatch(CAsyncLoop *loop);
-
 
 //---------------------------------------------------------------------
 // CAsyncLoop ctor
@@ -150,7 +144,7 @@ CAsyncLoop* async_loop_new(void)
 
 	loop->interval = 1;
 	loop->exiting = 0;
-	loop->instance = 0;
+	loop->instant = 0;
 
 	iv_init(&loop->v_pending, NULL);
 	iv_init(&loop->v_changes, NULL);
@@ -270,11 +264,6 @@ CAsyncLoop* async_loop_new(void)
 	}
 #endif
 
-	ib_hash_init(&loop->topic_table, ib_hash_func_int, ib_hash_compare_int);
-	ib_fastbin_init(&loop->topic_bins, sizeof(CAsyncTopic));
-	loop->topic_array = ib_array_new(NULL);
-	ims_init(&loop->topic_queue, &loop->memnode, 0, 0);
-
 	return loop;
 }
 
@@ -284,7 +273,6 @@ CAsyncLoop* async_loop_new(void)
 //---------------------------------------------------------------------
 void async_loop_delete(CAsyncLoop *loop)
 {
-	void *ptr;
 	int i;
 
 	assert(loop != NULL);
@@ -374,17 +362,6 @@ void async_loop_delete(CAsyncLoop *loop)
 		loop->poller = NULL;
 	}
 
-	ib_array_delete(loop->topic_array);
-	loop->topic_array = NULL;
-	ims_destroy(&loop->topic_queue);
-	ib_fastbin_destroy(&loop->topic_bins);
-
-	ptr = ib_hash_swap(&loop->topic_table, NULL, 0);
-
-	if (ptr) {
-		ikmem_free(ptr);
-	}
-
 	imnode_destroy(&loop->memnode);
 	imnode_destroy(&loop->semnode);
 
@@ -432,16 +409,6 @@ static void async_loop_cleanup(CAsyncLoop *loop)
 	while (!ilist_is_empty(&loop->list_once)) {
 		CAsyncOnce *once = ilist_entry(loop->list_once.next, CAsyncOnce, node);
 		async_once_stop(loop, once);
-	}
-
-	// remove topic subscriptions
-	while (1) {
-		struct ib_hash_node *node = ib_hash_node_first(&loop->topic_table);
-		CAsyncTopic *topic = NULL;
-		if (node == NULL) break;
-		topic = IB_ENTRY(node, CAsyncTopic, hash_node);
-		if (topic == NULL) break;
-		async_loop_topic_release(loop, topic);
 	}
 }
 
@@ -958,17 +925,14 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 
 	loop->depth++;
 
-	// check instance mode
-	if (loop->instance) {
-		loop->instance = 0;
+	// check instant mode
+	if (loop->instant) {
+		loop->instant = 0;
 		millisec = 0;
 	}
 
 	// check unprocessed events
-	if (loop->topic_queue.size > 0) {
-		millisec = 0;
-	}
-	else if (!ilist_is_empty(&loop->list_post)) {
+	if (!ilist_is_empty(&loop->list_post)) {
 		millisec = 0;
 	}
 
@@ -1067,9 +1031,6 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 	async_loop_queue_flush(loop);
 	cc += async_loop_sem_dispatch(loop);
 
-	// dispatch subscribe
-	cc += async_loop_topic_dispatch(loop);
-
 	// dispatch postpnes
 	cc += async_loop_dispatch_post(loop);
 
@@ -1110,7 +1071,7 @@ void async_loop_run(CAsyncLoop *loop)
 {
 	IINT32 waitms = loop->interval;
 	if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
-		waitms = 20;
+		waitms = 50;
 	}
 	while (loop->exiting == 0) {
 		int cc = async_loop_once(loop, (IUINT32)waitms);
@@ -1850,254 +1811,6 @@ int async_once_stop(CAsyncLoop *loop, CAsyncOnce *once)
 int async_once_active(const CAsyncOnce *once)
 {
 	return once->active;
-}
-
-
-//---------------------------------------------------------------------
-// find a topic
-//---------------------------------------------------------------------
-static CAsyncTopic* async_loop_topic_find(CAsyncLoop *loop, int topic)
-{
-	struct ib_hash_node *node;
-	struct ib_hash_node key;
-	size_t uint_key = (size_t)topic;
-	ib_hash_node_key(&loop->topic_table, &key, (void*)uint_key);
-	node = ib_hash_find(&loop->topic_table, &key);
-	if (node == NULL) return NULL;
-	return IB_ENTRY(node, CAsyncTopic, hash_node);
-}
-
-
-//---------------------------------------------------------------------
-// get or create a topic
-//---------------------------------------------------------------------
-static CAsyncTopic* async_loop_topic_get(CAsyncLoop *loop, int topic)
-{
-	CAsyncTopic *topic_ptr = async_loop_topic_find(loop, topic);
-	size_t uint_key = (size_t)topic;
-	if (topic_ptr == NULL) {
-		topic_ptr = (CAsyncTopic*)ib_fastbin_new(&loop->topic_bins);
-		ilist_init(&topic_ptr->list_head);
-		ib_hash_node_key(&loop->topic_table, &topic_ptr->hash_node, 
-				(void*)uint_key);
-		ib_hash_add(&loop->topic_table, &topic_ptr->hash_node);
-		if (loop->topic_table.count * 2 > loop->topic_table.index_size) {
-			size_t required = loop->topic_table.count * 2;
-			size_t initsize = 4;
-			size_t allocate;
-			void *ptr, *old;
-			while (initsize < required) { 
-				initsize *= 2; 
-			}
-			allocate = initsize * sizeof(struct ib_hash_index);
-			ptr = (char*)ikmem_malloc(allocate);
-			old = ib_hash_swap(&loop->topic_table, ptr, allocate);
-			if (old) {
-				ikmem_free(old);
-			}
-		}
-	}
-	return topic_ptr;
-}
-
-
-//---------------------------------------------------------------------
-// release all subscriptions of a topic
-//---------------------------------------------------------------------
-static int async_loop_topic_release(CAsyncLoop *loop, CAsyncTopic *topic)
-{
-	assert(topic);
-	while (!ilist_is_empty(&topic->list_head)) {
-		ilist_head *it = topic->list_head.next;
-		CAsyncSubscribe *sub = ilist_entry(it, CAsyncSubscribe, node);
-		ilist_del_init(&sub->node);
-		sub->active = 0;
-		sub->pending = 0;
-		if (loop->logmask & ASYNC_LOOP_LOG_SUB) {
-			async_loop_log(loop, ASYNC_LOOP_LOG_SUB,
-				"[sub] stop subscribe ptr=%p, topic=%d", 
-				(void*)sub, sub->topic);
-		}
-	}
-	ib_hash_erase(&loop->topic_table, &topic->hash_node);
-	ib_fastbin_del(&loop->topic_bins, topic);
-	return 0;
-}
-
-
-//---------------------------------------------------------------------
-// cast a topic event to all subscribers
-//---------------------------------------------------------------------
-static void async_loop_topic_cast(CAsyncLoop *loop, CAsyncTopic *topic,
-	const char *data, int size)
-{
-	struct ib_array *array = loop->topic_array;
-	ilist_head *it = topic->list_head.next;
-	int pending = 0;
-	int index;
-	int cancel = 0;
-	ib_array_clear(array);
-	for (; it != &topic->list_head; it = it->next) {
-		CAsyncSubscribe *sub = ilist_entry(it, CAsyncSubscribe, node);
-		sub->pending = pending++;
-		ib_array_push(array, sub);
-	}
-	for (index = 0; index < pending; index++) {
-		CAsyncSubscribe *sub = (CAsyncSubscribe*)ib_array_ptr(array)[index];
-		if (sub == NULL) continue;
-		sub->pending = -1;  // reset pending
-		if (cancel == 0 && sub->callback) {
-			int hr = sub->callback(loop, sub, (void*)data, size);
-			if (hr != 0) {
-				cancel = 1;
-			}
-		}
-	}
-}
-
-
-//---------------------------------------------------------------------
-// dispatch topic events
-//---------------------------------------------------------------------
-static int async_loop_topic_dispatch(CAsyncLoop *loop)
-{
-	struct IMSTREAM *stream = &loop->topic_queue;
-	CAsyncTopic *topic = NULL;
-	IINT32 length, tid;
-	char *buffer = loop->internal;
-	int count = 0;
-	while (1) {
-		if (stream->size < 8) break;
-		ims_peek(stream, &length, sizeof(IINT32));
-		if (length < 8 || stream->size < (iulong)length) {
-			break;
-		}
-		assert(length <= ASYNC_LOOP_BUFFER_SIZE);
-		length -= 8;
-		ims_drop(stream, 4);
-		ims_read(stream, &tid, 4);
-		ims_read(stream, buffer, length);
-		buffer[length] = '\0';
-		topic = async_loop_topic_find(loop, (int)tid);
-		if (topic != NULL) {
-			async_loop_topic_cast(loop, topic, buffer, length);
-		}
-		count++;
-	}
-	return count;
-}
-
-
-//---------------------------------------------------------------------
-// publish data to a topic
-//---------------------------------------------------------------------
-void async_loop_pub(CAsyncLoop *loop, int topic, const void *data, int size)
-{
-	char head[8];
-	iencode32i_lsb(head + 0, size + 8);
-	iencode32i_lsb(head + 4, topic);
-	if (size <= ASYNC_LOOP_BUFFER_SIZE) {
-		ims_write(&loop->topic_queue, head, 8);
-		ims_write(&loop->topic_queue, data, size);
-	}
-}
-
-
-//---------------------------------------------------------------------
-// initialize a CAsyncSubscribe object
-//---------------------------------------------------------------------
-void async_sub_init(CAsyncSubscribe *sub, int (*callback)(CAsyncLoop *loop, 
-		CAsyncSubscribe *sub, const void *data, int size))
-{
-	ilist_init(&sub->node);
-	sub->active = 0;
-	sub->pending = -1;
-	sub->callback = callback;
-	sub->user = NULL;
-	sub->topic = -1;  // invalid topic
-}
-
-
-//---------------------------------------------------------------------
-// start watching topic
-//---------------------------------------------------------------------
-int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic)
-{
-	CAsyncTopic *tp = NULL;
-	assert(sub);
-	assert(sub->active == 0);
-	assert(ilist_is_empty(&sub->node));
-	if (topic < 0) {
-		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
-			async_loop_log(loop, ASYNC_LOOP_LOG_WARN,
-			"[warn] subscribe starting failed: bad topic ptr=%p, topic=%d",
-			(void*)sub, topic);
-		}
-		return -1;
-	}
-	sub->topic = topic;
-	tp = async_loop_topic_get(loop, sub->topic);
-	ilist_add_tail(&sub->node, &tp->list_head);
-	sub->pending = -1;
-	sub->active = 1;
-	loop->num_subscribe++;
-	if (loop->logmask & ASYNC_LOOP_LOG_SUB) {
-		async_loop_log(loop, ASYNC_LOOP_LOG_SUB,
-			"[sub] start subscribe ptr=%p, topic=%d", 
-			(void*)sub, sub->topic);
-	}
-	return 0;
-}
-
-
-//---------------------------------------------------------------------
-// stop watching topic
-//---------------------------------------------------------------------
-int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub)
-{
-	CAsyncTopic *topic = NULL;
-	assert(sub);
-	assert(sub->active != 0);
-	// remove pending
-	if (sub->pending >= 0) {
-		void **ptrs = ib_array_ptr(loop->topic_array);
-		CAsyncSubscribe *ptr = (CAsyncSubscribe*)ptrs[sub->pending];
-		if (ptr != sub) {
-			if (loop->logmask & ASYNC_LOOP_LOG_ERROR) {
-				async_loop_log(loop, ASYNC_LOOP_LOG_ERROR,
-					"[error] subscribe stopping failed: ptr=%p, topic=%d",
-					(void*)sub, sub->topic);
-			}
-			assert(ptr == sub);
-			return -1;
-		}
-		ptrs[sub->pending] = NULL;
-		sub->pending = -1;
-	}
-	topic = async_loop_topic_find(loop, sub->topic);
-	if (topic == NULL) {
-		if (loop->logmask & ASYNC_LOOP_LOG_ERROR) {
-			async_loop_log(loop, ASYNC_LOOP_LOG_ERROR,
-				"[warn] topic stopping failed: not found ptr=%p, topic=%d",
-				(void*)sub, sub->topic);
-		}
-		assert(topic);
-		return -1;
-	}
-	ilist_del_init(&sub->node);
-	sub->active = 0;
-	sub->pending = -1;
-	// release topic if no subscribers
-	if (ilist_is_empty(&topic->list_head)) {
-		async_loop_topic_release(loop, topic);
-	}
-	loop->num_subscribe--;
-	if (loop->logmask & ASYNC_LOOP_LOG_SUB) {
-		async_loop_log(loop, ASYNC_LOOP_LOG_SUB,
-			"[sub] stop subscribe ptr=%p, topic=%d", 
-			(void*)sub, sub->topic);
-	}
-	return 0;
 }
 
 

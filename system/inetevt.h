@@ -16,7 +16,6 @@
 // - Semaphores for thread synchronization 
 // - Idle event handling for background tasks
 // - One-time event execution
-// - Topic subscription and publishing
 // - Cross-platform support
 //
 // The CAsyncLoop serves as the central event dispatcher, managing
@@ -70,7 +69,6 @@ struct CAsyncEvent;
 struct CAsyncTimer;
 struct CAsyncSemaphore;
 struct CAsyncPostpone;
-struct CAsyncSubscribe;
 struct CAsyncIdle;
 struct CAsyncOnce;
 
@@ -79,7 +77,6 @@ typedef struct CAsyncEvent CAsyncEvent;
 typedef struct CAsyncTimer CAsyncTimer;
 typedef struct CAsyncSemaphore CAsyncSemaphore;
 typedef struct CAsyncPostpone CAsyncPostpone;
-typedef struct CAsyncSubscribe CAsyncSubscribe;
 typedef struct CAsyncIdle CAsyncIdle;
 typedef struct CAsyncOnce CAsyncOnce;
 
@@ -153,20 +150,6 @@ struct CAsyncPostpone {
 
 
 //---------------------------------------------------------------------
-// CAsyncSubscribe - for subscribing to topics
-//---------------------------------------------------------------------
-struct CAsyncSubscribe {
-	ilist_head node;
-	int active;
-	int pending;
-	int topic;
-	int (*callback)(CAsyncLoop *loop, CAsyncSubscribe *sub, 
-			const void *data, int size);
-	void *user;
-};
-
-
-//---------------------------------------------------------------------
 // CAsyncTopic - for topic management
 //---------------------------------------------------------------------
 typedef struct CAsyncTopic {
@@ -220,7 +203,7 @@ struct CAsyncLoop {
 	int num_postpone;              // number of postpone events
 	int num_subscribe;             // number of subscriptions
 	int exiting;                   // exit flag
-	int instance;                  // set to non-zero for instance mode
+	int instant;                   // set to non-zero for instant mode
 	char *internal;                // a static buffer for internal usage
 	char *buffer;                  // a static buffer for arbitrary usage
 	char *cache;                   // an extra buffer for external usage
@@ -253,10 +236,6 @@ struct CAsyncLoop {
 	void *extension;    // external data pointer for extension;
 	int logmask;        // log mask for loop object
 	void *logger;       // logger for loop object, can be NULL
-	struct IMSTREAM topic_queue;
-	struct ib_hash_table topic_table;
-	struct ib_fastbin topic_bins;
-	struct ib_array *topic_array;
 	void (*writelog)(void *logger, const char *msg);
 	void (*on_once)(CAsyncLoop *loop);
 	void (*on_timer)(CAsyncLoop *loop);
@@ -417,21 +396,6 @@ int async_post_stop(CAsyncLoop *loop, CAsyncPostpone *postpone);
 
 // returns is the postpone is active
 int async_post_active(const CAsyncPostpone *postpone);
-
-
-//---------------------------------------------------------------------
-// CAsyncSubscribe - for subscribing to topics
-//---------------------------------------------------------------------
-
-// initialize a CAsyncSubscribe object
-void async_sub_init(CAsyncSubscribe *sub, int (*callback)(CAsyncLoop *loop, 
-		CAsyncSubscribe *sub, const void *data, int size));
-
-// start watching topic
-int async_sub_start(CAsyncLoop *loop, CAsyncSubscribe *sub, int topic);
-
-// stop watching topic
-int async_sub_stop(CAsyncLoop *loop, CAsyncSubscribe *sub);
 
 
 //---------------------------------------------------------------------

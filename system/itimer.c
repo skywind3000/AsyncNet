@@ -176,10 +176,13 @@ int itimer_node_mod(itimer_core *core, itimer_node *node, IUINT32 expires)
 static void itimer_internal_add(itimer_core *core, itimer_node *node)
 {
 	IUINT32 expires = node->expires;
-	IUINT32 idx = expires - core->timer_jiffies;
+	IUINT32 idx = (IUINT32)(expires - core->timer_jiffies);
 	ilist_head *vec = NULL;
 
-	if (idx < ITVR_SIZE) {
+	if (((IINT32)idx) < 0) {
+		vec = core->tv1.vec + (core->timer_jiffies & ITVR_MASK);
+	}
+	else if (idx < ITVR_SIZE) {
 		int i = expires & ITVR_MASK;
 		vec = core->tv1.vec + i;
 	}
@@ -194,9 +197,6 @@ static void itimer_internal_add(itimer_core *core, itimer_node *node)
 	else if (idx < (1 << (ITVR_BITS + ITVN_BITS * 3))) {
 		int i = (expires >> (ITVR_BITS + ITVN_BITS * 2)) & ITVN_MASK;
 		vec = core->tv4.vec + i;
-	}
-	else if ((IINT32)idx < 0) {
-		vec = core->tv1.vec + (core->timer_jiffies & ITVR_MASK);
 	}
 	else {
 		int i = (expires >> (ITVR_BITS + ITVN_BITS * 3)) & ITVN_MASK;
@@ -267,6 +267,20 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 		}
 	}
 	#undef ITIMER_INDEX
+}
+
+
+//---------------------------------------------------------------------
+// returns non-zero, if there are expired timers
+//---------------------------------------------------------------------
+int itimer_core_expired(const itimer_core *core)
+{
+	const ilist_head *vec;
+	vec = core->tv1.vec + (core->timer_jiffies & ITVR_MASK);
+	if (!ilist_is_empty(vec)) {
+		return 1;
+	}
+	return 0;
 }
 
 

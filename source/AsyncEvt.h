@@ -54,9 +54,6 @@ public:
 	// setup interval (async_loop_once wait time, aka. epoll wait time)
 	void SetInterval(int millisec);
 
-	// publish data to a topic
-	void Publish(int topic, const void *data, int size);
-
 	// write log
 	void Log(int channel, const char *fmt, ...);
 	
@@ -365,46 +362,6 @@ private:
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncOnce _once;
-};
-
-
-//---------------------------------------------------------------------
-// AsyncSubscribe
-//---------------------------------------------------------------------
-class AsyncSubscribe final
-{
-public:
-	~AsyncSubscribe();
-	AsyncSubscribe(AsyncLoop &loop);
-	AsyncSubscribe(CAsyncLoop *loop);
-
-	AsyncSubscribe(AsyncSubscribe &&src) = delete;
-	AsyncSubscribe(const AsyncSubscribe &) = delete;
-	AsyncSubscribe& operator=(AsyncSubscribe &src) = delete;
-
-public:
-
-	// setup callback
-	void SetCallback(std::function<int(const void *data, int size)> callback);
-
-	// start subscribing to a topic
-	int Start(int topic);
-
-	// stop subscribing
-	int Stop();
-
-	// is watching ?
-	inline bool IsActive() const { return async_sub_is_active(&_subscribe); }
-
-private:
-	static int InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub, 
-			const void *data, int size);
-
-	typedef std::function<int(const void *data, int size)> Callback;
-	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
-
-	CAsyncLoop *_loop = NULL;
-	CAsyncSubscribe _subscribe;
 };
 
 

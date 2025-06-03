@@ -131,15 +131,6 @@ void AsyncLoop::SetInterval(int millisec)
 
 
 //---------------------------------------------------------------------
-// publish data to a topic
-//---------------------------------------------------------------------
-void AsyncLoop::Publish(int topic, const void *data, int size)
-{
-	async_loop_pub(_loop, topic, data, size);
-}
-
-
-//---------------------------------------------------------------------
 // callback for c
 //---------------------------------------------------------------------
 void AsyncLoop::OnLog(void *logger, const char *text)
@@ -802,89 +793,6 @@ int AsyncOnce::Stop()
 }
 
 
-
-//=====================================================================
-// AsyncSubscribe
-//=====================================================================
-
-//---------------------------------------------------------------------
-// dtor
-//---------------------------------------------------------------------
-AsyncSubscribe::~AsyncSubscribe()
-{
-	if (_subscribe.active) {
-		async_sub_stop(_loop, &_subscribe);
-	}
-	_loop = NULL;
-	(*_cb_ptr) = nullptr;
-}
-
-
-//---------------------------------------------------------------------
-// ctor
-//---------------------------------------------------------------------
-AsyncSubscribe::AsyncSubscribe(CAsyncLoop *loop)
-{
-	_loop = loop;
-	async_sub_init(&_subscribe, InternalCB);
-	_subscribe.user = this;
-	(*_cb_ptr) = nullptr;
-}
-
-
-//---------------------------------------------------------------------
-// ctor
-//---------------------------------------------------------------------
-AsyncSubscribe::AsyncSubscribe(AsyncLoop &loop)
-{
-	_loop = loop.GetLoop();
-	async_sub_init(&_subscribe, InternalCB);
-	_subscribe.user = this;
-	(*_cb_ptr) = nullptr;
-}
-
-
-//---------------------------------------------------------------------
-// setup callback
-//---------------------------------------------------------------------
-void AsyncSubscribe::SetCallback(std::function<int(const void *data, int size)> callback)
-{
-	(*_cb_ptr) = callback;
-}
-
-
-//---------------------------------------------------------------------
-// internal callback
-//---------------------------------------------------------------------
-int AsyncSubscribe::InternalCB(CAsyncLoop *loop, CAsyncSubscribe *sub, 
-		const void *data, int size)
-{
-	AsyncSubscribe *self = (AsyncSubscribe*)sub->user;
-	if ((*self->_cb_ptr) != nullptr) {
-		auto ref_ptr = self->_cb_ptr;
-		int hr = (*ref_ptr)(data, size);
-		return hr;
-	}
-	return 0; // no callback
-}
-
-
-//---------------------------------------------------------------------
-// start subscribing to a topic
-//---------------------------------------------------------------------
-int AsyncSubscribe::Start(int topic)
-{
-	return async_sub_start(_loop, &_subscribe, topic);
-}
-
-
-//---------------------------------------------------------------------
-// stop subscribing
-//---------------------------------------------------------------------
-int AsyncSubscribe::Stop()
-{
-	return async_sub_stop(_loop, &_subscribe);
-}
 
 
 
