@@ -250,7 +250,6 @@ struct CAsyncLoop {
 #define async_post_is_active(e) ((e)->active != 0)
 #define async_once_is_active(e) ((e)->active != 0)
 #define async_idle_is_active(e) ((e)->active != 0)
-#define async_sub_is_active(e) ((e)->active != 0)
 
 
 //---------------------------------------------------------------------
