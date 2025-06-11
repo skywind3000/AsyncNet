@@ -130,6 +130,9 @@ public:
 	// stop listening
 	void Stop();
 
+	// pause/resume accepting new connections if the argument is true/false
+	void Pause(bool pause);
+
 private:
 
 	static void ListenCB(CAsyncListener *listener, int fd, const sockaddr *addr, int len);
@@ -259,6 +262,7 @@ private:
 
 	CAsyncMessage *_msg = NULL;
 };
+
 
 
 

@@ -178,6 +178,9 @@ int async_listener_start(CAsyncListener *listener, int backlog,
 // stop listening
 void async_listener_stop(CAsyncListener *listener);
 
+// pause/resume accepting new connections when argument pause is 1/0
+void async_listener_pause(CAsyncListener *listener, int pause);
+
 
 //---------------------------------------------------------------------
 // CAsyncUdp
@@ -278,6 +281,7 @@ int async_msg_stop(CAsyncMessage *msg);
 // post message from another thread
 int async_msg_post(CAsyncMessage *msg, int mid, 
 	IINT32 wparam, IINT32 lparam, const void *ptr, int size);
+
 
 
 

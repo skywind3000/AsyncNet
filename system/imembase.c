@@ -2366,4 +2366,117 @@ struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key)
 
 
 
+/*--------------------------------------------------------------------*/
+/* stack allocator                                                    */
+/*--------------------------------------------------------------------*/
+
+/* initialize a stack allocator */
+void ib_stack_init(struct ib_stack *stack, void *initmem, size_t size,
+		struct IALLOCATOR *allocator)
+{
+	stack->ptr = NULL;
+	stack->avail = 0;
+	stack->pages = NULL;
+	stack->used = 0;
+	stack->allocated = 0;
+	stack->minimum = 8192;
+	stack->maximum = 4 * 1024 * 1024;
+	stack->allocator = allocator;
+	if (initmem != NULL && size > 0) {
+		stack->ptr = (char*)initmem;
+		stack->avail = size;
+	}
+}
+
+/* destroy a stack allocator */
+void ib_stack_destroy(struct ib_stack *stack)
+{
+	while (stack->pages != NULL) {
+		char *page = (char*)stack->pages;
+		char *next = (char*)ib_read_ptr(page);
+		stack->pages = next;
+		if (page != NULL) {
+			internal_free(stack->allocator, page);
+		}
+	}
+	stack->ptr = NULL;
+	stack->avail = 0;
+	stack->used = 0;
+	stack->allocated = 0;
+}
+
+/* allocate a new obj */
+void* ib_stack_next(struct ib_stack *stack, size_t size)
+{
+	void *obj;
+	size = IROUND_UP(size, sizeof(char*));
+	if (stack->ptr == NULL || stack->avail < size) {
+		size_t minsize = size + sizeof(void*);
+		size_t relsize = stack->allocated * 2;
+		size_t required = 0;
+		char *page;
+		relsize = (relsize > stack->maximum)? stack->maximum : relsize;
+		relsize = (relsize < stack->minimum)? stack->minimum : relsize;
+		required = (minsize < relsize)? relsize : minsize;
+		required = IROUND_UP(required, sizeof(char*));
+		page = (char*)internal_malloc(stack->allocator, required);
+		ib_write_ptr(page, stack->pages);
+		stack->pages = page;
+		stack->ptr = page + sizeof(void*);
+		stack->avail = required - sizeof(void*);
+		stack->allocated += required;
+	}
+	assert(stack->ptr != NULL);
+	assert(stack->avail >= size);
+	obj = stack->ptr;
+	stack->ptr += size;
+	stack->avail -= size;
+	stack->used += size;
+	return obj;
+}
+
+/* allocator: new */
+static void* ib_stack_alloc(struct IALLOCATOR *allocator, size_t size)
+{
+	struct ib_stack *stack = (struct ib_stack*)allocator->udata;
+	char *obj = (char*)ib_stack_next(stack, size + sizeof(size_t));
+	assert(obj != NULL);
+	memcpy(obj, &size, sizeof(size_t));
+	return obj + sizeof(size_t);
+}
+
+/* allocator: free */
+static void ib_stack_free(struct IALLOCATOR *allocator, void *ptr)
+{
+}
+
+/* allocator: realloc */
+static void* ib_stack_realloc(struct IALLOCATOR *allocator, 
+		void *ptr, size_t size)
+{
+	void *obj;
+	obj = ib_stack_alloc(allocator, size);
+	assert(obj != NULL);
+	if (ptr != NULL) {
+		size_t oldsize = 0;
+		memcpy(&oldsize, ((char*)ptr) - sizeof(size_t), sizeof(size_t));
+		if (oldsize > 0) {
+			size_t minsize = (oldsize < size)? oldsize : size;
+			memcpy(obj, ptr, minsize);
+		}
+		ib_stack_free(allocator, ptr);
+	}
+	return obj;
+}
+
+/* setup an allocator */
+void ib_stack_setup(struct ib_stack *stack, struct IALLOCATOR *allocator)
+{
+	allocator->udata = stack;
+	allocator->alloc = ib_stack_alloc;
+	allocator->free = ib_stack_free;
+	allocator->realloc = ib_stack_realloc;
+}
+
+
 

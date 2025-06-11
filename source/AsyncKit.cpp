@@ -496,6 +496,15 @@ void AsyncListener::Stop()
 }
 
 
+//---------------------------------------------------------------------
+// pause/resume accepting new connections if the argument is true/false
+//---------------------------------------------------------------------
+void AsyncListener::Pause(bool pause)
+{
+	async_listener_pause(_listener, pause? 1 : 0);
+}
+
+
 
 //=====================================================================
 // AsyncMessage
@@ -616,6 +625,7 @@ int AsyncMessage::Post(int mid, int wparam, int lparam, const std::string &text)
 {
 	return Post(mid, wparam, lparam, text.c_str(), (int)text.size());
 }
+
 
 
 

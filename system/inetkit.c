@@ -720,7 +720,10 @@ int async_listener_start(CAsyncListener *listener, int backlog,
 	int family = addr->sa_family;
 	int fd;
 
-	if (addrlen <= 0) addrlen = sizeof(struct sockaddr);
+	if (addrlen <= 0) {
+		addrlen = sizeof(struct sockaddr);
+	}
+
 	if (listener->fd >= 0) {
 		async_listener_stop(listener);
 	}
@@ -786,6 +789,27 @@ void async_listener_stop(CAsyncListener *listener)
 		listener->fd = -1;
 	}
 }
+
+
+//---------------------------------------------------------------------
+// pause/resume accepting new connections when argument pause is 1/0
+//---------------------------------------------------------------------
+void async_listener_pause(CAsyncListener *listener, int pause)
+{
+	if (listener->fd >= 0) {
+		if (pause) {
+			if (async_event_is_active(&listener->evt_read) == 0) {
+				async_event_start(listener->loop, &listener->evt_read);
+			}
+		}
+		else {
+			if (async_event_is_active(&listener->evt_read) != 0) {
+				async_event_stop(listener->loop, &listener->evt_read);
+			}
+		}
+	}
+}
+
 
 
 //=====================================================================
