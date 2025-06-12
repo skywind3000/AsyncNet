@@ -362,6 +362,7 @@ static inline long async_stream_pending(CAsyncStream *stream) {
 
 
 
+
 #ifdef __cplusplus
 }
 #endif
