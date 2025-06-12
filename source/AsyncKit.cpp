@@ -496,6 +496,15 @@ void AsyncListener::Stop()
 }
 
 
+//---------------------------------------------------------------------
+// pause/resume accepting new connections if the argument is true/false
+//---------------------------------------------------------------------
+void AsyncListener::Pause(bool pause)
+{
+	async_listener_pause(_listener, pause? 1 : 0);
+}
+
+
 
 //=====================================================================
 // AsyncMessage
@@ -596,7 +605,7 @@ bool AsyncMessage::Stop()
 //---------------------------------------------------------------------
 int AsyncMessage::Post(int mid, int wparam, int lparam, const void *ptr, int size)
 {
-	return async_msg_post(_msg, mid, wparam, lparam, ptr, size);
+	return async_msg_post(_msg, mid, wparam, lparam, ptr, (size < 0)? 0 : size);
 }
 
 
@@ -605,7 +614,7 @@ int AsyncMessage::Post(int mid, int wparam, int lparam, const void *ptr, int siz
 //---------------------------------------------------------------------
 int AsyncMessage::Post(int mid, int wparam, int lparam, const char *text)
 {
-	return Post(mid, wparam, lparam, text, (int)strlen(text));
+	return Post(mid, wparam, lparam, text, text? (int)strlen(text) : 0);
 }
 
 

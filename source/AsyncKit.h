@@ -9,6 +9,8 @@
 #define _ASYNCKIT_H_
 
 #include <stddef.h>
+#include <string>
+
 #include "../system/inetevt.h"
 #include "../system/inetkit.h"
 #include "../system/wrappers.h"
@@ -129,6 +131,9 @@ public:
 
 	// stop listening
 	void Stop();
+
+	// pause/resume accepting new connections if the argument is true/false
+	void Pause(bool pause);
 
 private:
 
@@ -259,6 +264,7 @@ private:
 
 	CAsyncMessage *_msg = NULL;
 };
+
 
 
 

@@ -1,6 +1,6 @@
 //=====================================================================
 //
-// AsyncEvt.cpp - 
+// AsyncEvt.cpp - Asynchronous Event Loop and Event Handling
 //
 // Created by skywind on 2015/07/19
 // Last Modified: 2025/04/19 22:08:19
@@ -86,6 +86,16 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	} else {
 		this->_log_cache.clear();
 	}
+}
+
+
+//---------------------------------------------------------------------
+// get thread local instance
+//---------------------------------------------------------------------
+AsyncLoop& AsyncLoop::GetDefaultLoop()
+{
+	static thread_local AsyncLoop loop;
+	return loop;
 }
 
 

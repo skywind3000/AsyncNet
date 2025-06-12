@@ -26,11 +26,13 @@ struct CAsyncTcp;
 struct CAsyncListener;
 struct CAsyncUdp;
 struct CAsyncMessage;
+struct CAsyncStream;
 
 typedef struct CAsyncTcp CAsyncTcp;
 typedef struct CAsyncListener CAsyncListener;
 typedef struct CAsyncUdp CAsyncUdp;
 typedef struct CAsyncMessage CAsyncMessage;
+typedef struct CAsyncStream CAsyncStream;
 
 #define ASYNC_LOOP_LOG_TCP         ASYNC_LOOP_LOG_CUSTOMIZE(0)
 #define ASYNC_LOOP_LOG_LISTENER    ASYNC_LOOP_LOG_CUSTOMIZE(1)
@@ -178,6 +180,9 @@ int async_listener_start(CAsyncListener *listener, int backlog,
 // stop listening
 void async_listener_stop(CAsyncListener *listener);
 
+// pause/resume accepting new connections when argument pause is 1/0
+void async_listener_pause(CAsyncListener *listener, int pause);
+
 
 //---------------------------------------------------------------------
 // CAsyncUdp
@@ -278,6 +283,82 @@ int async_msg_stop(CAsyncMessage *msg);
 // post message from another thread
 int async_msg_post(CAsyncMessage *msg, int mid, 
 	IINT32 wparam, IINT32 lparam, const void *ptr, int size);
+
+
+//---------------------------------------------------------------------
+// CAsyncStream
+//---------------------------------------------------------------------
+struct CAsyncStream {
+	CAsyncLoop *loop;
+	void *instance;
+	void (*callback)(CAsyncStream *self, int event, int args); 
+	void (*release)(CAsyncStream *self);
+	long (*read)(CAsyncStream *self, void *ptr, long size);
+	long (*write)(CAsyncStream *self, const void *ptr, long size);
+	long (*peek)(CAsyncStream *self, void *ptr, long size);
+	long (*enable)(CAsyncStream *self, int event);
+	long (*disable)(CAsyncStream *self, int event);
+	long (*remain)(CAsyncStream *self);
+	long (*pending)(CAsyncStream *self);
+};
+
+#define ASYNC_STREAM_EVT_CONNECTED  0x01
+#define ASYNC_STREAM_EVT_EOF        0x02
+#define ASYNC_STREAM_EVT_ERROR      0x04
+#define ASYNC_STREAM_EVT_READING    0x08
+#define ASYNC_STREAM_EVT_WRITING    0x10
+
+// release and close stream
+static inline void async_stream_delete(CAsyncStream *stream) {
+	stream->release(stream);
+}
+
+// read data from recv buffer
+static inline long async_stream_read(CAsyncStream *stream, void *ptr, long size) {
+	return stream->read(stream, ptr, size);
+}
+
+// write data into send buffer
+static inline long async_stream_write(CAsyncStream *stream, const void *ptr, long size) {
+	return stream->write(stream, ptr, size);
+}
+
+// peek data from recv buffer without removing them
+static inline long async_stream_peek(CAsyncStream *stream, void *ptr, long size) {
+	return stream->peek(stream, ptr, size);
+}
+
+// enable ASYNC_EVENT_READ/WRITE
+static inline long async_stream_enable(CAsyncStream *stream, int event) {
+	if (stream->enable) {
+		return stream->enable(stream, event);
+	}
+	return -1; // not supported
+}
+
+// disable ASYNC_EVENT_READ/WRITE
+static inline long async_stream_disable(CAsyncStream *stream, int event) {
+	if (stream->disable) {
+		return stream->disable(stream, event);
+	}
+	return -1; // not supported
+}
+
+// disable ASYNC_EVENT_READ/WRITE
+static inline long async_stream_remain(CAsyncStream *stream) {
+	if (stream->remain) {
+		return stream->remain(stream);
+	}
+	return -1; // not supported
+}
+
+// how many bytes remain in the send buffer
+static inline long async_stream_pending(CAsyncStream *stream) {
+	if (stream->pending) {
+		return stream->pending(stream);
+	}
+	return -1; // not supported
+}
 
 
 

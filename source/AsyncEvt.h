@@ -1,6 +1,6 @@
 //=====================================================================
 //
-// AsyncEvt.h - 
+// AsyncEvt.h - Asynchronous Event Loop and Event Handling
 //
 // Created by skywind on 2015/07/19
 // Last Modified: 2025/04/19 22:07:57
@@ -42,6 +42,9 @@ public:
 	inline CAsyncLoop *GetLoop() { return _loop; }
 	inline const CAsyncLoop *GetLoop() const { return _loop; }
 
+	// get thread local instance
+	static AsyncLoop& GetDefaultLoop();
+
 	// run once
 	void RunOnce(uint32_t millisec = 10);
 
@@ -59,6 +62,11 @@ public:
 	
 	// set log mask
 	void SetLogMask(int mask);
+
+	// check log mask
+	inline bool CheckLogMask(int channel) const {
+		return ((_loop->logmask & channel) != 0);
+	}
 
 	// get timestamp
 	int64_t Timestamp(bool monotonic) const {

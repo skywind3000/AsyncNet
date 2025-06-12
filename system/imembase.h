@@ -926,6 +926,35 @@ struct ib_hash_entry *ib_map_find_str(struct ib_hash_map *hm, const ib_string *k
 struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key);
 
 
+/*--------------------------------------------------------------------*/
+/* stack allocator                                                    */
+/*--------------------------------------------------------------------*/
+struct ib_stack
+{
+	char *ptr;
+	size_t avail;
+	size_t used;
+	size_t allocated;
+	size_t minimum;
+	size_t maximum;
+	void *pages;
+	struct IALLOCATOR *allocator;
+};
+
+
+/* initialize a stack allocator */
+void ib_stack_init(struct ib_stack *stack, void *initmem, size_t size,
+		struct IALLOCATOR *allocator);
+
+/* destroy a stack allocator */
+void ib_stack_destroy(struct ib_stack *stack);
+
+/* allocate a new obj */
+void* ib_stack_next(struct ib_stack *stack, size_t size);
+
+/* setup an allocator */
+void ib_stack_setup(struct ib_stack *stack, struct IALLOCATOR *allocator);
+
 
 #ifdef __cplusplus
 }
