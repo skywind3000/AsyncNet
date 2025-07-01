@@ -2,7 +2,6 @@
 //
 // AsyncEvt.cpp - Asynchronous Event Loop and Event Handling
 //
-// Created by skywind on 2015/07/19
 // Last Modified: 2025/04/19 22:08:19
 //
 //=====================================================================
@@ -96,6 +95,29 @@ AsyncLoop& AsyncLoop::GetDefaultLoop()
 {
 	static thread_local AsyncLoop loop;
 	return loop;
+}
+
+
+//---------------------------------------------------------------------
+// get dummy instance
+//---------------------------------------------------------------------
+AsyncLoop& AsyncLoop::GetDummyLoop()
+{
+	static AsyncLoop loop;
+	return loop;
+}
+
+
+//---------------------------------------------------------------------
+// check is dummy instance
+//---------------------------------------------------------------------
+bool AsyncLoop::IsDummy() const
+{
+	AsyncLoop& dummy = GetDummyLoop();
+	if (this == &dummy) {
+		return true;
+	}
+	return false;
 }
 
 
@@ -369,6 +391,7 @@ bool AsyncEvent::Modify(int mask)
 //---------------------------------------------------------------------
 int AsyncEvent::Start()
 {
+	assert(_loop != NULL);
 	if (_event.fd < 0) return -1000;
 	return async_event_start(_loop, &_event);
 }
@@ -442,6 +465,7 @@ void AsyncTimer::TimerCB(CAsyncLoop *loop, CAsyncTimer *timer)
 //---------------------------------------------------------------------
 int AsyncTimer::Start(uint32_t period, int repeat)
 {
+	assert(_loop != NULL);
 	return async_timer_start(_loop, &_timer, period, repeat);
 }
 
@@ -530,6 +554,7 @@ void AsyncSemaphore::SetCallback(std::function<void()> callback)
 //---------------------------------------------------------------------
 int AsyncSemaphore::Start()
 {
+	assert(_loop != NULL);
 	int cc = async_sem_start(_loop, &_sem);
 	return cc;
 }
@@ -623,6 +648,7 @@ void AsyncPostpone::SetCallback(std::function<void()> callback)
 //---------------------------------------------------------------------
 int AsyncPostpone::Start()
 {
+	assert(_loop != NULL);
 	return async_post_start(_loop, &_postpone);
 }
 
@@ -705,6 +731,7 @@ void AsyncIdle::SetCallback(std::function<void()> callback)
 //---------------------------------------------------------------------
 int AsyncIdle::Start()
 {
+	assert(_loop != NULL);
 	int cc = async_idle_start(_loop, &_idle);
 	return cc;
 }
@@ -788,6 +815,7 @@ void AsyncOnce::InternalCB(CAsyncLoop *loop, CAsyncOnce *once)
 //---------------------------------------------------------------------
 int AsyncOnce::Start()
 {
+	assert(_loop != NULL);
 	int cc = async_once_start(_loop, &_once);
 	return cc;
 }

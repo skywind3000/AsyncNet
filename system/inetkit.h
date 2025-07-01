@@ -191,12 +191,16 @@ struct CAsyncUdp {
 	int fd;
 	int error;
 	int enabled;
-	void (*callback)(CAsyncUdp *udp, int event, int args);
+	int busy;
+	int releasing;
 	void *data;
 	void *user;
 	CAsyncLoop *loop;
 	CAsyncEvent evt_read;
 	CAsyncEvent evt_write;
+	void (*callback)(CAsyncUdp *udp, int event, int args);
+	void (*receiver)(CAsyncUdp *udp, void *data, long size,
+			const struct sockaddr *addr, int addrlen);
 };
 
 
@@ -298,8 +302,8 @@ struct CAsyncStream {
 	long (*peek)(CAsyncStream *self, void *ptr, long size);
 	long (*enable)(CAsyncStream *self, int event);
 	long (*disable)(CAsyncStream *self, int event);
-	long (*remain)(CAsyncStream *self);
-	long (*pending)(CAsyncStream *self);
+	long (*remain)(const CAsyncStream *self);
+	long (*pending)(const CAsyncStream *self);
 };
 
 #define ASYNC_STREAM_EVT_CONNECTED  0x01
@@ -344,8 +348,8 @@ static inline long async_stream_disable(CAsyncStream *stream, int event) {
 	return -1; // not supported
 }
 
-// disable ASYNC_EVENT_READ/WRITE
-static inline long async_stream_remain(CAsyncStream *stream) {
+// how many bytes remain in the recv buffer
+static inline long async_stream_remain(const CAsyncStream *stream) {
 	if (stream->remain) {
 		return stream->remain(stream);
 	}
@@ -353,13 +357,12 @@ static inline long async_stream_remain(CAsyncStream *stream) {
 }
 
 // how many bytes remain in the send buffer
-static inline long async_stream_pending(CAsyncStream *stream) {
+static inline long async_stream_pending(const CAsyncStream *stream) {
 	if (stream->pending) {
 		return stream->pending(stream);
 	}
 	return -1; // not supported
 }
-
 
 
 

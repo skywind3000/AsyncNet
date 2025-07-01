@@ -326,6 +326,9 @@ long async_tcp_try_reading(CAsyncTcp *tcp)
 		retval = (long)irecv(tcp->fd, buffer, canread, 0);
 		if (retval < 0) {
 			retval = ierrno();
+		#ifdef EINTR
+			if (retval == EINTR) continue;
+		#endif
 			if (retval == IEAGAIN || retval == 0) break;
 			else { 
 				tcp->error = retval;
@@ -364,6 +367,9 @@ long async_tcp_try_writing(CAsyncTcp *tcp)
 		if (retval == 0) break;
 		else if (retval < 0) {
 			retval = ierrno();
+		#ifdef EINTR
+			if (retval == EINTR) continue;
+		#endif
 			if (retval == IEAGAIN || retval == 0) break;
 			else {
 				tcp->error = retval;
@@ -835,11 +841,14 @@ CAsyncUdp *async_udp_new(CAsyncLoop *loop,
 
 	udp->loop = loop;
 	udp->callback = callback;
+	udp->receiver = NULL;
 	udp->user = NULL;
 	udp->data = loop->cache;
 	udp->fd = -1;
 	udp->enabled = 0;
 	udp->error = -1;
+	udp->releasing = 0;
+	udp->busy = 0;
 
 	async_event_init(&udp->evt_read, async_udp_evt_read, -1, ASYNC_EVENT_READ);
 	async_event_init(&udp->evt_write, async_udp_evt_write, -1, ASYNC_EVENT_WRITE);
@@ -865,7 +874,10 @@ void async_udp_delete(CAsyncUdp *udp)
 		async_udp_close(udp);
 	}
 
-	loop = udp->loop;
+	if (udp->busy) {
+		udp->releasing = 1;
+		return;
+	}	loop = udp->loop;
 
 	udp->loop = NULL;
 	udp->callback = NULL;
@@ -1051,7 +1063,32 @@ static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 		}
 	}	
 	else {
-		async_udp_dispatch(udp, ASYNC_EVENT_READ, 0);
+		if (udp->receiver == NULL) {
+			async_udp_dispatch(udp, ASYNC_EVENT_READ, 0);
+		}
+		else {
+			isockaddr_union addr;
+			char *data = loop->cache;
+			udp->busy = 1;
+			while (1) {
+				int addrlen, hr;
+				if (udp->releasing) break;
+				if (udp->fd < 0) break;
+				addrlen = sizeof(addr);
+				hr = irecvfrom(udp->fd, data, ASYNC_LOOP_BUFFER_SIZE, 
+						0, &addr.address, &addrlen);
+				if (hr < 0) break;
+				data[hr] = '\0';
+				if (udp->receiver) {
+					udp->receiver(udp, data, hr, &addr.address, addrlen);
+				}
+			}
+			udp->busy = 0;
+			if (udp->releasing) {
+				udp->releasing = 0;
+				async_udp_delete(udp);
+			}
+		}
 	}
 }
 

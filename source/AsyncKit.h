@@ -166,8 +166,13 @@ public:
 	// setup callback
 	void SetCallback(std::function<void(int event, int args)> cb);
 
+	// setup receiver
+	void SetReceiver(std::function<void(void *data, long size, const sockaddr *addr, int addrlen)> receiver);
+
 	inline const CAsyncUdp *GetUdp() const { return _udp; }
 	inline CAsyncUdp *GetUdp() { return _udp; }
+
+	inline int GetFd() const { return _udp->fd; }
 
 	// close udp socket
 	void Close();
@@ -205,10 +210,13 @@ public:
 private:
 
 	static void UdpCB(CAsyncUdp *udp, int event, int args);
+	static void UdpReceiver(CAsyncUdp *udp, void *data, long size, const sockaddr *addr, int addrlen);
+
 	typedef std::function<void(int event, int args)> Callback;
+	typedef std::function<void(void *data, long size, const sockaddr *addr, int addrlen)> Receiver;
 
 	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
-
+	std::shared_ptr<Receiver> _receiver_ptr = std::make_shared<Receiver>();
 
 	CAsyncLoop *_loop = NULL;
 	CAsyncUdp *_udp = NULL;

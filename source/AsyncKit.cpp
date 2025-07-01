@@ -220,6 +220,7 @@ AsyncUdp::AsyncUdp(AsyncLoop &loop)
 	_udp = async_udp_new(_loop, UdpCB);
 	_udp->user = this;
 	_udp->callback = UdpCB;
+	_udp->receiver = NULL;
 	(*_cb_ptr) = nullptr;
 }
 
@@ -271,6 +272,35 @@ void AsyncUdp::UdpCB(CAsyncUdp *udp, int event, int args)
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
 		(*ref_ptr)(event, args);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// receiver callback
+//---------------------------------------------------------------------
+void AsyncUdp::UdpReceiver(CAsyncUdp *udp, void *data, long size, const sockaddr *addr, int addrlen)
+{
+	AsyncUdp *self = (AsyncUdp*)udp->user;
+	if ((*self->_receiver_ptr) != nullptr) {
+		auto ref_receiver = self->_receiver_ptr;
+		(*ref_receiver)(data, size, addr, addrlen);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup receiver
+//---------------------------------------------------------------------
+void AsyncUdp::SetReceiver(std::function<void(void *data, long size, const sockaddr *addr, int addrlen)> receiver)
+{
+	if (receiver == nullptr) {
+		_udp->receiver = NULL;
+		(*_receiver_ptr) = nullptr;
+	}
+	else {
+		_udp->receiver = UdpReceiver;
+		(*_receiver_ptr) = receiver;
 	}
 }
 
@@ -625,7 +655,6 @@ int AsyncMessage::Post(int mid, int wparam, int lparam, const std::string &text)
 {
 	return Post(mid, wparam, lparam, text.c_str(), (int)text.size());
 }
-
 
 
 

@@ -2,7 +2,6 @@
 //
 // AsyncEvt.h - Asynchronous Event Loop and Event Handling
 //
-// Created by skywind on 2015/07/19
 // Last Modified: 2025/04/19 22:07:57
 //
 //=====================================================================
@@ -44,6 +43,12 @@ public:
 
 	// get thread local instance
 	static AsyncLoop& GetDefaultLoop();
+
+	// get dummy instance
+	static AsyncLoop& GetDummyLoop();
+
+	// check is dummy instance
+	bool IsDummy() const;
 
 	// run once
 	void RunOnce(uint32_t millisec = 10);
