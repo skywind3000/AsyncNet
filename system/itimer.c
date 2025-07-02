@@ -270,6 +270,24 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 }
 
 
+//---------------------------------------------------------------------
+// how many jiffies to the nearest node (approximately)
+//---------------------------------------------------------------------
+IUINT32 itimer_core_nearest(const itimer_core *core, IUINT32 limit)
+{
+	IUINT32 avail = ITVR_SIZE - (core->timer_jiffies & ITVR_MASK);
+	IUINT32 index = 0;
+	for (index = 0; index < ITVR_SIZE; index++) {
+		IUINT32 pos = (core->timer_jiffies + index) & ITVR_MASK;
+		if (index >= limit && limit > 0) break;
+		if (!ilist_is_empty(&(core->tv1.vec[pos]))) {
+			break;
+		}
+	}
+	return (index < avail)? index : avail;
+}
+
+
 
 //=====================================================================
 // Timer Manager

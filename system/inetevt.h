@@ -194,6 +194,7 @@ struct CAsyncLoop {
 	int num_postpone;              // number of postpone events
 	int exiting;                   // exit flag
 	int instant;                   // set to non-zero for instant mode
+	int tickless;                  // tickless mode (no interval any more)
 	char *internal;                // a static buffer for internal usage
 	char *buffer;                  // a static buffer for arbitrary usage
 	char *cache;                   // an extra buffer for external usage

@@ -260,6 +260,9 @@ void itimer_core_destroy(itimer_core *core);
 // run timer core 
 void itimer_core_run(itimer_core *core, IUINT32 jiffies);
 
+// how many jiffies to the nearest node (approximately)
+IUINT32 itimer_core_nearest(const itimer_core *core, IUINT32 limit);
+
 
 // initialize node
 void itimer_node_init(itimer_node *node, void (*fn)(void*), void *data);

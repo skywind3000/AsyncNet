@@ -62,6 +62,9 @@ public:
 	// setup interval (async_loop_once wait time, aka. epoll wait time)
 	void SetInterval(int millisec);
 
+	// enable tickless mode
+	void SetTickless(bool enabled);
+
 	// write log
 	void Log(int channel, const char *fmt, ...);
 	

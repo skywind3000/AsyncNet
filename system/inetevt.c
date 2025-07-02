@@ -141,9 +141,10 @@ CAsyncLoop* async_loop_new(void)
 	loop->num_postpone = 0;
 	loop->sid_index = 0;
 
-	loop->interval = 1;
+	loop->interval = 20;
 	loop->exiting = 0;
 	loop->instant = 0;
+	loop->tickless = 0;
 
 	iv_init(&loop->v_pending, NULL);
 	iv_init(&loop->v_changes, NULL);
@@ -252,9 +253,10 @@ CAsyncLoop* async_loop_new(void)
 #endif
 	if (cc >= 0) {
 		struct itimerspec ts;
+		long millisec = (long)(loop->interval);
 		int fd = cc;
-		ts.it_value.tv_sec = 0;
-		ts.it_value.tv_nsec = 1000000;
+		ts.it_value.tv_sec = (time_t)(millisec / 1000);
+		ts.it_value.tv_nsec = ((long)(millisec % 1000)) * 1000000;
 		ts.it_interval.tv_sec = ts.it_value.tv_sec;
 		ts.it_interval.tv_nsec = ts.it_value.tv_nsec;
 		timerfd_settime(fd, 0, &ts, NULL);
@@ -1070,10 +1072,18 @@ void async_loop_run(CAsyncLoop *loop)
 {
 	IINT32 waitms = loop->interval;
 	if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
-		waitms = 50;
+		waitms = 100;
 	}
 	while (loop->exiting == 0) {
-		int cc = async_loop_once(loop, (IUINT32)waitms);
+		IINT32 delay = waitms;
+		int cc = 0;
+		if (loop->tickless) {
+			IUINT32 nearest, expires, limit = 128;
+			nearest = itimer_core_nearest(&loop->timer_mgr.core, limit);
+			expires = (nearest < limit)? nearest : limit;
+			delay = (IINT32)((expires < 1)? 1 : expires);
+		}
+		cc = async_loop_once(loop, (IUINT32)delay);
 		if (cc < 0) {
 			break;
 		}
@@ -1087,8 +1097,8 @@ void async_loop_run(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 void async_loop_interval(CAsyncLoop *loop, IINT32 millisec)
 {
-	if (millisec <= 0) {
-		millisec = 10;
+	if (millisec < 1) {
+		millisec = 1;
 	}
 	loop->interval = millisec;
 #ifdef IHAVE_TIMERFD

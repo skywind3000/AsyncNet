@@ -153,12 +153,21 @@ void AsyncLoop::Exit()
 //---------------------------------------------------------------------
 void AsyncLoop::SetInterval(int millisec)
 {
-	if (millisec < 0) {
-		millisec = 10; // default interval
+	if (millisec < 1) {
+		millisec = 1;
 	}
 	if (_loop->poller) {
 		async_loop_interval(_loop, millisec);
 	}
+}
+
+
+//---------------------------------------------------------------------
+// enable tickless mode
+//---------------------------------------------------------------------
+void AsyncLoop::SetTickless(bool enabled)
+{
+	_loop->tickless = (enabled)? 1 : 0;
 }
 
 
