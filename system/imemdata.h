@@ -130,6 +130,7 @@ ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len);
 void iring_swap(struct IRING *ring, void *buffer, ilong capacity);
 
 
+
 /*====================================================================*/
 /* IMSTREAM: In-Memory FIFO Buffer                                    */
 /*====================================================================*/

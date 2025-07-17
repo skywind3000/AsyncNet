@@ -49,8 +49,8 @@ extern "C" {
 //---------------------------------------------------------------------
 // Event types
 //---------------------------------------------------------------------
-#define ASYNC_EVENT_READ    0x01
-#define ASYNC_EVENT_WRITE   0x02
+#define ASYNC_EVENT_READ    IPOLL_IN      // 0x01 for reading events
+#define ASYNC_EVENT_WRITE   IPOLL_OUT     // 0x02 for writing events
 
 
 //---------------------------------------------------------------------

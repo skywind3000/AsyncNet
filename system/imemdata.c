@@ -155,6 +155,7 @@ void iring_swap(struct IRING *ring, void *buffer, ilong capacity)
 	ring->head = 0;
 }
 
+/* get two pointers and sizes */
 void iring_ptrs(struct IRING *ring, void **p1, ilong *s1, 
 	void **p2, ilong *s2)
 {

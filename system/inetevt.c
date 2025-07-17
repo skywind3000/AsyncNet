@@ -82,6 +82,9 @@
 #define ASYNC_LOOP_PIPE_FLAG    2
 #define ASYNC_LOOP_PIPE_TIMER   3
 
+#ifndef ASYNC_LOOP_PAGE_SIZE
+#define ASYNC_LOOP_PAGE_SIZE    8192
+#endif
 
 
 //---------------------------------------------------------------------
@@ -159,7 +162,7 @@ CAsyncLoop* async_loop_new(void)
 	}
 
 	imnode_init(&loop->semnode, sizeof(void*), NULL);
-	imnode_init(&loop->memnode, 8192, NULL);
+	imnode_init(&loop->memnode, ASYNC_LOOP_PAGE_SIZE, NULL);
 
 	loop->sem_dict = ib_array_new(NULL);
 
@@ -1381,8 +1384,10 @@ int async_event_stop(CAsyncLoop *loop, CAsyncEvent *evt)
 	evt->active = 0;
 	loop->num_events--;
 
+#ifdef ASYNC_LOOP_CONSERVE
 	// ensure the fd is removed from poll device
 	async_loop_changes_commit(loop);
+#endif
 
 	if (loop->logmask & ASYNC_LOOP_LOG_EVENT) {
 		async_loop_log(loop, ASYNC_LOOP_LOG_EVENT,
