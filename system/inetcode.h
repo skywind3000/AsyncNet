@@ -1,22 +1,21 @@
-/**********************************************************************
- *
- * inetcode.c - core interface of socket operation
- * skywind3000 (at) gmail.com, 2006-2016
- *
- * NOTE:
- * for more information, please see the readme file
- * 
- **********************************************************************/
-
+//=====================================================================
+//
+// inetcode.h - core interface of socket operation
+// skywind3000 (at) gmail.com, 2006-2016
+//
+// for more information, please see the readme file
+// 
+//=====================================================================
 #ifndef __INETCODE_H__
 #define __INETCODE_H__
-
-#include "inetbase.h"
-#include "imemdata.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "imemdata.h"
+#include "inetbase.h"
+#include "inetevt.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,9 +47,9 @@ int isocket_update_address(int resolvname);
 
 
 
-/*===================================================================*/
-/* CAsyncSock                                                        */
-/*===================================================================*/
+//=====================================================================
+// CAsyncSock - asynchronous socket
+//=====================================================================
 struct CAsyncSock
 {
 	IUINT32 time;                /* timeout */
@@ -83,6 +82,7 @@ struct CAsyncSock
 	unsigned int tos;            /* IP_TOS */
 	long manual_hiwater;         /* recv buffer will not exceed this */
 	long manual_lowater;         /* recv continue after this */
+	CAsyncEvent event;           /* event for read/write */
 	struct ILISTHEAD node;       /* list node */
 	struct ILISTHEAD pending;    /* waiting close */
 	struct IMSTREAM linemsg;     /* line buffer */
@@ -205,9 +205,9 @@ int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
 
 
 
-/*===================================================================*/
-/* CAsyncCore                                                        */
-/*===================================================================*/
+//=====================================================================
+// CAsyncCore - asynchronous core
+//=====================================================================
 struct CAsyncCore;
 typedef struct CAsyncCore CAsyncCore;
 
@@ -248,7 +248,7 @@ typedef int (*CAsyncFilter)(CAsyncCore *core, void *object, long hid,
  * create CAsyncCore object:
  * if (flags & 1) disable lock, if (flags & 2) disable notify
  */
-CAsyncCore* async_core_new(int flags);
+CAsyncCore* async_core_new(CAsyncLoop *loop, int flags);
 
 /* delete async core */
 void async_core_delete(CAsyncCore *core);
@@ -476,48 +476,9 @@ void async_core_install(CAsyncCore *core, CAsyncSocketInit proc, void *user);
 
 
 
-/*===================================================================*/
-/* Thread Safe Queue                                                 */
-/*===================================================================*/
-struct iQueueSafe;
-typedef struct iQueueSafe iQueueSafe;
-
-/* new queue */
-iQueueSafe *queue_safe_new(iulong maxsize);
-
-/* delete queue */
-void queue_safe_delete(iQueueSafe *q);
-
-/* put obj into queue, returns 1 for success, 0 for full */
-int queue_safe_put(iQueueSafe *q, void *ptr, unsigned long millisec);
-
-/* get obj from queue, returns 1 for success, 0 for empty */
-int queue_safe_get(iQueueSafe *q, void **ptr, unsigned long millisec);
-
-/* peek obj from queue, returns 1 for success, 0 for empty */
-int queue_safe_peek(iQueueSafe *q, void **ptr, unsigned long millisec);
-
-
-/* put many objs into queue, returns how many obj have entered the queue */
-int queue_safe_put_vec(iQueueSafe *q, const void * const vecptr[], 
-	int count, unsigned long millisec);
-
-/* get objs from queue, returns how many obj have been fetched */
-int queue_safe_get_vec(iQueueSafe *q, void *vecptr[], int count,
-	unsigned long millisec);
-
-/* peek objs from queue, returns how many obj have been peeken */
-int queue_safe_peek_vec(iQueueSafe *q, void *vecptr[], int count, 
-	unsigned long millisec);
-
-/* get size */
-iulong queue_safe_size(iQueueSafe *q);
-
-
-
-/*-------------------------------------------------------------------*/
-/* PROXY                                                             */
-/*-------------------------------------------------------------------*/
+//=====================================================================
+// PROXY
+//=====================================================================
 struct ISOCKPROXY
 {
 	int type;					/* http? sock4? sock5? */
@@ -555,13 +516,6 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 int iproxy_process(struct ISOCKPROXY *proxy);
 
 
-/*===================================================================*/
-/* loop running per fix interval                                     */
-/*===================================================================*/
-
-void ifix_interval_start(IUINT32* time);
-
-void ifix_interval_running(IUINT32 *time, long interval);
 
 #ifdef __cplusplus
 }

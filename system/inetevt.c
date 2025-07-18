@@ -58,15 +58,22 @@
 #include <sys/timerfd.h>
 #endif
 
-
 #include "inetevt.h"
 
+#ifdef _MSC_VER
+#pragma warning(disable: 28125)
+#endif
+
+
+//---------------------------------------------------------------------
+// configure
+//---------------------------------------------------------------------
 #ifndef IENABLE_TIMERFD
 #define IENABLE_TIMERFD  0
 #endif
 
-#ifdef _MSC_VER
-#pragma warning(disable: 28125)
+#ifndef IENABLE_CONSERVE
+#define IENABLE_CONSERVE  1
 #endif
 
 
@@ -702,7 +709,11 @@ static void async_loop_changes_commit(CAsyncLoop *loop)
 			CAsyncEvent *evt = ilist_entry(it, CAsyncEvent, node);
 			mask |= evt->mask;
 		}
-		if (mask != entry->mask) {
+		// must reset poll events even if mask is not changed because 
+		// the fd may be closed by user, which removes it from epoll
+		// or kquene kernel object, and the previous entry->mask is
+		// not valid anymore
+		if (mask >= 0) {
 			int event = 0, cc = 0;
 			if (mask & ASYNC_EVENT_READ) event |= IPOLL_IN | IPOLL_ERR;
 			if (mask & ASYNC_EVENT_WRITE) event |= IPOLL_OUT | IPOLL_ERR;
@@ -1384,7 +1395,7 @@ int async_event_stop(CAsyncLoop *loop, CAsyncEvent *evt)
 	evt->active = 0;
 	loop->num_events--;
 
-#ifdef ASYNC_LOOP_CONSERVE
+#if IENABLE_CONSERVE
 	// ensure the fd is removed from poll device
 	async_loop_changes_commit(loop);
 #endif

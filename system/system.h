@@ -1,4 +1,5 @@
-﻿//=====================================================================
+﻿//  vim: set ts=4 sw=4 tw=0 noet ft=cpp :
+//=====================================================================
 //
 // system.h - system wrap for c++ 
 // 
@@ -42,6 +43,7 @@
 
 #include <string>
 #include <vector>
+#include <sstream>
 #include <iostream>
 
 #include "imembase.h"
@@ -67,6 +69,34 @@
 
 #ifndef __cplusplus
 #error This file must be compiled in C++ mode !!
+#endif
+
+#ifndef _MSC_VER
+#if __cplusplus >= 202002
+#define _CPP_STANDARD  20
+#elif __cplusplus >= 201703
+#define _CPP_STANDARD  17
+#elif __cpluplus >= 201402
+#define _CPP_STANDARD  14
+#elif __cplusplus >= 201103
+#define _CPP_STANDARD  11
+#else
+#define _CPP_STANDARD  0
+#endif
+#else
+#if _MSC_VER >= 1929
+#define _CPP_STANDARD  20
+#elif _MSC_VER >= 1916
+#define _CPP_STANDARD  17
+#elif _MSC_VER >= 1900
+#define _CPP_STANDARD  11
+#else 
+#define _CPP_STANDARD  0
+#endif
+#endif
+
+#if _CPP_STANDARD >= 11
+#include <functional>
 #endif
 
 #ifdef _MSC_VER
@@ -388,14 +418,33 @@ public:
 	}
 
 	virtual ~Thread() {
-		if (is_running()) {
-			assert(! is_running());
+		if (_thread) {
+			if (is_running()) {
+				assert(! is_running());
+			}
+			iposix_thread_delete(_thread);
+			_thread = NULL;
 		}
-		if (_thread) iposix_thread_delete(_thread);
-		_thread = NULL;
 	}
 
-	// 开始线程
+#if _CPP_STANDARD >= 11
+	// C++11风格的构造函数，传入启动函数及参数，
+	Thread(std::function<int()> func, const char *name = NULL) {
+		_func = func;
+		_thread = iposix_thread_new(FunctionCaller, this, name);
+		if (_thread == NULL)
+			SYSTEM_THROW("create Thread failed", 10003);
+	}
+
+	// 增加移动构造
+	Thread(Thread &&src): _func(std::move(src._func)) {
+		_thread = src._thread;
+		src._thread = NULL;
+	}
+#endif
+
+	// 开始线程：开始后必须调用 join() 或 kill() 来结束线程
+	// 会持续调用线程函数，直到它返回 0 或者调用了 set_notalive()
 	void start() {
 		int hr = iposix_thread_start(_thread);
 		if (hr != 0) {
@@ -412,6 +461,7 @@ public:
 
 	// 等待线程结束
 	bool join(unsigned long millisec = 0xffffffff) {
+		if (_thread == NULL) return false;
 		int hr = iposix_thread_join(_thread, millisec);
 		if (hr != 0) return false;
 		return true;
@@ -419,17 +469,20 @@ public:
 
 	// 杀死线程：危险
 	bool kill() {
+		if (_thread == NULL) return false;
 		int hr = iposix_thread_cancel(_thread);
 		return hr == 0? true : false;
 	}
 
 	// 设置为非活动
 	void set_notalive() {
+		if (_thread == NULL) return;
 		iposix_thread_set_notalive(_thread);
 	}
 
 	// 检测是否运行中
 	bool is_running() const {
+		if (_thread == NULL) return false;
 		return iposix_thread_is_running(_thread)? true : false;
 	}
 
@@ -445,31 +498,37 @@ public:
 
 	// 设置线程优先级，开始线程之前设置
 	bool set_priority(enum ThreadPriority priority) {
+		if (_thread == NULL) return false;
 		return iposix_thread_set_priority(_thread, (int)priority) == 0 ? true : false;
 	}
 
 	// 设置栈大小，开始线程前设置，默认 1024 * 1024
 	bool set_stack(int stacksize) {
+		if (_thread == NULL) return false;
 		return iposix_thread_set_stack(_thread, stacksize) == 0? true : false;
 	}
 
 	// 设置运行的 cpu，必须是开始线程后设置
 	bool set_affinity(unsigned int cpumask) {
+		if (_thread == NULL) return false;
 		return iposix_thread_affinity(_thread, cpumask) == 0? true : false;
 	}
 
 	// 设置信号
 	void set_signal(int sig) {
+		if (_thread == NULL) return;
 		iposix_thread_set_signal(_thread, sig);
 	}
 
 	// 取得信号
 	int get_signal() {
+		if (_thread == NULL) return -1;
 		return iposix_thread_get_signal(_thread);
 	}
 
 	// 取得名字
 	const char *get_name() const {
+		if (_thread == NULL) return NULL;
 		return iposix_thread_get_name(_thread);
 	}
 
@@ -490,9 +549,26 @@ public:
 		iposix_thread_set_signal(NULL, sig);
 	}
 
+#if _CPP_STANDARD >= 11
+	Thread(const Thread &src) = delete;
+	Thread& operator=(const Thread &) = delete;
+#else
 private:
 	Thread(const Thread &);
 	Thread& operator=(const Thread &);
+#endif
+
+#if _CPP_STANDARD >= 11
+protected:
+	std::function<int()> _func; // C++11风格的线程函数
+	inline static int FunctionCaller(void *parameter) {
+		Thread *self = (Thread*)parameter;
+		if (self->_func != nullptr) {
+			return self->_func();
+		}
+		return 0; // 返回0表示线程结束
+	}
+#endif
 
 protected:
 	iPosixThread *_thread;
@@ -1033,8 +1109,8 @@ protected:
 class AsyncCore
 {
 public:
-	AsyncCore(int flags = 0) {
-		_core = async_core_new(flags);
+	AsyncCore(CAsyncLoop *loop = NULL, int flags = 0) {
+		_core = async_core_new(loop, flags);
 	}
 
 	virtual ~AsyncCore() {
@@ -1214,7 +1290,7 @@ class AsyncNotify
 {
 public:
 	AsyncNotify(int serverid) {
-		_notify = async_notify_new(serverid);
+		_notify = async_notify_new(NULL, serverid);
 		_serverid = serverid;
 		async_notify_option(_notify, ASYNC_NOTIFY_OPT_PROFILE, 1);
 	}
@@ -1336,57 +1412,6 @@ protected:
 	CAsyncNotify *_notify;
 };
 
-
-//---------------------------------------------------------------------
-// 多线程安全队列
-//---------------------------------------------------------------------
-class Queue
-{
-public:
-	Queue(iulong maxsize = 0) {
-		_queue = queue_safe_new(maxsize);
-		if (_queue == NULL) 
-			SYSTEM_THROW("can not create Queue", 10008);
-	}
-
-	virtual ~Queue() {
-		if (_queue) {
-			queue_safe_delete(_queue);
-			_queue = NULL;
-		}
-	}
-
-	iulong size() const {
-		return queue_safe_size(_queue);
-	}
-
-	int put(void *obj, unsigned long millisec = IEVENT_INFINITE) {
-		return queue_safe_put(_queue, obj, millisec);
-	}
-
-	int get(void **obj, unsigned long millisec = IEVENT_INFINITE) {
-		return queue_safe_get(_queue, obj, millisec);
-	}
-
-	int peek(void **obj, unsigned long millisec = IEVENT_INFINITE) {
-		return queue_safe_peek(_queue, obj, millisec);
-	}
-
-	int put_many(const void * const vecptr[], int count, unsigned long ms) {
-		return queue_safe_put_vec(_queue, vecptr, count, ms);
-	}
-
-	int get_many(void *vecptr[], int count, unsigned long ms) {
-		return queue_safe_get_vec(_queue, vecptr, count, ms);
-	}
-
-	int peek_many(void *vecptr[], int count, unsigned long ms) {
-		return queue_safe_peek_vec(_queue, vecptr, count, ms);
-	}
-
-protected:
-	mutable iQueueSafe *_queue;
-};
 
 
 #ifndef __AVM2__
@@ -1602,210 +1627,6 @@ inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
 	m.trace(os);
 	return os;
 }
-
-
-
-//---------------------------------------------------------------------
-// 线程任务接口
-//---------------------------------------------------------------------
-struct TaskInt
-{
-	// 任务线程池执行完一个任务就会自动删除任务，但是如果任务还没有执
-	// 行，任务线程池就析构了的话，有可能下面的run/done/error/final都
-	// 没有调用到，任务就会提前被删除
-	virtual ~TaskInt() {}
-	
-	// 工作线程调用的主函数
-	virtual void run() = 0;
-
-	// 主线程调用，如果 run 没有抛出异常（多线程里尽量别异常）
-	virtual void done() {}
-
-	// 主线程调用，如果 run 抛出异常，则调用这里
-	virtual void error() {}
-
-	// 主线程调用，结束调用，释放资源用
-	virtual void final() {}
-};
-
-
-//---------------------------------------------------------------------
-// 任务线程池
-//---------------------------------------------------------------------
-class TaskPool
-{
-public:
-
-	// 开始：设定名称以及线程数量
-	TaskPool(const char *name, int nthreads, int slap = 50) {
-		_name = name;
-		if (nthreads < 1) {
-			SYSTEM_THROW("nthreads must great than zero", 10009);
-		}
-		_threads.resize(nthreads);
-		for (int i = 0; i < nthreads; i++) {
-			std::string text = name;
-			char buf[64];
-			iltoa(i, buf, 10);
-			text += "(";
-			text += buf;
-			text += ")";
-			_threads[i] = new Thread(__thread_entry, this, text.c_str());
-			if (_threads[i] == NULL) {
-				SYSTEM_THROW("can not create thread for TaskPool", 10012);
-			}
-		}
-		_stop = false;
-		_start = false;
-		_slap = slap;
-		_nthreads = nthreads;
-	}
-
-	// 结束线程池并删除未完成的任务
-	virtual ~TaskPool() {
-		TaskNode *node;
-		void *obj;
-		stop();
-		for (int i = 0; i < _nthreads; i++) {
-			delete _threads[i];
-			_threads[i] = NULL;
-		}
-		while (1) {
-			if (_queue_out.get(&obj, 0) == 0) break;
-			node = (TaskNode*)obj;
-			delete node->task;
-			node->task = NULL;
-			delete node;
-		}
-		while (1) {
-			if (_queue_in.get(&obj, 0) == 0) break;
-			node = (TaskNode*)obj;
-			delete node->task;
-			node->task = NULL;
-			delete node;
-		}
-	}
-
-	// 开始线程
-	inline bool start() {
-		if (_start) return true;
-		_stop = false;
-		for (int i = 0; i < _nthreads; i++) {
-			_threads[i]->set_signal(i);
-			_threads[i]->start();
-		}
-		_start = true;
-		return true;
-	}
-
-	// 结束线程
-	inline void stop() {
-		if (_start == false) return;
-		_stop = true;
-		for (int i = 0; i < _nthreads; i++) {
-			_threads[i]->set_notalive();
-			_threads[i]->join();
-		}
-		_start = false;
-	}
-
-	// 放入任务
-	inline bool push(TaskInt *task) {
-		if (_stop) return false;
-		TaskNode *node = new TaskNode;
-		node->task = task;
-		if (_queue_in.put(node, 0) == 0) return false;
-		return true;
-	}
-
-	// 更新：在主线程处理任务的结果，调用任务的 done/error/final方法，循环调用
-	inline void update() {
-		while (1) {
-			void *objs[64];
-			int hr = _queue_out.get_many(objs, 64, 0);
-			if (hr == 0) break;
-			for (int i = 0; i < hr; i++) {
-				TaskNode *node = (TaskNode*)objs[i];
-				TaskInt *task = node->task;
-				if (node->ok) {
-					try { task->done(); }
-					catch (...) {}
-				}	else {
-					try { task->error(); }
-					catch (...) {}
-				}
-				try { task->final(); }
-				catch (...) { }
-				delete node->task;
-				node->task = NULL;
-				delete node;
-			}
-		}
-	}
-
-	// 取得未执行完成的任务数量
-	inline int size() {
-		int x1, x2;
-		x1 = (int)_queue_in.size();
-		x2 = (int)_queue_out.size();
-		return x1 + x2;
-	}
-
-	// 等待所有任务结束
-	inline void wait() {
-		while (size() > 0) {
-			update();
-			isleep(_slap);
-		}
-	}
-
-protected:
-	struct TaskNode { TaskInt *task; bool ok; };
-
-	// 处理一个任务
-	inline void __task_invoke(TaskNode *node) {
-		node->ok = true;
-		try { node->task->run(); }
-		catch (...) { node->ok = false; }
-		_queue_out.put(node, IEVENT_INFINITE);
-	}
-
-	// 线程单次调用入口
-	inline int __run() {
-		if (_stop) return 0;
-		if (_nthreads > 1) {
-			void *obj;
-			int hr = _queue_in.get(&obj, (IUINT32)_slap);
-			if (hr == 0) return 1;
-			__task_invoke((TaskNode*)obj);
-		}	else {
-			void *objs[16];
-			int hr = _queue_in.get_many(objs, 16, (IUINT32)_slap);
-			if (hr == 0) return 1;
-			for (int i = 0; i < hr; i++) {
-				__task_invoke((TaskNode*)objs[i]);
-			}
-		}
-		return 1;
-	}
-
-	// 线程静态入口
-	static int __thread_entry(void *p) {
-		TaskPool *self = (TaskPool*)p;
-		int hr = self->__run();
-		return hr;
-	}
-
-protected:
-	bool _stop;
-	bool _start;
-	int _nthreads;
-	int _slap;
-	Queue _queue_in;
-	Queue _queue_out;
-	std::string _name;
-	std::vector<Thread*> _threads;
-};
 
 
 
@@ -2074,13 +1895,131 @@ static inline std::string StringFormat(const char *fmt, ...)
 	}
 }
 
+static inline void StringConvert(const std::u16string &src, std::string &dst) {
+	if (!src.empty()) {
+		const IUINT16 *ss = (const IUINT16*)src.data();
+		int count = (int)iposix_utf_count16(ss, ss + src.size());
+		dst.resize(count * 4);
+		IUINT8 *dd = (IUINT8*)&dst[0];
+		iposix_utf_16to8(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT8*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+static inline void StringConvert(const std::u32string &src, std::string &dst) {
+	if (!src.empty()) {
+		const IUINT32 *ss = (const IUINT32*)src.data();
+		int count = (int)src.size();
+		dst.resize(count * 4);
+		IUINT8 *dd = (IUINT8*)&dst[0];
+		iposix_utf_32to8(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT8*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+static inline void StringConvert(const std::string &src, std::u16string &dst) {
+	if (!src.empty()) {
+		const IUINT8 *ss = (const IUINT8*)src.data();
+		int count = (int)iposix_utf_count8(ss, ss + src.size());
+		dst.resize(count * 2);
+		IUINT16 *dd = (IUINT16*)&dst[0];
+		iposix_utf_8to16(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT16*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+static inline void StringConvert(const std::u32string &src, std::u16string &dst) {
+	if (!src.empty()) {
+		const IUINT32 *ss = (const IUINT32*)src.data();
+		int count = (int)src.size();
+		dst.resize(count * 2);
+		IUINT16 *dd = (IUINT16*)&dst[0];
+		iposix_utf_32to16(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT16*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+static inline void StringConvert(const std::string &src, std::u32string &dst) {
+	if (!src.empty()) {
+		const IUINT8 *ss = (const IUINT8*)src.data();
+		int count = (int)iposix_utf_count8(ss, ss + src.size());
+		dst.resize(count);
+		IUINT32 *dd = (IUINT32*)&dst[0];
+		iposix_utf_8to32(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT32*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+static inline void StringConvert(const std::u16string &src, std::u32string &dst) {
+	if (!src.empty()) {
+		const IUINT16 *ss = (const IUINT16*)src.data();
+		int count = (int)iposix_utf_count16(ss, ss + src.size());
+		dst.resize(count);
+		IUINT32 *dd = (IUINT32*)&dst[0];
+		iposix_utf_16to32(&ss, ss + src.size(), &dd, dd + dst.size(), 0);
+		dst.resize((int)(dd - (IUINT32*)&dst[0]));
+	}	else {
+		dst.clear();
+	}
+}
+
+template <typename T>
+static inline std::string StringFrom(const T &value) {
+	std::ostringstream os;
+	os << value;
+	return os.str();
+}
+
+static inline std::string StringFrom(const std::u16string &value) {
+	std::string s;
+	StringConvert(value, s);
+	return s;
+}
+
+static inline std::string StringFrom(const std::u32string &value) {
+	std::string s;
+	StringConvert(value, s);
+	return s;
+}
+
+static inline std::string StringFrom(const std::wstring &value) {
+	std::string s;
+#if _CPP_STANDARD >= 17
+	if constexpr (sizeof(wchar_t) == 2) {
+		StringConvert(std::u16string(value.begin(), value.end()), s);
+	} 
+	else if constexpr (sizeof(wchar_t) == 4) {
+		StringConvert(std::u32string(value.begin(), value.end()), s);
+	} 
+#else
+	if (sizeof(wchar_t) == 2) {
+		StringConvert(std::u16string(value.begin(), value.end()), s);
+	} 
+	else if (sizeof(wchar_t) == 4) {
+		StringConvert(std::u32string(value.begin(), value.end()), s);
+	} 
+#endif
+	else {
+		throw std::runtime_error("Unsupported wchar_t size");
+	}
+	return s;
+}
 
 
 NAMESPACE_END(System)
 
 
 #endif
-
 
 
 

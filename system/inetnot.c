@@ -367,7 +367,7 @@ static inline void async_notify_decode_64(const char *ptr, IINT64 *x)
 //---------------------------------------------------------------------
 // create async notify
 //---------------------------------------------------------------------
-CAsyncNotify* async_notify_new(int serverid)
+CAsyncNotify* async_notify_new(CAsyncLoop *loop, int serverid)
 {
 	CAsyncNotify *notify;
 	int i;
@@ -409,7 +409,7 @@ CAsyncNotify* async_notify_new(int serverid)
 	notify->lastsec = -1;
 	notify->sid = serverid;
 	notify->nodes = (CAsyncNode*)ikmem_malloc(sizeof(CAsyncNode) * 0x10000);
-	notify->core = async_core_new(0);
+	notify->core = async_core_new(loop, 0);
 	
 	ilist_init(&notify->ping);
 	ilist_init(&notify->idle);

@@ -31,7 +31,7 @@ typedef struct CAsyncNotify CAsyncNotify;
 //=====================================================================
 
 // create object
-CAsyncNotify* async_notify_new(int serverid);
+CAsyncNotify* async_notify_new(CAsyncLoop *loop, int serverid);
 
 // delete object
 void async_notify_delete(CAsyncNotify *notify);
