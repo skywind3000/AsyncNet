@@ -66,12 +66,15 @@
 
 
 //---------------------------------------------------------------------
-// configure
+// configuration - don't change it directly, use config.h
 //---------------------------------------------------------------------
+
+// timerfd is disabled by default
 #ifndef IENABLE_TIMERFD
 #define IENABLE_TIMERFD  0
 #endif
 
+// commit I/O event changes after an I/O event stopped
 #ifndef IENABLE_CONSERVE
 #define IENABLE_CONSERVE  1
 #endif

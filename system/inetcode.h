@@ -236,103 +236,99 @@ typedef struct CAsyncCore CAsyncCore;
 
 
 
-/* Remote IP Validator: returns 1 to accept it, 0 to reject */
+// Remote IP Validator: returns 1 to accept it, 0 to reject
 typedef int (*CAsyncValidator)(const struct sockaddr *remote, int len,
 	CAsyncCore *core, long listenhid, void *user);
 
-/* Message Filter: can be installed to connection */
+// Message Filter: can be installed to connection
 typedef int (*CAsyncFilter)(CAsyncCore *core, void *object, long hid,
 	int cmd, const void *data, long size);
 
-/**
- * create CAsyncCore object:
- * if (flags & 1) disable lock, if (flags & 2) disable notify
- */
+// create CAsyncCore object:
+// if (flags & 1) disable lock, if (flags & 2) disable notify
 CAsyncCore* async_core_new(CAsyncLoop *loop, int flags);
 
-/* delete async core */
+// delete async core
 void async_core_delete(CAsyncCore *core);
 
 
-/**
- * wait for events for millisec ms. and process events, 
- * if millisec equals zero, no wait.
- */
+// wait for events for millisec ms. and process events, 
+// if millisec equals zero, no wait.
 void async_core_wait(CAsyncCore *core, IUINT32 millisec);
 
-/* wake async_core_wait up, returns zero for success */
+// wake async_core_wait up, returns zero for success
 int async_core_notify(CAsyncCore *core);
 
-/**
- * read events, returns data length of the message, 
- * and returns -1 for no event, -2 for buffer size too small,
- * returns data size when data equals NULL.
- */
+// get loop object
+CAsyncLoop* async_core_loop(CAsyncCore *core);
+
+
+// read events, returns data length of the message, 
+// and returns -1 for no event, -2 for buffer size too small,
+// returns data size when data equals NULL.
 long async_core_read(CAsyncCore *core, int *event, long *wparam,
 	long *lparam, void *data, long size);
 
 
-/* send data to given hid */
+// send data to given hid
 long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len);
 
-/* close given hid */
+// close given hid
 int async_core_close(CAsyncCore *core, long hid, int code);
 
-/* send vector */
+// send vector
 long async_core_send_vector(CAsyncCore *core, long hid, 
 	const void * const vecptr[],
 	const long veclen[], int count, int mask);
 
 
-/* new connection to the target address, returns hid */
+// new connection to the target address, returns hid
 long async_core_new_connect(CAsyncCore *core, const struct sockaddr *addr,
 	int addrlen, int header);
 
-/* new listener, returns hid */
+// new listener, returns hid
 long async_core_new_listen(CAsyncCore *core, const struct sockaddr *addr, 
 	int addrlen, int header);
 
-/* new assign to a existing socket, returns hid */
+// new assign to a existing socket, returns hid
 long async_core_new_assign(CAsyncCore *core, int fd, int header, int estab);
 
-/* new dgram fd: mask=0:none, 1:read, 2:write, 3:r+w */
+// new dgram fd: mask=0:none, 1:read, 2:write, 3:r+w
 long async_core_new_dgram(CAsyncCore *core, const struct sockaddr *addr,
 	int addrlen, int mode);
 
 
-/* queue an ASYNC_CORE_EVT_POST event and wake async_core_wait up */
+// queue an ASYNC_CORE_EVT_POST event and wake async_core_wait u
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
 	const void *data, long size);
 
-/* queue an arbitrary event and wake async_core_wait up */
+// queue an arbitrary event and wake async_core_wait up
 int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
 	const void *data, long size);
 
-/**
- * fetch data in manual mode (head is ITMH_MANUAL), size < 0 for peek, 
- * returns remain data size only if data == NULL.
- */
+// fetch data in manual mode (head is ITMH_MANUAL), size < 0 for peek, 
+// returns remain data size only if data == NULL.
 long async_core_fetch(CAsyncCore *core, long hid, void *data, long size);
 
-/* get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN */
+// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
 int async_core_get_mode(const CAsyncCore *core, long hid);
 
-/* returns connection tag, -1 for hid not exist */
+// returns connection tag, -1 for hid not exist
 long async_core_get_tag(const CAsyncCore *core, long hid);
 
-/* set connection tag */
+// set connection tag
 void async_core_set_tag(CAsyncCore *core, long hid, long tag);
 
-/* get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL) */
+// get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL)
 long async_core_remain(const CAsyncCore *core, long hid);
 
-/* get send queue size: how many bytes are waiting to be sent */
+// get send queue size: how many bytes are waiting to be sent
 long async_core_pending(const CAsyncCore *core, long hid);
 
-/* set default buffer limit and max packet size */
+// set default buffer limit and max packet size
 void async_core_limit(CAsyncCore *core, long limited, long maxsize);
 
-/* set disable read polling event: 1/on, 0/off */
+// set disable read polling event: 1/on, 0/off
 int async_core_disable(CAsyncCore *core, long hid, int value);
 
 
@@ -342,17 +338,17 @@ int async_core_disable(CAsyncCore *core, long hid, int value);
 #define ASYNC_CORE_SETTING_MARK          3
 #define ASYNC_CORE_SETTING_TOS           4
 
-/* global configuration */
+// global configuration
 int async_core_setting(CAsyncCore *core, int config, long value);
 
 
-/* get first node */
+// get first node
 long async_core_node_head(const CAsyncCore *core);
 
-/* get next node */
+// get next node
 long async_core_node_next(const CAsyncCore *core, long hid);
 
-/* get prev node */
+// get prev node
 long async_core_node_prev(const CAsyncCore *core, long hid);
 
 
@@ -381,7 +377,7 @@ long async_core_node_prev(const CAsyncCore *core, long hid);
 #define ASYNC_CORE_OPTION_MARK          23
 #define ASYNC_CORE_OPTION_TOS           24
 
-/* set connection socket option */
+// set connection socket option
 int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 
 #define ASYNC_CORE_STATUS_STATE     0
@@ -390,18 +386,18 @@ int async_core_option(CAsyncCore *core, long hid, int opt, long value);
 #define ASYNC_CORE_STATUS_AFUNIX    3
 #define ASYNC_CORE_STATUS_ERROR     4
 
-/* get connection socket status */
+// get connection socket status
 long async_core_status(CAsyncCore *core, long hid, int opt);
 
-/* set connection rc4 send key */
+// set connection rc4 send key
 int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
 	const unsigned char *key, int keylen);
 
-/* set connection rc4 recv key */
+// set connection rc4 recv key
 int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	const unsigned char *key, int keylen);
 
-/* set remote ip validator */
+// set remote ip validator
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 
 
@@ -412,7 +408,7 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user);
 #define ASYNC_CORE_FILTER_FETCH         4     /* upper level data fetch */
 #define ASYNC_CORE_FILTER_PROGRESS      5     /* written in progress */
 
-/* setup filter */
+// setup filter
 void async_core_filter(CAsyncCore *core, long hid, 
 	CAsyncFilter filter, void *object);
 
@@ -422,15 +418,15 @@ void async_core_filter(CAsyncCore *core, long hid,
 #define ASYNC_CORE_DISPATCH_FETCH       3
 #define ASYNC_CORE_DISPATCH_HEADER      4
 
-/* dispatch: for filter only, don't call outside the filter */
+// dispatch: for filter only, don't call outside the filter
 int async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
 	const void *ptr, long size);
 
-/* Filter Factory: async_core_protocol() will use this to create filter */
+// Filter Factory: async_core_protocol() will use this to create filter
 typedef CAsyncFilter (*CAsyncFactory)(CAsyncCore *core, long hid, 
 	int protocol, void **object);
 
-/* register options */
+// register options
 #define ASYNC_CORE_REG_GET_PARENT      0
 #define ASYNC_CORE_REG_SET_PARENT      1
 #define ASYNC_CORE_REG_GET_FACTORY     2
