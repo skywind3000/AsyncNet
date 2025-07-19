@@ -65,18 +65,18 @@
 #endif
 
 
-//---------------------------------------------------------------------
-// configuration - don't change it directly, use config.h
-//---------------------------------------------------------------------
+//=====================================================================
+// Configuration - don't change it directly, use config.h
+//=====================================================================
 
 // timerfd is disabled by default
 #ifndef IENABLE_TIMERFD
 #define IENABLE_TIMERFD  0
 #endif
 
-// commit I/O event changes after an I/O event stopped
-#ifndef IENABLE_CONSERVE
-#define IENABLE_CONSERVE  1
+// don't commit I/O event changes when an I/O event stopped
+#ifndef IENABLE_DEFERCMT
+#define IENABLE_DEFERCMT  0
 #endif
 
 
@@ -1398,7 +1398,7 @@ int async_event_stop(CAsyncLoop *loop, CAsyncEvent *evt)
 	evt->active = 0;
 	loop->num_events--;
 
-#if IENABLE_CONSERVE
+#if !IENABLE_DEFERCMT
 	// ensure the fd is removed from poll device
 	async_loop_changes_commit(loop);
 #endif
