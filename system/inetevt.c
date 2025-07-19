@@ -112,7 +112,7 @@ static int async_loop_changes_push(CAsyncLoop *loop, int fd);
 static void async_loop_changes_commit(CAsyncLoop *loop);
 static int async_loop_dispatch_post(CAsyncLoop *loop);
 static int async_loop_dispatch_idle(CAsyncLoop *loop);
-static int async_loop_dispatch_once(CAsyncLoop *loop);
+static int async_loop_dispatch_once(CAsyncLoop *loop, int priority);
 static void async_loop_cleanup(CAsyncLoop *loop);
 
 
@@ -1058,7 +1058,9 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 	loop->depth--;
 
 	if (!ilist_is_empty(&loop->list_once)) {
-		async_loop_dispatch_once(loop);
+		async_loop_dispatch_once(loop, ASYNC_ONCE_HIGH);
+		async_loop_dispatch_once(loop, ASYNC_ONCE_NORMAL);
+		async_loop_dispatch_once(loop, ASYNC_ONCE_LOW);
 	}
 
 	if (loop->on_once) {
@@ -1199,20 +1201,20 @@ static int async_loop_dispatch_idle(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 // dispatch once events
 //---------------------------------------------------------------------
-static int async_loop_dispatch_once(CAsyncLoop *loop)
+static int async_loop_dispatch_once(CAsyncLoop *loop, int priority)
 {
 	ilist_head *it;
 	int size, i;
 	if (ilist_is_empty(&loop->list_once)) {
 		return 0;
 	}
-	while (ib_array_size(loop->array_once) > 0) {
-		ib_array_pop(loop->array_once);
-	}
+	ib_array_clear(loop->array_once);
 	for (it = loop->list_once.next; it != &loop->list_once; it = it->next) {
 		CAsyncOnce *m = ilist_entry(it, CAsyncOnce, node);
-		m->pending = (int)ib_array_size(loop->array_once);
-		ib_array_push(loop->array_once, m);
+		if (m->priority == priority) {
+			m->pending = (int)ib_array_size(loop->array_once);
+			ib_array_push(loop->array_once, m);
+		}
 	}
 	size = (int)ib_array_size(loop->array_once);
 	for (i = 0; i < size; i++) {
@@ -1774,8 +1776,25 @@ void async_once_init(CAsyncOnce *once,
 	ilist_init(&once->node);
 	once->active = 0;
 	once->pending = -1;
+	once->priority = ASYNC_ONCE_NORMAL;
 	once->callback = callback;
 	once->user = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// set priority for once event
+//---------------------------------------------------------------------
+int async_once_priority(CAsyncOnce *once, int priority)
+{
+	once->priority = priority;
+	if (once->priority < ASYNC_ONCE_HIGH) {
+		once->priority = ASYNC_ONCE_HIGH;
+	}
+	if (once->priority > ASYNC_ONCE_LOW) {
+		once->priority = ASYNC_ONCE_LOW;
+	}
+	return 0;
 }
 
 

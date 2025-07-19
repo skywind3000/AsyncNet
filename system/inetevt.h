@@ -47,10 +47,14 @@ extern "C" {
 
 
 //---------------------------------------------------------------------
-// Event types
+// Definitions
 //---------------------------------------------------------------------
 #define ASYNC_EVENT_READ    IPOLL_IN      // 0x01 for reading events
 #define ASYNC_EVENT_WRITE   IPOLL_OUT     // 0x02 for writing events
+
+#define ASYNC_ONCE_HIGH     0   // 0 for high priority once event
+#define ASYNC_ONCE_NORMAL   1   // 1 for normal priority once event
+#define ASYNC_ONCE_LOW      2   // 2 for low priority once event
 
 
 //---------------------------------------------------------------------
@@ -168,6 +172,7 @@ struct CAsyncOnce {
 	ilist_head node;
 	int active;
 	int pending;
+	int priority; // 0 for high, 1 for normal, 2 for low
 	void (*callback)(CAsyncLoop *loop, CAsyncOnce *once);
 	void *user;
 };
@@ -409,6 +414,9 @@ int async_idle_active(const CAsyncIdle *idle);
 // initialize a CAsyncOnce object
 void async_once_init(CAsyncOnce *once,
 		void (*callback)(CAsyncLoop *loop, CAsyncOnce *once));
+
+// set priority for once event: ASYNC_ONCE_HIGH/NORMAL/LOW
+int async_once_priority(CAsyncOnce *once, int priority);
 
 // start watching once events
 int async_once_start(CAsyncLoop *loop, CAsyncOnce *once);
