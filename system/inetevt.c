@@ -1139,24 +1139,26 @@ void async_loop_interval(CAsyncLoop *loop, IINT32 millisec)
 //---------------------------------------------------------------------
 static int async_loop_dispatch_post(CAsyncLoop *loop)
 {
-	ilist_head queue;
 	int count = 0;
-	ilist_init(&queue);
-	ilist_splice_init(&loop->list_post, &queue);
-	loop->num_postpone = 0;
-	while (!ilist_is_empty(&queue)) {
-		ilist_head *it = queue.next;
-		CAsyncPostpone *postpone = ilist_entry(it, CAsyncPostpone, node);
-		ilist_del_init(&postpone->node);
-		postpone->active = 0;
-		if (loop->logmask & ASYNC_LOOP_LOG_POST) {
-			async_loop_log(loop, ASYNC_LOOP_LOG_POST,
-				"[postpone] active ptr=%p", (void*)postpone);
+	while (!ilist_is_empty(&loop->list_post)) {
+		ilist_head queue;
+		ilist_init(&queue);
+		ilist_splice_init(&loop->list_post, &queue);
+		loop->num_postpone = 0;
+		while (!ilist_is_empty(&queue)) {
+			ilist_head *it = queue.next;
+			CAsyncPostpone *postpone = ilist_entry(it, CAsyncPostpone, node);
+			ilist_del_init(&postpone->node);
+			postpone->active = 0;
+			if (loop->logmask & ASYNC_LOOP_LOG_POST) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_POST,
+					"[postpone] active ptr=%p", (void*)postpone);
+			}
+			if (postpone->callback) {
+				postpone->callback(loop, postpone);
+			}
+			count++;
 		}
-		if (postpone->callback) {
-			postpone->callback(loop, postpone);
-		}
-		count++;
 	}
 	return count;
 }
