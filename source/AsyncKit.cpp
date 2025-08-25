@@ -12,18 +12,15 @@ NAMESPACE_BEGIN(System);
 
 
 //=====================================================================
-// AsyncTcp
+// AsyncStream
 //=====================================================================
 
 //---------------------------------------------------------------------
 // dtor
 //---------------------------------------------------------------------
-AsyncTcp::~AsyncTcp()
+AsyncStream::~AsyncStream()
 {
-	if (_tcp) {
-		async_tcp_delete(_tcp);
-		_tcp = NULL;
-	}
+	Close();
 	_loop = NULL;
 }
 
@@ -31,27 +28,28 @@ AsyncTcp::~AsyncTcp()
 //---------------------------------------------------------------------
 // move ctor
 //---------------------------------------------------------------------
-AsyncTcp::AsyncTcp(AsyncTcp &&src):
+AsyncStream::AsyncStream(AsyncStream &&src):
 	_cb_ptr(std::move(src._cb_ptr))
 {
-	_tcp = src._tcp;
+	_stream = src._stream;
 	_loop = src._loop;
-	src._tcp = NULL;
+	_borrow = src._borrow;
+	src._stream = NULL;
 	src._loop = NULL;
-	_tcp->callback = TcpCB;
-	_tcp->user = this;
+	src._borrow = false;
+	_stream->callback = TcpCB;
+	_stream->user = this;
 }
 
 
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-AsyncTcp::AsyncTcp(AsyncLoop &loop)
+AsyncStream::AsyncStream(AsyncLoop &loop)
 {
 	_loop = loop.GetLoop();
-	_tcp = async_tcp_new(_loop, TcpCB);
-	_tcp->user = this;
-	_tcp->callback = TcpCB;
+	_stream = NULL;
+	_borrow = false;
 	(*_cb_ptr) = nullptr;
 }
 
@@ -59,12 +57,11 @@ AsyncTcp::AsyncTcp(AsyncLoop &loop)
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-AsyncTcp::AsyncTcp(CAsyncLoop *loop)
+AsyncStream::AsyncStream(CAsyncLoop *loop)
 {
 	_loop = loop;
-	_tcp = async_tcp_new(_loop, TcpCB);
-	_tcp->user = this;
-	_tcp->callback = TcpCB;
+	_stream = NULL;
+	_borrow = false;
 	(*_cb_ptr) = nullptr;
 }
 
@@ -72,9 +69,9 @@ AsyncTcp::AsyncTcp(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 // callback
 //---------------------------------------------------------------------
-void AsyncTcp::TcpCB(CAsyncTcp *tcp, int event, int args)
+void AsyncStream::TcpCB(CAsyncStream *tcp, int event, int args)
 {
-	AsyncTcp *self = (AsyncTcp*)tcp->user;
+	AsyncStream *self = (AsyncStream*)tcp->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
 		(*ref_ptr)(event, args);
@@ -85,111 +82,174 @@ void AsyncTcp::TcpCB(CAsyncTcp *tcp, int event, int args)
 //---------------------------------------------------------------------
 // setup callback
 //---------------------------------------------------------------------
-void AsyncTcp::SetCallback(std::function<void(int event, int args)> cb)
+void AsyncStream::SetCallback(std::function<void(int event, int args)> cb)
 {
 	(*_cb_ptr) = cb;
-	_tcp->callback = TcpCB;
-}
-
-
-//---------------------------------------------------------------------
-// assign existing socket
-//---------------------------------------------------------------------
-int AsyncTcp::Assign(int fd, bool IsEstablished)
-{
-	return async_tcp_assign(_tcp, fd, IsEstablished? 1 : 0);
-}
-
-
-//---------------------------------------------------------------------
-// connect remote
-//---------------------------------------------------------------------
-int AsyncTcp::Connect(const sockaddr *addr, int addrlen)
-{
-	return async_tcp_connect(_tcp, addr, addrlen);
-}
-
-
-//---------------------------------------------------------------------
-// connect remote
-//---------------------------------------------------------------------
-int AsyncTcp::Connect(int family, const char *text, int port)
-{
-	PosixAddress addr;
-	addr.Make(family, text, port);
-	return Connect(addr);
-}
-
-
-//---------------------------------------------------------------------
-// connect posix address
-//---------------------------------------------------------------------
-int AsyncTcp::Connect(const PosixAddress &addr)
-{
-	return async_tcp_connect(_tcp, addr.address(), addr.size());
+	if (_stream) {
+		_stream->callback = TcpCB;
+	}
 }
 
 
 //---------------------------------------------------------------------
 // close socket
 //---------------------------------------------------------------------
-void AsyncTcp::Close()
+void AsyncStream::Close()
 {
-	async_tcp_close(_tcp);
+	if (_stream) {
+		if (_borrow == false) {
+			async_stream_close(_stream);
+		}
+		_stream = NULL;
+	}
+	_borrow = false;
+}
+
+
+//---------------------------------------------------------------------
+// create a new stream based on CAsyncStream object
+//---------------------------------------------------------------------
+int AsyncStream::NewStream(CAsyncStream *stream, bool borrow)
+{
+	Close();
+	_borrow = borrow;
+	_stream = stream;
+	_stream->user = this;
+	_stream->callback = TcpCB;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// create a paired stream
+//---------------------------------------------------------------------
+int AsyncStream::NewPair(AsyncStream &partner)
+{
+	this->Close();
+	partner.Close();
+	CAsyncStream *pair[2];
+	if (async_stream_pair_new(_loop, pair) != 0) {
+		return -1;
+	}
+	this->NewStream(pair[0], false);
+	partner.NewStream(pair[1], false);
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// assign existing socket
+//---------------------------------------------------------------------
+int AsyncStream::NewAssign(int fd, bool IsEstablished)
+{
+	Close();
+	CAsyncStream *tcp = async_stream_tcp_assign(_loop, TcpCB, fd, IsEstablished ? 1 : 0);
+	if (tcp == NULL) return -1;
+	return NewStream(tcp, false);
+}
+
+
+//---------------------------------------------------------------------
+// connect remote
+//---------------------------------------------------------------------
+int AsyncStream::NewConnect(const sockaddr *addr, int addrlen)
+{
+	Close();
+	CAsyncStream *tcp = async_stream_tcp_connect(_loop, TcpCB, addr, addrlen);
+	if (tcp == NULL) return -1;
+	return NewStream(tcp, false);
+}
+
+
+//---------------------------------------------------------------------
+// connect remote
+//---------------------------------------------------------------------
+int AsyncStream::NewConnect(int family, const char *text, int port)
+{
+	PosixAddress addr;
+	addr.Make(family, text, port);
+	return NewConnect(addr);
+}
+
+
+//---------------------------------------------------------------------
+// connect posix address
+//---------------------------------------------------------------------
+int AsyncStream::NewConnect(const PosixAddress &addr)
+{
+	return NewConnect(addr.address(), addr.size());
 }
 
 
 //---------------------------------------------------------------------
 // read data from recv buffer
 //---------------------------------------------------------------------
-long AsyncTcp::Read(void *ptr, long size)
+long AsyncStream::Read(void *ptr, long size)
 {
-	return async_tcp_read(_tcp, ptr, size);
+	if (_stream == NULL) {
+		return -1;
+	}
+	return async_stream_read(_stream, ptr, size);
 }
 
 
 //---------------------------------------------------------------------
 // write data into send buffer
 //---------------------------------------------------------------------
-long AsyncTcp::Write(const void *ptr, long size)
+long AsyncStream::Write(const void *ptr, long size)
 {
-	return async_tcp_write(_tcp, ptr, size);
+	if (_stream == NULL) return -1;
+	return async_stream_write(_stream, ptr, size);
 }
 
 
 //---------------------------------------------------------------------
 // peek data from recv buffer without removing them
 //---------------------------------------------------------------------
-long AsyncTcp::Peek(void *ptr, long size)
+long AsyncStream::Peek(void *ptr, long size)
 {
-	return async_tcp_peek(_tcp, ptr, size);
+	if (_stream == NULL) return -1;
+	return async_stream_peek(_stream, ptr, size);
 }
 
 
 //---------------------------------------------------------------------
 // enable ASYNC_EVENT_READ/WRITE
 //---------------------------------------------------------------------
-void AsyncTcp::Enable(int event)
+void AsyncStream::Enable(int event)
 {
-	async_tcp_enable(_tcp, event);
+	if (_stream == NULL) return;
+	async_stream_enable(_stream, event);
 }
 
 
 //---------------------------------------------------------------------
 // disable ASYNC_EVENT_READ/WRITE
 //---------------------------------------------------------------------
-void AsyncTcp::Disable(int event)
+void AsyncStream::Disable(int event)
 {
-	async_tcp_disable(_tcp, event);
+	if (_stream == NULL) return;
+	async_stream_disable(_stream, event);
 }
 
 
 //---------------------------------------------------------------------
 // move data from recv buffer to send buffer
 //---------------------------------------------------------------------
-long AsyncTcp::Move(long size)
+long AsyncStream::Move(long size)
 {
-	return (long)async_tcp_move(_tcp, size);
+	// return (long)async_stream_move(_stream, size);
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// set high water
+//---------------------------------------------------------------------
+void AsyncStream::WaterMark(int hiwater)
+{
+	if (_stream == NULL) return;
+	async_stream_watermark(_stream, hiwater);
 }
 
 

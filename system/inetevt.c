@@ -236,9 +236,9 @@ CAsyncLoop* async_loop_new(void)
 
 	assert(loop->internal);
 
-	loop->current = iclock();
 	loop->timestamp = iclock_nano(0);
 	loop->monotonic = iclock_nano(1);
+	loop->current = (IUINT32)(loop->monotonic / 1000000);
 	loop->iteration = 0;
 
 	loop->reseted = 0;
@@ -971,6 +971,7 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 		ipoll_wait(loop->poller, 0);
 	}
 
+	// fetch I/O events from poller
 	while (1) {
 		int fd, event;
 		void *udata;
@@ -1023,9 +1024,9 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 	}
 
 	// update clock
-	loop->current = iclock();
-	loop->timestamp = iclock_nano(0);
-	loop->monotonic = iclock_nano(1);
+	loop->timestamp = iclock_nano(0);    // CLOCK_REALTIME
+	loop->monotonic = iclock_nano(1);    // CLOCK_MONOTONIC
+	loop->current = (IUINT32)(loop->monotonic / 1000000);
 
 	// update iteration
 	loop->iteration++;

@@ -6,6 +6,7 @@
 //
 //=====================================================================
 #include <stddef.h>
+#include <stdarg.h>
 #include <assert.h>
 
 #include "AsyncEvt.h"
@@ -816,6 +817,15 @@ void AsyncOnce::InternalCB(CAsyncLoop *loop, CAsyncOnce *once)
 		auto ref_ptr = self->_cb_ptr;
 		(*ref_ptr)();
 	}
+}
+
+
+//---------------------------------------------------------------------
+// set priority: ASYNC_ONCE_HIGH/NORMAL/LOW
+//---------------------------------------------------------------------
+int AsyncOnce::SetPriority(int priority)
+{
+	return async_once_priority(&_once, priority);
 }
 
 

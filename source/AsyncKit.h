@@ -21,49 +21,68 @@ NAMESPACE_BEGIN(System);
 
 
 //---------------------------------------------------------------------
-// AsyncTcp
+// AsyncStream
 //---------------------------------------------------------------------
-class AsyncTcp final
+class AsyncStream final
 {
 public:
-	~AsyncTcp();
-	AsyncTcp(AsyncLoop &loop);
-	AsyncTcp(CAsyncLoop *loop);
-	AsyncTcp(AsyncTcp &&src);
+	~AsyncStream();
+	AsyncStream(AsyncLoop &loop);
+	AsyncStream(CAsyncLoop *loop);
+	AsyncStream(AsyncStream &&src);
 
-	AsyncTcp(const AsyncTcp &) = delete;
-	AsyncTcp &operator=(const AsyncTcp &) = delete;
+	AsyncStream(const AsyncStream &) = delete;
+	AsyncStream &operator=(const AsyncStream &) = delete;
 
 public:
 
-	inline const CAsyncTcp *GetTcp() const { return _tcp; }
-	inline CAsyncTcp *GetTcp() { return _tcp; }
+	inline const CAsyncStream *GetStream() const { return _stream; }
+	inline CAsyncStream *GetStream() { return _stream; }
 
-	inline int GetFd() const { return _tcp->fd; }
-	inline int GetError() const { return _tcp->error; }
+	inline int GetError() const { return _stream ? _stream->error : -1; }
+	inline int GetDirection() const { return _stream ? _stream->direction : 0; }
+	inline int GetEof(int dir) const { return _stream ? (_stream->eof & dir): 0; }
+	inline uint32_t GetName() const { return _stream ? (uint32_t)_stream->name : 0; }
+
+	inline bool CanRead() const { return (GetDirection() & ASYNC_STREAM_INPUT) != 0; }
+	inline bool CanWrite() const { return (GetDirection() & ASYNC_STREAM_OUTPUT) != 0; }
+	inline bool EndOfInput() const { return (GetEof(ASYNC_STREAM_INPUT) != 0); }
+	inline bool EndOfOutput() const { return (GetEof(ASYNC_STREAM_OUTPUT) != 0); }
+
+	// get the underlying socket fd, returns -1 if not a TCP stream
+	inline int GetFd() const { return async_stream_tcp_getfd(_stream); }
+
+	// inline int GetFd() const { return _stream->fd; }
+	// inline int GetError() const { return _stream->error; }
 
 	void SetCallback(std::function<void(int event, int args)> cb);
 
-	// assign existing socket
-	int Assign(int fd, bool IsEstablished = false);
+	// create a new stream based on CAsyncStream object
+	int NewStream(CAsyncStream *stream, bool borrow = false);
 
-	// connect remote
-	int Connect(const sockaddr *addr, int addrlen);
+	// create a paired stream
+	int NewPair(AsyncStream &partner);
 
-	// connect remote
-	int Connect(int family, const char *text, int port);
+	// create a TCP stream and assign an existing socket
+	int NewAssign(int fd, bool IsEstablished = false);
 
-	// connect posix address
-	int Connect(const PosixAddress &addr);
+	// create a TCP stream and connect to remote address
+	int NewConnect(const sockaddr *addr, int addrlen);
 
-	// close socket
+	// create a TCP stream and connect to remote address
+	int NewConnect(int family, const char *text, int port);
+
+	// create a TCP stream and connect to remote address
+	int NewConnect(const PosixAddress &addr);
+
+	// close stream
 	void Close();
 
 	// how many bytes remain in the recv buffer
-	inline long Remain() const { return async_tcp_remain(_tcp); }
+	inline long Remain() const { return async_stream_remain(_stream); }
 
 	// how many bytes remain in the send buffer
-	inline long Pending() const { return async_tcp_pending(_tcp); }
+	inline long Pending() const { return async_stream_pending(_stream); }
 
 	// read data from recv buffer
 	long Read(void *ptr, long size);
@@ -84,18 +103,19 @@ public:
 	long Move(long size);
 
 	// set high water
-	inline void SetHiWater(int hiwater) { _tcp->hiwater = hiwater; }
+	void WaterMark(int hiwater);
+
 
 private:
-	static void TcpCB(CAsyncTcp *tcp, int event, int args);
+	static void TcpCB(CAsyncStream *tcp, int event, int args);
 
 	typedef std::function<void(int event, int args)> Callback;
 	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 
+	bool _borrow = false;
 	CAsyncLoop *_loop = NULL;
-	CAsyncTcp *_tcp = NULL;
+	CAsyncStream *_stream = NULL;
 };
-
 
 
 //---------------------------------------------------------------------
