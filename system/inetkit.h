@@ -72,6 +72,17 @@ struct CAsyncStream {
 #define ASYNC_STREAM_OUTPUT  2
 #define ASYNC_STREAM_BOTH    3
 
+#define _async_stream_close(s)         (s)->close(s)
+#define _async_stream_read(s, p, n)    (s)->read(s, p, n)
+#define _async_stream_write(s, p, n)   (s)->write(s, p, n)
+#define _async_stream_peek(s, p, n)    (s)->peek(s, p, n)
+#define _async_stream_enable(s, e)     (s)->enable(s, e)
+#define _async_stream_disable(s, e)    (s)->disable(s, e)
+#define _async_stream_remain(s)        (s)->remain(s)
+#define _async_stream_pending(s)       (s)->pending(s)
+#define _async_stream_watermark(s, v)  (s)->watermark(s, v)
+#define _async_stream_option(s, o, v)  (s)->option(s, o, v)
+
 #define async_stream_private(s, type) ((type*)((s)->instance))
 
 #define async_stream_can_read(s) ((s)->direction & ASYNC_STREAM_INPUT)

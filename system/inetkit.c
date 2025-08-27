@@ -51,32 +51,32 @@ void async_stream_zero(CAsyncStream *stream)
 // release and close stream
 void async_stream_close(CAsyncStream *stream)
 {
-	stream->close(stream);
+	_async_stream_close(stream);
 }
 
 // read data from input buffer
 long async_stream_read(CAsyncStream *stream, void *ptr, long size) 
 {
-	return stream->read(stream, ptr, size);
+	return _async_stream_read(stream, ptr, size);
 }
 
 // write data into output buffer
 long async_stream_write(CAsyncStream *stream, const void *ptr, long size) 
 {
-	return stream->write(stream, ptr, size);
+	return _async_stream_write(stream, ptr, size);
 }
 
 // peek data from input buffer without removing them
 long async_stream_peek(CAsyncStream *stream, void *ptr, long size) 
 {
-	return stream->peek(stream, ptr, size);
+	return _async_stream_peek(stream, ptr, size);
 }
 
 // enable ASYNC_EVENT_READ/WRITE
 void async_stream_enable(CAsyncStream *stream, int event) 
 {
 	if (stream->enable) {
-		stream->enable(stream, event);
+		_async_stream_enable(stream, event);
 	}
 }
 
@@ -84,7 +84,7 @@ void async_stream_enable(CAsyncStream *stream, int event)
 void async_stream_disable(CAsyncStream *stream, int event) 
 {
 	if (stream->disable) {
-		stream->disable(stream, event);
+		_async_stream_disable(stream, event);
 	}
 }
 
@@ -92,7 +92,7 @@ void async_stream_disable(CAsyncStream *stream, int event)
 long async_stream_remain(const CAsyncStream *stream) 
 {
 	if (stream->remain) {
-		return stream->remain(stream);
+		return _async_stream_remain(stream);
 	}
 	return -1; // not supported
 }
@@ -101,7 +101,7 @@ long async_stream_remain(const CAsyncStream *stream)
 long async_stream_pending(const CAsyncStream *stream) 
 {
 	if (stream->pending) {
-		return stream->pending(stream);
+		return _async_stream_pending(stream);
 	}
 	return -1; // not supported
 }
@@ -110,7 +110,7 @@ long async_stream_pending(const CAsyncStream *stream)
 void async_stream_watermark(CAsyncStream *stream, long value)
 {
 	if (stream->watermark) {
-		stream->watermark(stream, value);
+		_async_stream_watermark(stream, value);
 	}
 }
 
@@ -142,7 +142,7 @@ const char *async_stream_name(const CAsyncStream *stream, char *buffer)
 long async_stream_option(CAsyncStream *stream, int option, long value)
 {
 	if (stream->option) {
-		return stream->option(stream, option, value);
+		return _async_stream_option(stream, option, value);
 	}
 	return -1; // not supported
 }
@@ -242,6 +242,7 @@ static void async_pair_close(CAsyncStream *stream)
 		partner->eof = ASYNC_STREAM_BOTH;
 		partner->direction = 0;
 		partner->state = 0;
+		async_pair_notify(partner, ASYNC_STREAM_EVT_EOF, 0);
 	}
 	if (async_post_is_active(&pair->evt_post)) {
 		async_post_stop(stream->loop, &pair->evt_post);
@@ -330,11 +331,11 @@ static void async_pair_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone)
 	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
 	char notify[8];
 	while ((long)pair->notify.size >= 8) {
-		int event, args;
+		IINT32 event, args;
 		ims_read(&pair->notify, notify, 8);
 		idecode32i_lsb(notify + 0, &event);
 		idecode32i_lsb(notify + 4, &args);
-		async_pair_dispatch(stream, event, args);
+		async_pair_dispatch(stream, (int)event, (int)args);
 		if (pair->closing) {
 			break;
 		}
