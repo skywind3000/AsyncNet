@@ -43,18 +43,19 @@ typedef struct CAsyncMessage CAsyncMessage;
 // CAsyncStream
 //---------------------------------------------------------------------
 struct CAsyncStream {
-	IUINT32 name;                // stream name, fourcc code
-	CAsyncLoop *loop;            // AsyncLoop object
-	CAsyncStream *underlying;    // underlying stream
-	int underown;                // close underlying stream when closed
-	long hiwater;                // high water mark, 0 means no limit
-	int state;                   // stream state, 0: closed, 1: open, 2: connecting
-	int direction;               // 1: input, 2: output, 3: bidirectional
-	int eof;                     // 1: input, 2: output, 3: both
-	int error;                   // error code, 0 means no error
-	int enabled;                 // enabled events, ASYNC_EVENT_READ
-	void *instance;              // instance data, for stream implementations
-	void *user;                  // user data
+	IUINT32 name;               // stream name, fourcc code
+	CAsyncLoop *loop;           // AsyncLoop object
+	CAsyncStream *underlying;   // underlying stream
+	int underown;               // close underlying stream when closed
+	long hiwater;               // high water mark, 0 means no limit
+	long lowater;               // low water mark, 0 means no limit, optional
+	int state;                  // state, 0: closed, 1: open, 2: connecting
+	int direction;              // 1: input, 2: output, 3: bidirectional
+	int eof;                    // 1: input, 2: output, 3: both
+	int error;                  // error code, 0 means no error
+	int enabled;                // enabled events, ASYNC_EVENT_READ
+	void *instance;             // instance data, for stream implementations
+	void *user;                 // user data
 	void (*callback)(CAsyncStream *self, int event, int args); 
 	void (*close)(CAsyncStream *self);
 	long (*read)(CAsyncStream *self, void *ptr, long size);
@@ -64,7 +65,7 @@ struct CAsyncStream {
 	void (*disable)(CAsyncStream *self, int event);
 	long (*remain)(const CAsyncStream *self);
 	long (*pending)(const CAsyncStream *self);
-	void (*watermark)(CAsyncStream *self, long value);
+	void (*watermark)(CAsyncStream *self, long hiwater, long lowater);
 	long (*option)(CAsyncStream *self, int option, long value);
 };
 
@@ -72,16 +73,16 @@ struct CAsyncStream {
 #define ASYNC_STREAM_OUTPUT  2
 #define ASYNC_STREAM_BOTH    3
 
-#define _async_stream_close(s)         (s)->close(s)
-#define _async_stream_read(s, p, n)    (s)->read(s, p, n)
-#define _async_stream_write(s, p, n)   (s)->write(s, p, n)
-#define _async_stream_peek(s, p, n)    (s)->peek(s, p, n)
-#define _async_stream_enable(s, e)     (s)->enable(s, e)
-#define _async_stream_disable(s, e)    (s)->disable(s, e)
-#define _async_stream_remain(s)        (s)->remain(s)
-#define _async_stream_pending(s)       (s)->pending(s)
-#define _async_stream_watermark(s, v)  (s)->watermark(s, v)
-#define _async_stream_option(s, o, v)  (s)->option(s, o, v)
+#define _async_stream_close(s)            (s)->close(s)
+#define _async_stream_read(s, p, n)       (s)->read(s, p, n)
+#define _async_stream_write(s, p, n)      (s)->write(s, p, n)
+#define _async_stream_peek(s, p, n)       (s)->peek(s, p, n)
+#define _async_stream_enable(s, e)        (s)->enable(s, e)
+#define _async_stream_disable(s, e)       (s)->disable(s, e)
+#define _async_stream_remain(s)           (s)->remain(s)
+#define _async_stream_pending(s)          (s)->pending(s)
+#define _async_stream_watermark(s, h, l)  (s)->watermark(s, h, l)
+#define _async_stream_option(s, o, v)     (s)->option(s, o, v)
 
 #define async_stream_private(s, type) ((type*)((s)->instance))
 
@@ -130,8 +131,8 @@ long async_stream_remain(const CAsyncStream *stream);
 // how many bytes pending in the output buffer
 long async_stream_pending(const CAsyncStream *stream);
 
-// set input watermark
-void async_stream_watermark(CAsyncStream *stream, long value);
+// set input watermark, 0 means no limit, below zero means skip
+void async_stream_watermark(CAsyncStream *stream, long high, long low);
 
 // set/get option
 long async_stream_option(CAsyncStream *stream, int option, long value);

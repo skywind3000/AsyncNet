@@ -106,11 +106,11 @@ long async_stream_pending(const CAsyncStream *stream)
 	return -1; // not supported
 }
 
-// set input watermark
-void async_stream_watermark(CAsyncStream *stream, long value)
+// set input watermark, 0 means no limit, below zero means skip
+void async_stream_watermark(CAsyncStream *stream, long high, long low)
 {
 	if (stream->watermark) {
-		_async_stream_watermark(stream, value);
+		_async_stream_watermark(stream, high, low);
 	}
 }
 
@@ -173,7 +173,7 @@ static void async_pair_enable(CAsyncStream *stream, int event);
 static void async_pair_disable(CAsyncStream *stream, int event);
 static long async_pair_remain(const CAsyncStream *stream);
 static long async_pair_pending(const CAsyncStream *stream);
-static void async_pair_watermark(CAsyncStream *stream, long value);
+static void async_pair_watermark(CAsyncStream *stream, long high, long low);
 static long async_pair_option(CAsyncStream *stream, int option, long value);
 
 static void async_pair_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone);
@@ -487,11 +487,16 @@ static long async_pair_pending(const CAsyncStream *stream)
 //---------------------------------------------------------------------
 // set input watermark
 //---------------------------------------------------------------------
-static void async_pair_watermark(CAsyncStream *stream, long value)
+static void async_pair_watermark(CAsyncStream *stream, long high, long low)
 {
-	if (stream->hiwater != value) {
-		stream->hiwater = value;
-		async_pair_check(stream, ASYNC_STREAM_INPUT);
+	if (high >= 0) {
+		if (stream->hiwater != high) {
+			stream->hiwater = high;
+			async_pair_check(stream, ASYNC_STREAM_INPUT);
+		}
+	}
+	if (low >= 0) {
+		stream->lowater = low;
 	}
 }
 
@@ -584,7 +589,7 @@ static void async_tcp_enable(CAsyncStream *stream, int event);
 static void async_tcp_disable(CAsyncStream *stream, int event);
 static long async_tcp_remain(const CAsyncStream *stream);
 static long async_tcp_pending(const CAsyncStream *stream);
-static void async_tcp_watermark(CAsyncStream *stream, long value);
+static void async_tcp_watermark(CAsyncStream *stream, long high, long low);
 static long async_tcp_option(CAsyncStream *stream, int option, long value);
 static void async_tcp_check(CAsyncStream *stream);
 
@@ -1191,7 +1196,7 @@ static long async_tcp_remain(const CAsyncStream *stream)
 
 
 //---------------------------------------------------------------------
-// 
+// how many bytes pending in the send buffer
 //---------------------------------------------------------------------
 static long async_tcp_pending(const CAsyncStream *stream)
 {
@@ -1203,9 +1208,14 @@ static long async_tcp_pending(const CAsyncStream *stream)
 //---------------------------------------------------------------------
 // set watermark
 //---------------------------------------------------------------------
-static void async_tcp_watermark(CAsyncStream *stream, long value)
+static void async_tcp_watermark(CAsyncStream *stream, long high, long low)
 {
-	stream->hiwater = value;
+	if (high >= 0) {
+		stream->hiwater = high;
+	}
+	if (low >= 0) {
+		stream->lowater = low;
+	}
 	async_tcp_check(stream);
 }
 

@@ -189,7 +189,7 @@ long AsyncStream::Read(void *ptr, long size)
 	if (_stream == NULL) {
 		return -1;
 	}
-	return async_stream_read(_stream, ptr, size);
+	return _async_stream_read(_stream, ptr, size);
 }
 
 
@@ -199,7 +199,7 @@ long AsyncStream::Read(void *ptr, long size)
 long AsyncStream::Write(const void *ptr, long size)
 {
 	if (_stream == NULL) return -1;
-	return async_stream_write(_stream, ptr, size);
+	return _async_stream_write(_stream, ptr, size);
 }
 
 
@@ -209,7 +209,7 @@ long AsyncStream::Write(const void *ptr, long size)
 long AsyncStream::Peek(void *ptr, long size)
 {
 	if (_stream == NULL) return -1;
-	return async_stream_peek(_stream, ptr, size);
+	return _async_stream_peek(_stream, ptr, size);
 }
 
 
@@ -219,7 +219,8 @@ long AsyncStream::Peek(void *ptr, long size)
 void AsyncStream::Enable(int event)
 {
 	if (_stream == NULL) return;
-	async_stream_enable(_stream, event);
+	if (_stream->enable == NULL) return;
+	_async_stream_enable(_stream, event);
 }
 
 
@@ -229,7 +230,8 @@ void AsyncStream::Enable(int event)
 void AsyncStream::Disable(int event)
 {
 	if (_stream == NULL) return;
-	async_stream_disable(_stream, event);
+	if (_stream->disable == NULL) return;
+	_async_stream_disable(_stream, event);
 }
 
 
@@ -246,10 +248,11 @@ long AsyncStream::Move(long size)
 //---------------------------------------------------------------------
 // set high water
 //---------------------------------------------------------------------
-void AsyncStream::WaterMark(int hiwater)
+void AsyncStream::WaterMark(int hiwater, int lowater)
 {
 	if (_stream == NULL) return;
-	async_stream_watermark(_stream, hiwater);
+	if (_stream->watermark == NULL) return;
+	_async_stream_watermark(_stream, hiwater, lowater);
 }
 
 

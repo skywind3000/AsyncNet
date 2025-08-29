@@ -79,10 +79,10 @@ public:
 	void Close();
 
 	// how many bytes remain in the recv buffer
-	inline long Remain() const { return async_stream_remain(_stream); }
+	inline long Remain() const { return _async_stream_remain(_stream); }
 
 	// how many bytes remain in the send buffer
-	inline long Pending() const { return async_stream_pending(_stream); }
+	inline long Pending() const { return _async_stream_pending(_stream); }
 
 	// read data from recv buffer
 	long Read(void *ptr, long size);
@@ -103,7 +103,7 @@ public:
 	long Move(long size);
 
 	// set high water
-	void WaterMark(int hiwater);
+	void WaterMark(int hiwater, int lowater);
 
 
 private:
