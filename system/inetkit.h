@@ -85,6 +85,7 @@ struct CAsyncStream {
 #define _async_stream_option(s, o, v)     (s)->option(s, o, v)
 
 #define async_stream_private(s, type) ((type*)((s)->instance))
+#define async_stream_upcast(s, type, member) IB_ENTRY(s, type, member)
 
 #define async_stream_can_read(s) ((s)->direction & ASYNC_STREAM_INPUT)
 #define async_stream_can_write(s) ((s)->direction & ASYNC_STREAM_OUTPUT)

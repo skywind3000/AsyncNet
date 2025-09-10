@@ -6,6 +6,7 @@
 //
 //=====================================================================
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "inetsub.h"
 
@@ -152,7 +153,7 @@ static void async_topic_root_del(CAsyncTopic *topic, CAsyncTopicRoot *root)
 		sub->topic = NULL;
 		sub->tid = -1;
 	}
-	ib_map_remove(&topic->hash_map, (void*)(root->tid));
+	ib_map_remove(&topic->hash_map, (void*)((size_t)(root->tid)));
 	ib_fastbin_del(&topic->allocator, root);
 }
 
@@ -163,7 +164,7 @@ static void async_topic_root_del(CAsyncTopic *topic, CAsyncTopicRoot *root)
 static CAsyncTopicRoot *async_topic_root_get(CAsyncTopic *topic, int tid)
 {
 	struct ib_hash_entry *entry;
-	entry = ib_map_find(&topic->hash_map, (void*)tid);
+	entry = ib_map_find(&topic->hash_map, (void*)((size_t)tid));
 	if (entry != NULL) {
 		return (CAsyncTopicRoot*)entry->value;
 	}
@@ -183,7 +184,7 @@ static CAsyncTopicRoot *async_topic_root_ensure(CAsyncTopic *topic, int tid)
 	root = (CAsyncTopicRoot*)ib_fastbin_new(&topic->allocator);
 	root->tid = tid;
 	ilist_init(&root->head);
-	ib_map_set(&topic->hash_map, (void*)tid, root);
+	ib_map_set(&topic->hash_map, (void*)((size_t)tid), root);
 	return root;
 }
 
@@ -267,5 +268,300 @@ void async_sub_deregister(CAsyncSubscribe *sub)
 }
 
 
+
+//=====================================================================
+// CAsyncSignal
+//=====================================================================
+
+// current active signal
+static volatile CAsyncSignal *async_signal_current = NULL;
+
+// event handler
+void async_signal_handler(int signum) 
+{
+	CAsyncSignal *sig = (CAsyncSignal*)async_signal_current;
+	int retval;
+	if (sig == NULL) return;
+	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) return;
+	if (sig->signaled[signum] != 0) return;
+	if (sig->fd_writer < 0) return;
+#ifdef __unix
+	retval = write(sig->fd_writer, &signum, sizeof(int));
+#else
+	retval = isend(sig->fd_writer, &signum, sizeof(int), 0);
+#endif
+	if (retval == (int)sizeof(int)) {
+		sig->signaled[signum] = 1;
+	}
+}
+
+// reading event
+void async_signal_reading(CAsyncLoop *loop, CAsyncEvent *event, int evt) 
+{
+	CAsyncSignal *sig = (CAsyncSignal*)event->user;
+	if (sig == NULL || sig->fd_reader < 0) return;
+	int signum = -1;
+	int retval = 0;
+#ifdef __unix
+	retval = read(sig->fd_reader, &signum, sizeof(int));
+#else
+	retval = irecv(sig->fd_reader, &signum, sizeof(int), 0);
+#endif
+	if (retval != (int)sizeof(int)) return;
+	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) return;
+	if (sig->signaled[signum] != 0) {
+		sig->signaled[signum] = 0; // reset the signaled state
+		if (sig->callback) {
+			sig->callback(sig, signum);
+		}
+	}
+}
+
+// create a new signal object
+CAsyncSignal *async_signal_new(CAsyncLoop *loop, 
+	void (*callback)(CAsyncSignal *signal, int signum))
+{
+	CAsyncSignal *sig;
+	int i, fds[2];
+	sig = (CAsyncSignal*)ikmem_malloc(sizeof(CAsyncSignal));
+	if (sig == NULL) return NULL;
+	sig->loop = loop;
+	sig->callback = callback;
+	sig->user = NULL;
+	sig->active = 0;
+	for (i = 0; i < CASYNC_SIGNAL_MAX; i++) {
+		sig->installed[i] = 0;
+		sig->signaled[i] = 0;
+	}
+	sig->fd_reader = -1;
+	sig->fd_writer = -1;
+	async_event_init(&sig->evt_read, async_signal_reading, -1, 0);
+	sig->evt_read.user = sig;
+#ifdef __unix
+	int retval = pipe(fds);
+	if (fds[0] >= 0 && retval >= 0) {
+		isocket_enable(fds[0], ISOCK_CLOEXEC);
+		isocket_enable(fds[1], ISOCK_CLOEXEC);
+	}
+#else
+	if (isocket_pair(fds, 1) != 0) {
+		int ok = 0, i;
+		for (i = 0; i < 15; i++) {
+			isleep(10);
+			if (isocket_pair(fds, 1) == 0) {
+				ok = 1;
+				break;
+			}
+		}
+		if (ok == 0) {
+			fds[0] = -1;
+			fds[1] = -1;
+		}
+	}
+	if (fds[0] >= 0) {
+		isocket_disable(fds[0], ISOCK_NOBLOCK);
+		isocket_disable(fds[1], ISOCK_NOBLOCK);
+	}
+#endif
+	sig->fd_reader = fds[0];
+	sig->fd_writer = fds[1];
+	async_event_set(&sig->evt_read, sig->fd_reader, ASYNC_EVENT_READ);
+	return sig;
+}
+
+
+// delete signal object
+void async_signal_delete(CAsyncSignal *sig)
+{
+	assert(sig);
+	if (sig->active) {
+		async_signal_stop(sig);
+	}
+	if (async_event_is_active(&sig->evt_read)) {
+		async_event_stop(sig->loop, &sig->evt_read);
+	}
+	if (sig->fd_reader >= 0) {
+		iclose(sig->fd_reader);
+		sig->fd_reader = -1;
+	}
+	if (sig->fd_writer >= 0) {
+		iclose(sig->fd_writer);
+		sig->fd_writer = -1;
+	}
+	sig->loop = NULL;
+	sig->user = NULL;
+	sig->callback = NULL;
+	ikmem_free(sig);
+}
+
+
+// start wating system signals, only one CAsyncSignal
+// can be started at the same time.
+int async_signal_start(CAsyncSignal *sig)
+{
+	int i;
+	if (async_signal_current != NULL) {
+		// another signal is already active
+		return -1;
+	}
+	if (sig->active) {
+		// already started
+		return -2;
+	}
+	async_signal_current = sig;
+	for (i = 0; i < CASYNC_SIGNAL_MAX; i++) {
+		if (sig->installed[i] == 1) {
+			signal(i, async_signal_handler);
+		}
+		else if (sig->installed[i] == 2) {
+			signal(i, SIG_IGN);
+		}
+	}
+	if (async_event_is_active(&sig->evt_read)) {
+		async_event_stop(sig->loop, &sig->evt_read);
+	}
+	async_event_start(sig->loop, &sig->evt_read);
+	sig->active = 1;
+	return 0;
+}
+
+// stop from the system signal interface
+int async_signal_stop(CAsyncSignal *sig)
+{
+	int i;
+	if (async_signal_current != sig) {
+		// not the current signal
+		return -1;
+	}
+	if (sig->active == 0) {
+		// not started
+		return -2;
+	}
+	if (async_event_is_active(&sig->evt_read)) {
+		async_event_stop(sig->loop, &sig->evt_read);
+	}
+	for (i = 0; i < CASYNC_SIGNAL_MAX; i++) {
+		if (sig->installed[i]) {
+			signal(i, SIG_DFL);
+		}
+	}
+	async_signal_current = NULL;
+	sig->active = 0;
+	return 0;
+}
+
+// install a system signal
+int async_signal_install(CAsyncSignal *sig, int signum)
+{
+	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) {
+		return -1;
+	}
+	if (sig->active == 0) {
+		sig->installed[signum] = 1;
+	}
+	else {
+		sig->installed[signum] = 1;
+		signal(signum, async_signal_handler);
+	}
+	return 0;
+}
+
+// ignore a system signal
+int async_signal_ignore(CAsyncSignal *sig, int signum)
+{
+	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) {
+		return -1;
+	}
+	if (sig->active == 0) {
+		sig->installed[signum] = 2;
+	}
+	else {
+		sig->installed[signum] = 2;
+		signal(signum, SIG_IGN);
+	}
+	return 0;
+}
+
+// remove a system signal
+int async_signal_remove(CAsyncSignal *sig, int signum)
+{
+	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) {
+		return -1;
+	}
+	if (sig->active == 0) {
+		sig->installed[signum] = 0;
+	}
+	else {
+		sig->installed[signum] = 0;
+		signal(signum, SIG_DFL);
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// easy default
+//---------------------------------------------------------------------
+static CAsyncSignal *_async_signal_default = NULL;
+
+// default handler for _async_signal_default
+static void async_signal_default_handler(CAsyncSignal *signal, int signum)
+{
+	if (signum == SIGINT || signum == SIGTERM) {
+		async_loop_exit(signal->loop);
+	}
+#ifdef SIGQUIT
+	else if (signum == SIGQUIT) {
+		async_loop_exit(signal->loop);
+	}
+#endif
+}
+
+// for atexit
+static void async_signal_cleanup()
+{
+	if (_async_signal_default) {
+		if (_async_signal_default->active) {
+			async_signal_stop(_async_signal_default);
+		}
+		async_signal_delete(_async_signal_default);
+		_async_signal_default = NULL;
+	}
+}
+
+// install default handler for a CAsyncLoop
+int async_signal_default(CAsyncLoop *loop)
+{
+	static int inited = 0;
+	if (inited == 0) {
+		atexit(async_signal_cleanup);
+		inited = 1;
+	}
+	if (_async_signal_default != NULL) {
+		if (_async_signal_default->active) {
+			async_signal_stop(_async_signal_default);
+		}
+		async_signal_delete(_async_signal_default);
+		_async_signal_default = NULL;
+	}
+	if (loop != NULL) {
+		CAsyncSignal *signal = async_signal_new(loop, 
+				async_signal_default_handler);
+		if (signal == NULL) {
+			return -1;
+		}
+		async_signal_install(signal, SIGINT);
+		async_signal_install(signal, SIGTERM);
+	#ifdef SIGQUIT
+		async_signal_install(signal, SIGQUIT);
+	#endif
+	#ifdef __unix
+		async_signal_ignore(signal, SIGPIPE);
+	#endif
+		async_signal_start(signal);
+		_async_signal_default = signal;
+	}
+	return 0;
+}
 
 

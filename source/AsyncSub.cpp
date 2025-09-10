@@ -160,7 +160,139 @@ void AsyncSubscribe::Deregister()
 }
 
 
+//=====================================================================
+// AsyncSignal
+//=====================================================================
 
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncSignal::~AsyncSignal()
+{
+	if (_signal) {
+		async_signal_delete(_signal);
+		_signal = NULL;
+	}
+	_callbacks.clear();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSignal::AsyncSignal(AsyncLoop &loop)
+{
+	_signal = async_signal_new(loop.GetLoop(), SignalCB);
+	_signal->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSignal::AsyncSignal(CAsyncLoop *loop)
+{
+	_signal = async_signal_new(loop, SignalCB);
+	_signal->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncSignal::AsyncSignal(AsyncSignal &&src):
+	_callbacks(std::move(src._callbacks))
+{
+	_signal = src._signal;
+	_signal->user = this;
+	src._signal = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+void AsyncSignal::SignalCB(CAsyncSignal *signal, int signum)
+{
+	AsyncSignal *self = (AsyncSignal*)signal->user;
+	if (signum >= 0 && signum < CASYNC_SIGNAL_MAX) {
+		int installed = self->_signal->installed[signum];
+		if (installed == 1) {
+			auto it = self->_callbacks.find(signum);
+			if (it != self->_callbacks.end()) {
+				if (it->second != nullptr) {
+					it->second(signum);
+				}
+			}
+		}
+		else if (installed == 2) {
+			// ignored
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// only one AsyncSignal can be started at the same time
+//---------------------------------------------------------------------
+bool AsyncSignal::Start()
+{
+	int hr = async_signal_start(_signal);
+	return (hr == 0);
+}
+
+
+//---------------------------------------------------------------------
+// stop signal handling
+//---------------------------------------------------------------------
+bool AsyncSignal::Stop()
+{
+	int hr = async_signal_stop(_signal);
+	return (hr == 0);
+}
+
+
+//---------------------------------------------------------------------
+// install a signal callback
+//---------------------------------------------------------------------
+bool AsyncSignal::Install(int signum, std::function<void(int)> cb)
+{
+	if (cb == nullptr) return Ignore(signum);
+	int hr = async_signal_install(_signal, signum);
+	if (hr != 0) return false;
+	_callbacks[signum] = cb;
+	return true;
+}
+
+
+//---------------------------------------------------------------------
+// Remove a signal callback
+//---------------------------------------------------------------------
+bool AsyncSignal::Remove(int signum)
+{
+	int hr = async_signal_remove(_signal, signum);
+	if (hr != 0) return false;
+	auto it = _callbacks.find(signum);
+	if (it != _callbacks.end()) {
+		_callbacks.erase(it);
+	}
+	return true;
+}
+
+
+//---------------------------------------------------------------------
+// Ignore a signal
+//---------------------------------------------------------------------
+bool AsyncSignal::Ignore(int signum)
+{
+	int hr = async_signal_ignore(_signal, signum);
+	if (hr != 0) return false;
+	auto it = _callbacks.find(signum);
+	if (it != _callbacks.end()) {
+		_callbacks.erase(it);
+	}
+	return true;
+}
 
 
 NAMESPACE_END(System);

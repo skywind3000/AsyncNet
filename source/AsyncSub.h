@@ -9,6 +9,7 @@
 #define _ASYNCSUB_H_
 
 #include <stddef.h>
+#include <unordered_map>
 
 #include "../system/inetsub.h"
 
@@ -75,6 +76,63 @@ private:
 	typedef std::function<int(IINT32 wparam, IINT32 lparam, const void *data, int size)> Callback;
 	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 	std::shared_ptr<CAsyncSubscribe> _sub_ptr;
+};
+
+
+//---------------------------------------------------------------------
+// AsyncSignal
+//---------------------------------------------------------------------
+class AsyncSignal final
+{
+public:
+	~AsyncSignal();
+	AsyncSignal(AsyncLoop &loop);
+	AsyncSignal(CAsyncLoop *loop);
+	AsyncSignal(AsyncSignal &&src);
+
+public:
+
+	// Get the underlying CAsyncSignal pointer
+	CAsyncSignal *GetSignal() { return _signal; }
+	const CAsyncSignal *GetSignal() const { return _signal; }
+
+	// only one AsyncSignal can be started at the same time
+	bool Start();
+
+	// stop signal handling
+	bool Stop();
+
+	// install a signal callback
+	bool Install(int signum, std::function<void(int)> cb);
+
+	// Remove a signal callback
+	bool Remove(int signum);
+
+	// Ignore a signal
+	bool Ignore(int signum);
+
+	// IsActive?
+	bool IsActive() const { return (_signal && _signal->active != 0); }
+
+	// IsInstalled?
+	bool IsInstalled(int signum) const { 
+		if (_signal == NULL) return false;
+		if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) return false;
+		return (_signal->installed[signum] == 1);
+	}
+
+	// IsIgnored?
+	bool IsIgnored(int signum) const { 
+		if (_signal == NULL) return false;
+		if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) return false;
+		return (_signal->installed[signum] == 2);
+	}
+
+private:
+	typedef std::function<void(int signum)> Callback;
+	std::unordered_map<int, Callback> _callbacks;
+	static void SignalCB(CAsyncSignal *signal, int signum);
+	CAsyncSignal *_signal = NULL;
 };
 
 

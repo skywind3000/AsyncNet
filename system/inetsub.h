@@ -9,6 +9,7 @@
 #define _INETSUB_H_
 
 #include <stddef.h>
+#include <signal.h>
 
 #include "inetevt.h"
 #include "inetkit.h"
@@ -22,8 +23,10 @@ extern "C" {
 //---------------------------------------------------------------------
 struct CAsyncTopic;
 struct CAsyncSubscribe;
+struct CAsyncSignal;
 typedef struct CAsyncTopic CAsyncTopic;
 typedef struct CAsyncSubscribe CAsyncSubscribe;
+typedef struct CAsyncSignal CAsyncSignal;
 
 
 //---------------------------------------------------------------------
@@ -80,6 +83,48 @@ void async_sub_register(CAsyncTopic *topic, CAsyncSubscribe *sub, int tid);
 void async_sub_deregister(CAsyncSubscribe *sub);
 
 
+//---------------------------------------------------------------------
+// CAsyncSignal
+//---------------------------------------------------------------------
+#define CASYNC_SIGNAL_MAX  256
+struct CAsyncSignal {
+	void (*callback)(CAsyncSignal *signal, int signum);
+	int fd_reader;
+	int fd_writer;
+	CAsyncEvent evt_read;
+	CAsyncLoop *loop;
+	void *user;
+	int active;
+	int installed[CASYNC_SIGNAL_MAX];
+	volatile int signaled[CASYNC_SIGNAL_MAX];
+};
+
+
+// create a new signal object
+CAsyncSignal *async_signal_new(CAsyncLoop *loop, 
+	void (*callback)(CAsyncSignal *signal, int signum));
+
+// delete signal object
+void async_signal_delete(CAsyncSignal *sig);
+
+// start wating system signals, only one CAsyncSignal
+// can be started at the same time.
+int async_signal_start(CAsyncSignal *sig);
+
+// stop from the system signal interface
+int async_signal_stop(CAsyncSignal *sig);
+
+// install a system signal
+int async_signal_install(CAsyncSignal *sig, int signum);
+
+// ignore a system signal
+int async_signal_ignore(CAsyncSignal *sig, int signum);
+
+// remove a system signal
+int async_signal_remove(CAsyncSignal *sig, int signum);
+
+// install default handler for a CAsyncLoop
+int async_signal_default(CAsyncLoop *loop);
 
 
 #ifdef __cplusplus

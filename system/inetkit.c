@@ -152,6 +152,7 @@ long async_stream_option(CAsyncStream *stream, int option, long value)
 // Pair Stream
 //=====================================================================
 typedef struct _CAsyncPair {
+	CAsyncStream stream;
 	CAsyncStream *partner;
 	CAsyncPostpone evt_post;
 	int closing;
@@ -188,10 +189,10 @@ static void async_pair_dispatch(CAsyncStream *stream, int event, int args);
 //---------------------------------------------------------------------
 CAsyncStream *async_pair_new(CAsyncLoop *loop)
 {
-	CAsyncStream *stream = (CAsyncStream*)ikmem_malloc(sizeof(CAsyncStream));
 	CAsyncPair *pair = (CAsyncPair*)ikmem_malloc(sizeof(CAsyncPair));
-	assert(stream);
+	CAsyncStream *stream;
 	assert(pair);
+	stream = &(pair->stream);
 	async_stream_zero(stream);
 	stream->name = ASYNC_STREAM_NAME_PAIR;
 	stream->instance = pair;
@@ -229,7 +230,8 @@ static void async_pair_close(CAsyncStream *stream)
 {
 	CAsyncPair *pair;
 	assert(stream != NULL);
-	pair = async_stream_private(stream, CAsyncPair);
+	assert(stream->name == ASYNC_STREAM_NAME_PAIR);
+	pair = async_stream_upcast(stream, CAsyncPair, stream);
 	if (pair->busy) {
 		pair->closing = 1; // set closing flag
 		return; // still busy, will close later
@@ -250,10 +252,9 @@ static void async_pair_close(CAsyncStream *stream)
 	ims_destroy(&pair->notify);
 	ims_destroy(&pair->sendbuf);
 	ims_destroy(&pair->recvbuf);
-	ikmem_free(pair);
 	stream->instance = NULL;
 	async_stream_zero(stream);
-	ikmem_free(stream);
+	ikmem_free(pair);
 }
 
 
@@ -262,7 +263,7 @@ static void async_pair_close(CAsyncStream *stream)
 //---------------------------------------------------------------------
 static long async_pair_move(CAsyncStream *stream)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	if ((stream->enabled & ASYNC_EVENT_READ) == 0) {
 		return 0; // read not enabled
 	}
@@ -297,7 +298,7 @@ static long async_pair_move(CAsyncStream *stream)
 //---------------------------------------------------------------------
 static void async_pair_notify(CAsyncStream *stream, int event, int args)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	char notify[8];
 	iencode32i_lsb(notify + 0, event);
 	iencode32i_lsb(notify + 4, args);
@@ -313,7 +314,7 @@ static void async_pair_notify(CAsyncStream *stream, int event, int args)
 //---------------------------------------------------------------------
 static void async_pair_dispatch(CAsyncStream *stream, int event, int args)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	pair->busy = 1;
 	if (stream->callback) {
 		stream->callback(stream, event, args);
@@ -328,7 +329,7 @@ static void async_pair_dispatch(CAsyncStream *stream, int event, int args)
 static void async_pair_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone)
 {
 	CAsyncStream *stream = (CAsyncStream*)postpone->user;
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	char notify[8];
 	while ((long)pair->notify.size >= 8) {
 		IINT32 event, args;
@@ -353,7 +354,7 @@ static void async_pair_check(CAsyncStream *stream, int direction)
 {
 	CAsyncPair *pair;
 	CAsyncStream *partner;
-	pair = async_stream_private(stream, CAsyncPair);
+	pair = async_stream_upcast(stream, CAsyncPair, stream);
 	if (pair->partner == NULL) {
 		return; // no partner
 	}
@@ -380,7 +381,7 @@ static void async_pair_check(CAsyncStream *stream, int direction)
 //---------------------------------------------------------------------
 static long async_pair_read(CAsyncStream *stream, void *ptr, long size)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	long hr = 0;
 	if (pair->partner == NULL) {
 		return -1; // no partner
@@ -398,7 +399,7 @@ static long async_pair_read(CAsyncStream *stream, void *ptr, long size)
 //---------------------------------------------------------------------
 static long async_pair_write(CAsyncStream *stream, const void *ptr, long size)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	long hr = 0;
 	if (pair->partner == NULL) {
 		return -1; // no partner
@@ -416,7 +417,7 @@ static long async_pair_write(CAsyncStream *stream, const void *ptr, long size)
 //---------------------------------------------------------------------
 static long async_pair_peek(CAsyncStream *stream, void *ptr, long size)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	long hr = 0;
 	if (pair->partner == NULL) {
 		return -1; // no partner
@@ -469,7 +470,7 @@ static void async_pair_disable(CAsyncStream *stream, int event)
 //---------------------------------------------------------------------
 static long async_pair_remain(const CAsyncStream *stream)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	return (long)pair->recvbuf.size;
 }
 
@@ -479,7 +480,7 @@ static long async_pair_remain(const CAsyncStream *stream)
 //---------------------------------------------------------------------
 static long async_pair_pending(const CAsyncStream *stream)
 {
-	CAsyncPair *pair = async_stream_private(stream, CAsyncPair);
+	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	return (long)pair->sendbuf.size;
 }
 
@@ -521,8 +522,8 @@ int async_stream_pair_new(CAsyncLoop *loop, CAsyncStream *pair[2])
 	s2 = async_pair_new(loop);
 	assert(s1);
 	assert(s2);
-	p1 = async_stream_private(s1, CAsyncPair);
-	p2 = async_stream_private(s2, CAsyncPair);
+	p1 = async_stream_upcast(s1, CAsyncPair, stream);
+	p2 = async_stream_upcast(s2, CAsyncPair, stream);
 	p1->partner = s2;
 	p2->partner = s1;
 	if (pair) {
@@ -541,7 +542,7 @@ CAsyncStream *async_stream_pair_partner(CAsyncStream *stream)
 	CAsyncPair *pair;
 	if (stream == NULL) return NULL;
 	if (stream->name != ASYNC_STREAM_NAME_PAIR) return NULL;
-	pair = async_stream_private(stream, CAsyncPair);
+	pair = async_stream_upcast(stream, CAsyncPair, stream);
 	return pair->partner;
 }
 
@@ -560,6 +561,7 @@ CAsyncStream *async_stream_pair_partner(CAsyncStream *stream)
 // CAsyncTcp
 //---------------------------------------------------------------------
 typedef struct _CAsyncTcp {
+	CAsyncStream stream;
 	int fd;
 	int eof_state;
 	void (*postread)(CAsyncStream *stream, char *data, long size);
@@ -600,11 +602,12 @@ static void async_tcp_check(CAsyncStream *stream);
 static CAsyncStream *async_tcp_new(CAsyncLoop *loop,
 	void (*callback)(CAsyncStream *stream, int event, int args))
 {
-	CAsyncStream *stream = (CAsyncStream*)ikmem_malloc(sizeof(CAsyncStream));
 	CAsyncTcp *tcp = (CAsyncTcp*)ikmem_malloc(sizeof(CAsyncTcp));
+	CAsyncStream *stream;
 
-	assert(stream);
 	assert(tcp);
+
+	stream = &(tcp->stream);
 
 	async_stream_zero(stream);
 
@@ -664,8 +667,9 @@ static void async_tcp_close(CAsyncStream *stream)
 
 	assert(stream != NULL);
 	assert(stream->instance != NULL);
+	assert(stream->name == ASYNC_STREAM_NAME_TCP);
 
-	tcp = async_stream_private(stream, CAsyncTcp);
+	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	loop = stream->loop;
 
 	if (tcp->fd >= 0) {
@@ -717,7 +721,6 @@ static void async_tcp_close(CAsyncStream *stream)
 	async_stream_zero(stream);
 
 	ikmem_free(tcp);
-	ikmem_free(stream);
 }
 
 
@@ -726,7 +729,7 @@ static void async_tcp_close(CAsyncStream *stream)
 //---------------------------------------------------------------------
 static void async_tcp_dispatch(CAsyncStream *stream, int event, int args)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	if (stream->loop && (stream->loop->logmask & ASYNC_LOOP_LOG_TCP)) {
 		async_loop_log(stream->loop, ASYNC_LOOP_LOG_TCP,
 			"[tcp] tcp dispatch fd=%d, event=%d, args=%d", 
@@ -751,7 +754,7 @@ CAsyncStream *async_stream_tcp_assign(CAsyncLoop *loop,
 	if (fd < 0) return NULL;
 
 	stream = async_tcp_new(loop, callback);
-	tcp = async_stream_private(stream, CAsyncTcp);
+	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 
 	tcp->fd = fd;
 	stream->state = estab? ASYNC_TCP_STATE_ESTAB : ASYNC_TCP_STATE_CONNECTING;
@@ -841,7 +844,7 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 
 	stream = (CAsyncStream*)evt->user;
 	assert(stream);
-	tcp = async_stream_private(stream, CAsyncTcp);
+	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	assert(tcp);
 
 	assert(stream->name == ASYNC_STREAM_NAME_TCP);
@@ -883,7 +886,7 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 //---------------------------------------------------------------------
 long async_tcp_try_reading(CAsyncStream *stream)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	CAsyncLoop *loop = stream->loop;
 	char *buffer = loop->cache;
 	long total = 0;
@@ -937,7 +940,7 @@ long async_tcp_try_reading(CAsyncStream *stream)
 //---------------------------------------------------------------------
 long async_tcp_try_writing(CAsyncStream *stream)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	ilong total = 0;
 	while (tcp->sendbuf.size > 0) {
 		void *ptr = NULL;
@@ -971,7 +974,7 @@ long async_tcp_try_writing(CAsyncStream *stream)
 static void async_tcp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 {
 	CAsyncStream *stream = (CAsyncStream*)evt->user;
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	int error = stream->error;
 	int event = 0;
 	long total = 0;
@@ -1021,7 +1024,7 @@ static void async_tcp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 {
 	CAsyncStream *stream = (CAsyncStream*)evt->user;
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	int error = stream->error;
 	long total = 0;
 	int event = 0;
@@ -1076,7 +1079,7 @@ static void async_tcp_evt_timer(CAsyncLoop *loop, CAsyncTimer *timer)
 //---------------------------------------------------------------------
 long async_tcp_read(CAsyncStream *stream, void *ptr, long size)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	long retval = (long)ims_read(&tcp->recvbuf, ptr, size);
 	if (stream->enabled & ASYNC_EVENT_READ) {
 		if ((stream->hiwater <= 0) || 
@@ -1099,7 +1102,7 @@ long async_tcp_read(CAsyncStream *stream, void *ptr, long size)
 //---------------------------------------------------------------------
 long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	if (tcp->prewrite == NULL) {
 		ims_write(&tcp->sendbuf, ptr, size);
 	}
@@ -1136,7 +1139,7 @@ long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 //---------------------------------------------------------------------
 long async_tcp_peek(CAsyncStream *stream, void *ptr, long size)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	return (long)ims_peek(&tcp->recvbuf, ptr, size);
 }
 
@@ -1146,7 +1149,7 @@ long async_tcp_peek(CAsyncStream *stream, void *ptr, long size)
 //---------------------------------------------------------------------
 void async_tcp_enable(CAsyncStream *stream, int event)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	if (event & ASYNC_EVENT_READ) {
 		stream->enabled |= ASYNC_EVENT_READ;
 		if (!async_event_is_active(&tcp->evt_read)) {
@@ -1169,7 +1172,7 @@ void async_tcp_enable(CAsyncStream *stream, int event)
 //---------------------------------------------------------------------
 void async_tcp_disable(CAsyncStream *stream, int event)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	if (event & ASYNC_EVENT_READ) {
 		stream->enabled &= ~ASYNC_EVENT_READ;
 		if (async_event_is_active(&tcp->evt_read)) {
@@ -1190,7 +1193,7 @@ void async_tcp_disable(CAsyncStream *stream, int event)
 //---------------------------------------------------------------------
 static long async_tcp_remain(const CAsyncStream *stream)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	return (long)tcp->recvbuf.size;
 }
 
@@ -1200,7 +1203,7 @@ static long async_tcp_remain(const CAsyncStream *stream)
 //---------------------------------------------------------------------
 static long async_tcp_pending(const CAsyncStream *stream)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	return (long)tcp->sendbuf.size;
 }
 
@@ -1229,7 +1232,7 @@ static long async_tcp_option(CAsyncStream *stream, int option, long value)
 	if (stream->name != ASYNC_STREAM_NAME_TCP) {
 		return -1; // not a TCP stream
 	}
-	tcp = async_stream_private(stream, CAsyncTcp);
+	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	switch (option) {
 		case ASYNC_STREAM_OPT_TCP_GETFD:
 			return (long)tcp->fd;
@@ -1252,7 +1255,7 @@ static long async_tcp_option(CAsyncStream *stream, int option, long value)
 //---------------------------------------------------------------------
 static void async_tcp_check(CAsyncStream *stream)
 {
-	CAsyncTcp *tcp = async_stream_private(stream, CAsyncTcp);
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	if (stream->enabled & ASYNC_EVENT_READ) {
 		if (!async_event_is_active(&tcp->evt_read)) {
 			async_event_start(stream->loop, &tcp->evt_read);
@@ -1291,7 +1294,7 @@ long async_stream_tcp_move(CAsyncStream *stream, long size)
 	if (stream->name != ASYNC_STREAM_NAME_TCP) {
 		return -1; // not a TCP stream
 	}
-	tcp = async_stream_private(stream, CAsyncTcp);
+	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	ilong hr = ims_move(&tcp->sendbuf, &tcp->recvbuf, (ilong)size);
 	async_tcp_check(stream);
 	return hr;
