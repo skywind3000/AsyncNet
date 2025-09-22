@@ -526,6 +526,8 @@ int async_stream_pair_new(CAsyncLoop *loop, CAsyncStream *pair[2])
 	p2 = async_stream_upcast(s2, CAsyncPair, stream);
 	p1->partner = s2;
 	p2->partner = s1;
+	s1->state = ASYNC_STREAM_ESTAB;
+	s2->state = ASYNC_STREAM_ESTAB;
 	if (pair) {
 		pair[0] = s1;
 		pair[1] = s2;
@@ -551,11 +553,6 @@ CAsyncStream *async_stream_pair_partner(CAsyncStream *stream)
 //=====================================================================
 // CAsyncTcp
 //=====================================================================
-
-#define ASYNC_TCP_STATE_CLOSED       0
-#define ASYNC_TCP_STATE_CONNECTING   1
-#define ASYNC_TCP_STATE_ESTAB        2
-
 
 //---------------------------------------------------------------------
 // CAsyncTcp
@@ -614,7 +611,7 @@ static CAsyncStream *async_tcp_new(CAsyncLoop *loop,
 	stream->name = ASYNC_STREAM_NAME_TCP;
 	stream->instance = tcp;
 
-	stream->state = ASYNC_TCP_STATE_CLOSED;
+	stream->state = ASYNC_STREAM_CLOSED;
 	stream->hiwater = 0;
 	stream->loop = loop;
 	stream->user = NULL;
@@ -684,7 +681,7 @@ static void async_tcp_close(CAsyncStream *stream)
 
 		if (tcp->fd >= 0) iclose(tcp->fd);
 
-		stream->state = ASYNC_TCP_STATE_CLOSED;
+		stream->state = ASYNC_STREAM_CLOSED;
 		stream->error = -1;
 		stream->enabled = 0;
 		tcp->fd = 0;
@@ -757,7 +754,7 @@ CAsyncStream *async_stream_tcp_assign(CAsyncLoop *loop,
 	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 
 	tcp->fd = fd;
-	stream->state = estab? ASYNC_TCP_STATE_ESTAB : ASYNC_TCP_STATE_CONNECTING;
+	stream->state = estab? ASYNC_STREAM_ESTAB : ASYNC_STREAM_CONNECTING;
 	stream->error = -1;
 	stream->enabled = ASYNC_EVENT_WRITE;
 	
@@ -772,10 +769,10 @@ CAsyncStream *async_stream_tcp_assign(CAsyncLoop *loop,
 	ims_clear(&tcp->sendbuf);
 	ims_clear(&tcp->recvbuf);
 
-	if (stream->state == ASYNC_TCP_STATE_CONNECTING) {
+	if (stream->state == ASYNC_STREAM_CONNECTING) {
 		async_event_start(loop, &tcp->evt_connect);
 	}
-	else if (stream->state == ASYNC_TCP_STATE_ESTAB) {
+	else if (stream->state == ASYNC_STREAM_ESTAB) {
 		if (stream->enabled & ASYNC_EVENT_READ) {
 			if (!async_event_is_active(&tcp->evt_read)) {
 				async_event_start(loop, &tcp->evt_read);
@@ -852,7 +849,7 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 	hr = isocket_tcp_estab(tcp->fd);
 
 	if (hr > 0) {
-		stream->state = ASYNC_TCP_STATE_ESTAB;
+		stream->state = ASYNC_STREAM_ESTAB;
 		async_event_stop(loop, &tcp->evt_connect);
 
 		if (stream->enabled & ASYNC_EVENT_READ) {
@@ -1318,6 +1315,92 @@ int async_stream_tcp_getfd(const CAsyncStream *stream)
 }
 
 
+//---------------------------------------------------------------------
+// underlying passthrough
+//---------------------------------------------------------------------
+
+long async_stream_pass_read(CAsyncStream *stream, void *ptr, long size)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	return _async_stream_read(stream->underlying, ptr, size);
+}
+
+long async_stream_pass_write(CAsyncStream *stream, const void *ptr, long size)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	return _async_stream_write(stream->underlying, ptr, size);
+}
+
+long async_stream_pass_peek(CAsyncStream *stream, void *ptr, long size)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	return _async_stream_peek(stream->underlying, ptr, size);
+}
+
+void async_stream_pass_enable(CAsyncStream *stream, int event)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->enable) {
+		_async_stream_enable(stream->underlying, event);
+	}
+	stream->enabled = stream->underlying->enabled;
+} 
+
+void async_stream_pass_disable(CAsyncStream *stream, int event)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->disable) {
+		_async_stream_disable(stream->underlying, event);
+	}
+	stream->enabled = stream->underlying->enabled;
+}
+
+long async_stream_pass_remain(const CAsyncStream *stream)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->remain) {
+		return _async_stream_remain(stream->underlying);
+	}
+	return -1;
+}
+
+long async_stream_pass_pending(const CAsyncStream *stream)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->pending) {
+		return _async_stream_pending(stream->underlying);
+	}
+	return -1;
+}
+
+void async_stream_pass_watermark(CAsyncStream *stream, long high, long low)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->watermark) {
+		_async_stream_watermark(stream->underlying, high, low);
+	}
+}
+
+long async_stream_pass_option(CAsyncStream *stream, int option, long value)
+{
+	assert(stream != NULL);
+	assert(stream->underlying != NULL);
+	if (stream->underlying->option) {
+		return _async_stream_option(stream->underlying, option, value);
+	}
+	return -1;
+}
+
+
+
 
 //=====================================================================
 // CAsyncListener
@@ -1492,6 +1575,414 @@ void async_listener_pause(CAsyncListener *listener, int pause)
 			}
 		}
 	}
+}
+
+
+//=====================================================================
+// CAsyncSplit
+//=====================================================================
+
+// header size
+static const int async_split_head_len[15] = 
+	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0, 0 };
+
+/* header increasement */
+static const int async_split_head_inc[15] = 
+	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0, 0 };
+
+
+//---------------------------------------------------------------------
+// read size from the stream based on the header
+//---------------------------------------------------------------------
+static inline long async_split_read_size(CAsyncSplit *split)
+{
+	CAsyncStream *stream;
+	unsigned char dsize[4];
+	long len;
+	IUINT8 len8;
+	IUINT16 len16;
+	IUINT32 len32;
+	int hdrlen;
+	int hdrinc;
+	int header;
+
+	assert(split);
+	assert(split->stream);
+
+	stream = split->stream;
+
+	hdrlen = async_split_head_len[split->header];
+	hdrinc = async_split_head_inc[split->header];
+
+	if (split->header == ASYNC_SPLIT_PREMITIVE) {
+		len = (long)_async_stream_remain(stream);
+		if (len > ASYNC_LOOP_BUFFER_SIZE) 
+			return ASYNC_LOOP_BUFFER_SIZE;
+		return (long)len;
+	}
+
+	len = (unsigned short)_async_stream_peek(stream, dsize, hdrlen);
+	if (len < (long)hdrlen) return 0;
+	
+	if (split->header <= ASYNC_SPLIT_EBYTEMSB) {
+		header = (split->header < ASYNC_SPLIT_EWORDLSB)? 
+			split->header : (split->header - ASYNC_SPLIT_EWORDLSB);
+	}	else {
+		header = split->header;
+	}
+
+	switch (header) {
+	case ASYNC_SPLIT_WORDLSB: 
+		idecode16u_lsb((char*)dsize, &len16); 
+		len = (IUINT16)len16;
+		break;
+	case ASYNC_SPLIT_WORDMSB:
+		idecode16u_msb((char*)dsize, &len16); 
+		len = (IUINT16)len16;
+		break;
+	case ASYNC_SPLIT_DWORDLSB:
+		idecode32u_lsb((char*)dsize, &len32);
+		len = (long)len32;
+		break;
+	case ASYNC_SPLIT_DWORDMSB:
+		idecode32u_msb((char*)dsize, &len32);
+		len = (long)len32;
+		break;
+	case ASYNC_SPLIT_BYTELSB:
+		idecode8u((char*)dsize, &len8);
+		len = (IUINT8)len8;
+		break;
+	case ASYNC_SPLIT_BYTEMSB:
+		idecode8u((char*)dsize, &len8);
+		len = (IUINT8)len8;
+		break;
+	case ASYNC_SPLIT_DWORDMASK:
+		idecode32u_lsb((char*)dsize, &len32);
+		len = (long)(len32 & 0xffffff);
+		break;
+	case ASYNC_SPLIT_LINESPLIT:
+		idecode32u_lsb((char*)dsize, &len32);
+		len = (long)len32;
+		break;
+	}
+
+	len += (long)hdrinc;
+
+	return len;
+}
+
+
+//---------------------------------------------------------------------
+// write size
+//---------------------------------------------------------------------
+static inline int async_split_write_size(CAsyncSplit *split, long size, char *out)
+{
+	IUINT32 header, len;
+	int hdrlen;
+	int hdrinc;
+
+	assert(split);
+
+	if (split->header >= ASYNC_SPLIT_PREMITIVE) return 0;
+
+	hdrlen = async_split_head_len[split->header];
+	hdrinc = async_split_head_inc[split->header];
+
+	if (split->header != ASYNC_SPLIT_DWORDMASK) {
+		len = (IUINT32)size + hdrlen - hdrinc;
+		header = (split->header < 6)? split->header : split->header - 6;
+		switch (header) {
+		case ASYNC_SPLIT_WORDLSB:
+			iencode16u_lsb((char*)out, (IUINT16)len);
+			break;
+		case ASYNC_SPLIT_WORDMSB:
+			iencode16u_msb((char*)out, (IUINT16)len);
+			break;
+		case ASYNC_SPLIT_DWORDLSB:
+			iencode32u_lsb((char*)out, (IUINT32)len);
+			break;
+		case ASYNC_SPLIT_DWORDMSB:
+			iencode32u_msb((char*)out, (IUINT32)len);
+			break;
+		case ASYNC_SPLIT_BYTELSB:
+			iencode8u((char*)out, (IUINT8)len);
+			break;
+		case ASYNC_SPLIT_BYTEMSB:
+			iencode8u((char*)out, (IUINT8)len);
+			break;
+		}
+	}	else {
+		len = (IUINT32)size + hdrlen - hdrinc;
+		len = (len & 0xffffff);
+		iencode32u_lsb((char*)out, (IUINT32)len);
+	}
+
+	return hdrlen;
+}
+
+
+//---------------------------------------------------------------------
+// try reading data from the underlying stream
+//---------------------------------------------------------------------
+static long async_split_try_reading(CAsyncSplit *split, char *data, long maxsize)
+{
+	long size, hr;
+	char header[8];
+	int hdrlen = async_split_head_len[split->header];
+	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
+		size = async_split_read_size(split);
+		if (size <= 0) return -1;
+		if (_async_stream_remain(split->stream) < size) return -1;
+		hr = _async_stream_read(split->stream, header, hdrlen);
+		assert(hr == hdrlen);
+		size -= hdrlen;
+		if (size > maxsize) {
+			split->error = 1;
+			if (split->loop->logmask & ASYNC_LOOP_LOG_SPLIT) {
+				async_loop_log(split->loop, ASYNC_LOOP_LOG_SPLIT,
+					"[split] error: packet size too large %ld", size);
+			}
+			return -1;
+		}
+		hr = _async_stream_read(split->stream, data, size);
+		assert(hr == size);
+		return size;
+	}
+	else if (split->header != ASYNC_SPLIT_LINESPLIT) {
+		size = (long)_async_stream_remain(split->stream);
+		if (size <= 0) return -1;
+		if (size > maxsize) size = maxsize;
+		if (size > 16384) size = 16384;
+		hr = _async_stream_read(split->stream, data, size);
+		assert(hr == size);
+		return size;
+	}
+	else {
+		char *cache = split->loop->cache;
+		size = 0;
+		while (1) {
+			long remain = _async_stream_remain(split->stream);
+			if (remain <= 0) break;
+			if (remain > ASYNC_LOOP_BUFFER_SIZE) remain = ASYNC_LOOP_BUFFER_SIZE;
+			hr = _async_stream_read(split->stream, cache, remain);
+			assert(hr == remain);
+			ims_write(&split->linesplit, cache, hr);
+		}
+		while (1) {
+			void *buffer;
+			char *ptr;
+			long canread = (long)ims_flat(&split->linesplit, &buffer);
+			long i, pos = -1;
+			if (canread <= 0) break;
+			ptr = (char*)buffer;
+			for (i = 0; i < canread; i++) {
+				if (ptr[i] == '\n') {
+					pos = i;
+					break;
+				}
+			}
+			if (pos < 0) {
+				ims_write(&split->linecache, ptr, canread);
+				ims_drop(&split->linesplit, canread);
+			}
+			else {
+				ims_write(&split->linecache, ptr, pos + 1);
+				ims_drop(&split->linesplit, pos + 1);
+				size = (long)ims_dsize(&split->linecache);
+				if (size > maxsize) {
+					split->error = 1;
+					if (split->loop->logmask & ASYNC_LOOP_LOG_SPLIT) {
+						async_loop_log(split->loop, ASYNC_LOOP_LOG_SPLIT,
+							"[split] error: line too long %ld", size);
+					}
+					return -1;
+				}
+				hr = (long)ims_read(&split->linecache, data, size);
+				assert(hr == size);
+				assert(ims_dsize(&split->linecache) == 0);
+				return hr;
+			}
+		}
+	}
+	return -1;
+}
+
+
+//---------------------------------------------------------------------
+// callback for stream
+//---------------------------------------------------------------------
+static void async_split_callback(CAsyncStream *stream, int event, int args)
+{
+	CAsyncSplit *split = (CAsyncSplit*)stream->user;
+	if (split->callback) {
+		split->busy = 1;
+		split->callback(split, event);
+		split->busy = 0;
+	}
+	if (event & ASYNC_STREAM_EVT_READING) {
+		char *data = split->loop->cache;
+		while (split->releasing == 0 && split->error == 0) {
+			long size = async_split_try_reading(split, data, ASYNC_LOOP_BUFFER_SIZE);
+			if (size < 0) break;
+			split->busy = 1;
+			if (split->receiver) {
+				split->receiver(split, data, size);
+			}
+			split->busy = 0;
+			if (((split->stream->enabled) & ASYNC_EVENT_READ) == 0) {
+				break;
+			}
+		}
+	}
+	if (split->releasing) {
+		async_split_delete(split);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// create a new split, the new split will take over the underlying 
+// stream, and reset its user & callback field. If borrow is set to 0, 
+// the underlying stream will be closed in async_split_delete().
+//---------------------------------------------------------------------
+CAsyncSplit *async_split_new(CAsyncStream *stream, int header, int borrow,
+	void (*callback)(CAsyncSplit *split, int event),
+	void (*receiver)(CAsyncSplit *split, void *data, long size))
+{
+	CAsyncSplit *split;
+
+	assert(stream);
+	assert(stream->loop);
+
+	split = (CAsyncSplit*)ikmem_malloc(sizeof(CAsyncSplit));
+	if (split == NULL) return NULL;
+
+	memset(split, 0, sizeof(CAsyncSplit));
+
+	split->stream = stream;
+	split->loop = stream->loop;
+	split->header = header;
+	split->borrow = borrow;
+	split->busy = 0;
+	split->releasing = 0;
+	split->error = 0;
+	split->user = NULL;
+	split->callback = callback;
+	split->receiver = receiver;
+
+	ims_init(&split->linesplit, &(split->loop->memnode), 0, 0);
+	ims_init(&split->linecache, &(split->loop->memnode), 0, 0);
+
+	stream->user = split;
+	stream->callback = async_split_callback;
+
+	return split;
+}
+
+
+//---------------------------------------------------------------------
+// delete CAsyncSplit
+//---------------------------------------------------------------------
+void async_split_delete(CAsyncSplit *split)
+{
+	if (split->busy) {
+		split->releasing = 1;
+		return;
+	}
+	if (split->borrow == 0) {
+		if (split->stream) {
+			async_stream_close(split->stream);
+			split->stream = NULL;
+		}
+	}
+	else {
+		if (split->stream) {
+			split->stream->user = NULL;
+			split->stream->callback = NULL;
+			split->stream = NULL;
+		}
+	}
+	split->stream = NULL;
+	split->loop = NULL;
+	split->borrow = 0;
+	split->callback = NULL;
+	split->receiver = NULL;
+	split->user = NULL;
+	split->releasing = 0;
+	ims_destroy(&split->linesplit);
+	ims_destroy(&split->linecache);
+	ikmem_free(split);
+}
+
+
+//---------------------------------------------------------------------
+// write vector
+//---------------------------------------------------------------------
+void async_split_write_vector(CAsyncSplit *split,
+		const void * const vecptr[], const long veclen[], int count)
+{
+	int i;
+	assert(split);
+	assert(split->stream);
+	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
+		char header[8];
+		long totlen = 0;
+		int hdrlen;
+		for (i = 0; i < count; i++) {
+			totlen += veclen[i];
+		}
+		hdrlen = async_split_write_size(split, totlen, header);
+		_async_stream_write(split->stream, header, hdrlen);
+		for (i = 0; i < count; i++) {
+			_async_stream_write(split->stream, vecptr[i], veclen[i]);
+		}
+	}
+	else {
+		for (i = 0; i < count; i++) {
+			_async_stream_write(split->stream, vecptr[i], veclen[i]);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write message
+//---------------------------------------------------------------------
+void async_split_write(CAsyncSplit *split, const void *ptr, long size)
+{
+	assert(split);
+	assert(split->stream);
+	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
+		char header[8];
+		int hdrlen;
+		hdrlen = async_split_write_size(split, size, header);
+		_async_stream_write(split->stream, header, hdrlen);
+		_async_stream_write(split->stream, ptr, size);
+	}
+	else {
+		_async_stream_write(split->stream, ptr, size);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// enable ASYNC_EVENT_READ/WRITE of the underlying stream
+// note: ASYNC_EVENT_READ is not enabled by default
+//---------------------------------------------------------------------
+void async_split_enable(CAsyncSplit *split, int event)
+{
+	assert(split);
+	assert(split->stream);
+	async_stream_enable(split->stream, event);
+}
+
+
+//---------------------------------------------------------------------
+// disable ASYNC_EVENT_READ/WRITE of the underlying stream
+//---------------------------------------------------------------------
+void async_split_disable(CAsyncSplit *split, int event)
+{
+	async_stream_disable(split->stream, event);
 }
 
 

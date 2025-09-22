@@ -480,7 +480,6 @@ static int async_loop_notify_reset(CAsyncLoop *loop)
 		}
 		loop->xfd[ASYNC_LOOP_PIPE_FLAG] = 0;
 	}
-	loop->xfd[ASYNC_LOOP_PIPE_FLAG] = 0;
 	IMUTEX_UNLOCK(&loop->lock_xfd);
 	return 0;
 }

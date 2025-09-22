@@ -24,19 +24,24 @@ extern "C" {
 //---------------------------------------------------------------------
 struct CAsyncStream;
 struct CAsyncListener;
+struct CAsyncSplit;
 struct CAsyncUdp;
 struct CAsyncMessage;
 
 typedef struct CAsyncStream CAsyncStream;
 typedef struct CAsyncListener CAsyncListener;
+typedef struct CAsyncSplit CAsyncSplit;
 typedef struct CAsyncUdp CAsyncUdp;
 typedef struct CAsyncMessage CAsyncMessage;
 
 #define ASYNC_LOOP_LOG_STREAM      ASYNC_LOOP_LOG_CUSTOMIZE(0)
 #define ASYNC_LOOP_LOG_TCP         ASYNC_LOOP_LOG_CUSTOMIZE(1)
 #define ASYNC_LOOP_LOG_LISTENER    ASYNC_LOOP_LOG_CUSTOMIZE(2)
-#define ASYNC_LOOP_LOG_UDP         ASYNC_LOOP_LOG_CUSTOMIZE(3)
-#define ASYNC_LOOP_LOG_MSG         ASYNC_LOOP_LOG_CUSTOMIZE(4)
+#define ASYNC_LOOP_LOG_SPLIT       ASYNC_LOOP_LOG_CUSTOMIZE(3)
+#define ASYNC_LOOP_LOG_UDP         ASYNC_LOOP_LOG_CUSTOMIZE(4)
+#define ASYNC_LOOP_LOG_MSG         ASYNC_LOOP_LOG_CUSTOMIZE(5)
+
+#define ASYNC_LOOP_LOG_NEXT(n)     ASYNC_LOOP_LOG_CUSTOMIZE((n) + 6)
 
 
 //---------------------------------------------------------------------
@@ -49,7 +54,7 @@ struct CAsyncStream {
 	int underown;               // close underlying stream when closed
 	long hiwater;               // high water mark, 0 means no limit
 	long lowater;               // low water mark, 0 means no limit, optional
-	int state;                  // state, 0: closed, 1: open, 2: connecting
+	int state;                  // state, 0: closed, 1: connecting, 2: estab
 	int direction;              // 1: input, 2: output, 3: bidirectional
 	int eof;                    // 1: input, 2: output, 3: both
 	int error;                  // error code, 0 means no error
@@ -69,10 +74,18 @@ struct CAsyncStream {
 	long (*option)(CAsyncStream *self, int option, long value);
 };
 
+
+// for stream->direction
 #define ASYNC_STREAM_INPUT   1
 #define ASYNC_STREAM_OUTPUT  2
 #define ASYNC_STREAM_BOTH    3
 
+// for stream->state
+#define ASYNC_STREAM_CLOSED      0
+#define ASYNC_STREAM_CONNECTING  1
+#define ASYNC_STREAM_ESTAB       2
+
+// fast inline functions
 #define _async_stream_close(s)            (s)->close(s)
 #define _async_stream_read(s, p, n)       (s)->read(s, p, n)
 #define _async_stream_write(s, p, n)      (s)->write(s, p, n)
@@ -183,6 +196,22 @@ long async_stream_tcp_move(CAsyncStream *stream, long size);
 int async_stream_tcp_getfd(const CAsyncStream *stream);
 
 
+//---------------------------------------------------------------------
+// Underlying Passthrough
+//---------------------------------------------------------------------
+
+long async_stream_pass_read(CAsyncStream *stream, void *ptr, long size);
+long async_stream_pass_write(CAsyncStream *stream, const void *ptr, long size);
+long async_stream_pass_peek(CAsyncStream *stream, void *ptr, long size);
+void async_stream_pass_enable(CAsyncStream *stream, int event);
+void async_stream_pass_disable(CAsyncStream *stream, int event);
+long async_stream_pass_remain(const CAsyncStream *stream);
+long async_stream_pass_pending(const CAsyncStream *stream);
+void async_stream_pass_watermark(CAsyncStream *stream, long high, long low);
+long async_stream_pass_option(CAsyncStream *stream, int option, long value);
+
+
+
 //=====================================================================
 // CAsyncListener
 //=====================================================================
@@ -223,6 +252,71 @@ void async_listener_stop(CAsyncListener *listener);
 
 // pause/resume accepting new connections when argument pause is 1/0
 void async_listener_pause(CAsyncListener *listener, int pause);
+
+
+//---------------------------------------------------------------------
+// CAsyncSplit
+//---------------------------------------------------------------------
+struct CAsyncSplit {
+	CAsyncLoop *loop;
+	CAsyncStream *stream;
+	int borrow;
+	int header;
+	int busy;
+	int releasing;
+	int error;
+	void *user;
+	struct IMSTREAM linesplit;
+	struct IMSTREAM linecache;
+	void (*callback)(CAsyncSplit *split, int event);
+	void (*receiver)(CAsyncSplit *split, void *data, long size);
+};
+
+
+#define ASYNC_SPLIT_WORDLSB       0   // header: 2 bytes LSB
+#define ASYNC_SPLIT_WORDMSB       1   // header: 2 bytes MSB
+#define ASYNC_SPLIT_DWORDLSB      2   // header: 4 bytes LSB
+#define ASYNC_SPLIT_DWORDMSB      3   // header: 4 bytes MSB
+#define ASYNC_SPLIT_BYTELSB       4   // header: 1 byte LSB
+#define ASYNC_SPLIT_BYTEMSB       5   // header: 1 byte MSB
+#define ASYNC_SPLIT_EWORDLSB      6   // header: 2 bytes LSB (exclude self)
+#define ASYNC_SPLIT_EWORDMSB      7   // header: 2 bytes MSB (exclude self)
+#define ASYNC_SPLIT_EDWORDLSB     8   // header: 4 bytes LSB (exclude self)
+#define ASYNC_SPLIT_EDWORDMSB     9   // header: 4 bytes MSB (exclude self)
+#define ASYNC_SPLIT_EBYTELSB      10  // header: 1 byte LSB (exclude self)
+#define ASYNC_SPLIT_EBYTEMSB      11  // header: 1 byte MSB (exclude self)
+#define ASYNC_SPLIT_DWORDMASK     12  // header: 4 bytes LSB (self and mask)
+#define ASYNC_SPLIT_LINESPLIT     13  // header: '\n' split
+#define ASYNC_SPLIT_PREMITIVE     14  // header: raw data in premitive mode
+
+
+//---------------------------------------------------------------------
+// CAsyncSplit management
+//---------------------------------------------------------------------
+
+// create a new split, the new split will take over the underlying 
+// stream, and reset its user & callback field. If borrow is set to 0, 
+// the underlying stream will be closed in async_split_delete().
+CAsyncSplit *async_split_new(CAsyncStream *stream, int header, int borrow,
+	void (*callback)(CAsyncSplit *split, int event),
+	void (*receiver)(CAsyncSplit *split, void *data, long size));
+
+// delete CAsyncSplit
+void async_split_delete(CAsyncSplit *split);
+
+// write message
+void async_split_write(CAsyncSplit *split, const void *ptr, long size);
+
+// write vector
+void async_split_write_vector(CAsyncSplit *split,
+		const void * const vecptr[], const long veclen[], int count);
+
+// enable ASYNC_EVENT_READ/WRITE of the underlying stream
+// note: ASYNC_EVENT_READ is not enabled by default
+void async_split_enable(CAsyncSplit *split, int event);
+
+// disable ASYNC_EVENT_READ/WRITE of the underlying stream
+void async_split_disable(CAsyncSplit *split, int event);
 
 
 //---------------------------------------------------------------------
