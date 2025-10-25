@@ -152,7 +152,7 @@ extern "C" {
 
 
 /*====================================================================*/
-/* IALLOCATOR                                                         */
+/* IALLOCATOR: custom memory allocator interface                      */
 /*====================================================================*/
 struct IALLOCATOR
 {
@@ -162,42 +162,68 @@ struct IALLOCATOR
     void *udata;
 };
 
+/* allocate memory with a custom allocator or system allocator */
 void* internal_malloc(struct IALLOCATOR *allocator, size_t size);
+
+/* free memory with a custom allocator or system allocator */
 void internal_free(struct IALLOCATOR *allocator, void *ptr);
+
+/* reallocate memory with a custom allocator or system allocator */
 void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size);
 
 
 /*====================================================================*/
-/* IKMEM INTERFACE                                                    */
+/* IKMEM INTERFACE: standard allocator                                */
 /*====================================================================*/
 extern struct IALLOCATOR *ikmem_allocator;
 
+/* standard memory allocation using the global ikmem_allocator */
 void* ikmem_malloc(size_t size);
+
+/* standard memory realloc */
 void* ikmem_realloc(void *ptr, size_t size);
+
+/* standard memory free */
 void ikmem_free(void *ptr);
 
 
 /*====================================================================*/
-/* IVECTOR                                                            */
+/* IVECTOR: dynamic length byte buffer, like std::vector<uint8_t>     */
 /*====================================================================*/
 struct IVECTOR
 {
-	unsigned char *data;       
-	size_t size;      
-	size_t capacity;       
-	struct IALLOCATOR *allocator;
+	unsigned char *data;             /* buffer ptr */
+	size_t capacity;                 /* buffer capacity */
+	size_t size;                     /* data size */
+	struct IALLOCATOR *allocator;    /* allocator */
 };
 
+/* initialize a vector, allocator can be NULL for the global allocator */
 void iv_init(struct IVECTOR *v, struct IALLOCATOR *allocator);
+
+/* destroy a vector */
 void iv_destroy(struct IVECTOR *v);
+
+/* resize a vector */
 int iv_resize(struct IVECTOR *v, size_t newsize);
+
+/* change capacity without affecting size */
 int iv_reserve(struct IVECTOR *v, size_t newsize);
 
+/* remove bytes from the end of the buffer */
 size_t iv_pop(struct IVECTOR *v, void *data, size_t size);
+
+/* append bytes to the end of the buffer */
 int iv_push(struct IVECTOR *v, const void *data, size_t size);
+
+/* insert bytes at the given position */
 int iv_insert(struct IVECTOR *v, size_t pos, const void *data, size_t size);
+
+/* remove bytes at the given position */
 int iv_erase(struct IVECTOR *v, size_t pos, size_t size);
 
+
+/* fast access */
 #define iv_size(v) ((v)->size)
 #define iv_data(v) ((v)->data)
 
@@ -223,7 +249,7 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size);
 
 
 /*====================================================================*/
-/* IMEMNODE                                                           */
+/* IMEMNODE - array index allocator (aka. node manager)               */
 /*====================================================================*/
 struct IMEMNODE
 {
@@ -259,14 +285,31 @@ struct IMEMNODE
 };
 
 
+/* initialize a memory node manager */
 void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac);
+
+/* destroy memory a node manager */
 void imnode_destroy(struct IMEMNODE *mnode);
+
+/* allocate a new node index from the open list */
 ilong imnode_new(struct IMEMNODE *mnode);
+
+/* free a node and put it back to the open list */
 void imnode_del(struct IMEMNODE *mnode, ilong index);
+
+/* get the head of the close list */
 ilong imnode_head(const struct IMEMNODE *mnode);
+
+/* get the next/prev node index in the close list */
 ilong imnode_next(const struct IMEMNODE *mnode, ilong index);
+
+/* get the next/prev node index in the close list */
 ilong imnode_prev(const struct IMEMNODE *mnode, ilong index);
+
+/* get data pointer of the node */
 void*imnode_data(struct IMEMNODE *mnode, ilong index);
+
+/* get data pointer of the node (const version) */
 const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index);
 
 #define IMNODE_NODE(mnodeptr, i) ((mnodeptr)->mnode[i])
@@ -277,7 +320,7 @@ const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index);
 
 
 /*====================================================================*/
-/* LIST DEFINITION                                                    */
+/* LIST DEFINITION - Linux kernel style intrusive doubly-linked list  */
 /*====================================================================*/
 #ifndef __ILIST_DEF__
 #define __ILIST_DEF__

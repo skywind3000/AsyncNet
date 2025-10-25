@@ -33,13 +33,14 @@
 
 
 /*====================================================================*/
-/* IALLOCATOR                                                         */
+/* IALLOCATOR: custom memory allocator interface                      */
 /*====================================================================*/
 void *(*__ihook_malloc)(size_t size) = NULL;
 void (*__ihook_free)(void *) = NULL;
 void *(*__ihook_realloc)(void *, size_t size) = NULL;
 
 
+/* allocate memory with a custom allocator or system allocator */
 void* internal_malloc(struct IALLOCATOR *allocator, size_t size)
 {
 	if (allocator != NULL) {
@@ -51,6 +52,7 @@ void* internal_malloc(struct IALLOCATOR *allocator, size_t size)
 	return malloc(size);
 }
 
+/* free memory with a custom allocator or system allocator */
 void internal_free(struct IALLOCATOR *allocator, void *ptr)
 {
 	if (allocator != NULL) {
@@ -64,6 +66,7 @@ void internal_free(struct IALLOCATOR *allocator, void *ptr)
 	free(ptr);
 }
 
+/* reallocate memory with a custom allocator or system allocator */
 void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size)
 {
 	if (allocator != NULL) {
@@ -77,7 +80,7 @@ void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size)
 
 
 /*====================================================================*/
-/* IKMEM INTERFACE                                                    */
+/* IKMEM INTERFACE: standard allocator                                */
 /*====================================================================*/
 #ifndef IKMEM_ALLOCATOR
 #define IKMEM_ALLOCATOR NULL
@@ -86,16 +89,19 @@ void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size)
 struct IALLOCATOR *ikmem_allocator = IKMEM_ALLOCATOR;
 
 
+/* standard memory allocation using the global ikmem_allocator */
 void* ikmem_malloc(size_t size)
 {
 	return internal_malloc(ikmem_allocator, size);
 }
 
+/* standard memory realloc */
 void* ikmem_realloc(void *ptr, size_t size)
 {
 	return internal_realloc(ikmem_allocator, ptr, size);
 }
 
+/* standard memory free */
 void ikmem_free(void *ptr)
 {
 	internal_free(ikmem_allocator, ptr);
@@ -103,8 +109,10 @@ void ikmem_free(void *ptr)
 
 
 /*====================================================================*/
-/* IVECTOR                                                            */
+/* IVECTOR: dynamic length byte buffer, like std::vector<uint8_t>     */
 /*====================================================================*/
+
+/* initialize a vector, allocator can be NULL for the global allocator */
 void iv_init(struct IVECTOR *v, struct IALLOCATOR *allocator)
 {
 	if (v == 0) return;
@@ -114,6 +122,7 @@ void iv_init(struct IVECTOR *v, struct IALLOCATOR *allocator)
 	v->allocator = allocator;
 }
 
+/* destroy a vector */
 void iv_destroy(struct IVECTOR *v)
 {
 	if (v == NULL) return;
@@ -125,6 +134,7 @@ void iv_destroy(struct IVECTOR *v)
 	v->capacity = 0;
 }
 
+/* set capacity of vector */
 int iv_capacity(struct IVECTOR *v, size_t newcap)
 {
 	if (newcap == v->capacity)
@@ -159,6 +169,7 @@ int iv_capacity(struct IVECTOR *v, size_t newcap)
 	return 0;
 }
 
+/* resize a vector */
 int iv_resize(struct IVECTOR *v, size_t newsize)
 {
 	if (newsize > v->capacity) {
@@ -177,11 +188,13 @@ int iv_resize(struct IVECTOR *v, size_t newsize)
 	return 0;
 }
 
+/* change capacity without affecting size */
 int iv_reserve(struct IVECTOR *v, size_t size)
 {
 	return iv_capacity(v, (size >= v->size)? size : v->size);
 }
 
+/* append bytes to the end of the buffer */
 int iv_push(struct IVECTOR *v, const void *data, size_t size)
 {
 	size_t current = v->size;
@@ -192,6 +205,7 @@ int iv_push(struct IVECTOR *v, const void *data, size_t size)
 	return 0;
 }
 
+/* remove bytes from the end of the buffer */
 size_t iv_pop(struct IVECTOR *v, void *data, size_t size)
 {
 	size_t current = v->size;
@@ -202,6 +216,7 @@ size_t iv_pop(struct IVECTOR *v, void *data, size_t size)
 	return size;
 }
 
+/* insert bytes at the given position */
 int iv_insert(struct IVECTOR *v, size_t pos, const void *data, size_t size)
 {
 	size_t current = v->size;
@@ -217,6 +232,7 @@ int iv_insert(struct IVECTOR *v, size_t pos, const void *data, size_t size)
 	return 0;
 }
 
+/* remove bytes in the given position */
 int iv_erase(struct IVECTOR *v, size_t pos, size_t size)
 {
 	size_t current = v->size;
@@ -231,8 +247,10 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size)
 
 
 /*====================================================================*/
-/* IMEMNODE                                                           */
+/* IMEMNODE - array index allocator (aka. node manager)               */
 /*====================================================================*/
+
+/* initialize a memory node manager */
 void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 {
 	struct IMEMNODE *mnode = mn;
@@ -262,6 +280,7 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 	mnode->extra = NULL;
 }
 
+/* destroy memory a node manager */
 void imnode_destroy(struct IMEMNODE *mnode)
 {
     ilong i;
@@ -300,6 +319,7 @@ void imnode_destroy(struct IMEMNODE *mnode)
 	mnode->total_mem = 0;
 }
 
+/* resize node arrays */
 static int imnode_node_resize(struct IMEMNODE *mnode, ilong size)
 {
 	size_t size1, size2;
@@ -323,6 +343,7 @@ static int imnode_node_resize(struct IMEMNODE *mnode, ilong size)
 	return 0;
 }
 
+/* add a new memory page */
 static int imnode_mem_add(struct IMEMNODE*mnode, ilong node_count, void**mem)
 {
 	size_t newsize;
@@ -348,7 +369,7 @@ static int imnode_mem_add(struct IMEMNODE*mnode, ilong node_count, void**mem)
 	return 0;
 }
 
-
+/* grow node arrays and add new nodes to the open list */
 static long imnode_grow(struct IMEMNODE *mnode)
 {
 	ilong size_start = mnode->node_max;
@@ -392,6 +413,7 @@ static long imnode_grow(struct IMEMNODE *mnode)
 }
 
 
+/* allocate a new node index from the open list */
 ilong imnode_new(struct IMEMNODE *mnode)
 {
 	ilong node, next;
@@ -421,6 +443,7 @@ ilong imnode_new(struct IMEMNODE *mnode)
 	return node;
 }
 
+/* free a node and put it back to the open list */
 void imnode_del(struct IMEMNODE *mnode, ilong index)
 {
 	ilong prev, next;
@@ -447,26 +470,31 @@ void imnode_del(struct IMEMNODE *mnode, ilong index)
 	mnode->node_used--;
 }
 
+/* get the head of the close list */
 ilong imnode_head(const struct IMEMNODE *mnode)
 {
 	return (mnode)? mnode->list_close : -1;
 }
 
+/* get the next/prev node index in the close list */
 ilong imnode_next(const struct IMEMNODE *mnode, ilong index)
 {
 	return (mnode)? IMNODE_NEXT(mnode, index) : -1;
 }
 
+/* get the next/prev node index in the close list */
 ilong imnode_prev(const struct IMEMNODE *mnode, ilong index)
 {
 	return (mnode)? IMNODE_PREV(mnode, index) : -1;
 }
 
+/* get data pointer of the node */
 void *imnode_data(struct IMEMNODE *mnode, ilong index)
 {
 	return (char*)IMNODE_DATA(mnode, index);
 }
 
+/* get data pointer of the node (const version) */
 const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index)
 {
 	return (const char*)IMNODE_DATA(mnode, index);
@@ -474,11 +502,11 @@ const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index)
 
 
 
-
 /*====================================================================*/
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
 /*====================================================================*/
 
+/* create and initialize a vector */
 ib_vector *iv_create(void)
 {
 	ib_vector *vec;
@@ -488,6 +516,7 @@ ib_vector *iv_create(void)
 	return vec;
 }
 
+/* destroy and free a vector */
 void iv_delete(ib_vector *vec)
 {
 	assert(vec);
@@ -495,6 +524,7 @@ void iv_delete(ib_vector *vec)
 	ikmem_free(vec);
 }
 
+/* create and initialize a memory node manager */
 ib_memnode *imnode_create(ilong nodesize, int grow_limit)
 {
 	ib_memnode *mnode;
@@ -505,6 +535,7 @@ ib_memnode *imnode_create(ilong nodesize, int grow_limit)
 	return mnode;
 }
 
+/* destroy and free a memory node manager */
 void imnode_delete(ib_memnode *mnode)
 {
 	assert(mnode);
