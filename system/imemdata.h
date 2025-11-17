@@ -598,6 +598,300 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 
 
 
+/*====================================================================*/
+/* Cross-Platform Data Encode / Decode                                */
+/*====================================================================*/
+
+#ifndef _MSC_VER
+	#define IUINT64_CONST(__immediate) (__immediate ## ULL)
+#else
+	#define IUINT64_CONST(__immediate) (__immediate ## UI64)
+#endif
+
+#define IUINT64_MASK(__bits) ((((IUINT64)1) << (__bits)) - 1)
+
+/* encode auto size unsigned integer */
+static inline char *iencodeu(char *ptr, IUINT64 v)
+{
+	unsigned char *p = (unsigned char*)ptr;
+	p[0] = (unsigned char)(v & 0x7f);
+	if (v <= IUINT64_MASK(7))
+		return ptr + 1;
+	p[0] |= 0x80;
+	p[1] = (unsigned char)((v >> 7) & 0x7f);
+	if (v <= IUINT64_MASK(14))
+		return ptr + 2;
+	p[1] |= 0x80;
+	p[2] = (unsigned char)((v >> 14) & 0x7f);
+	if (v <= IUINT64_MASK(21)) 
+		return ptr + 3;
+	p[2] |= 0x80;
+	p[3] = (unsigned char)((v >> 21) & 0x7f);
+	if (v <= IUINT64_MASK(28)) 
+		return ptr + 4;
+	p[3] |= 0x80;
+	p[4] = (unsigned char)((v >> 28) & 0x7f);
+	if (v <= IUINT64_MASK(35))
+		return ptr + 5;
+	p[4] |= 0x80;
+	p[5] = (unsigned char)((v >> 35) & 0x7f);
+	if (v <= IUINT64_MASK(42))
+		return ptr + 6;
+	p[5] |= 0x80;
+	p[6] = (unsigned char)((v >> 42) & 0x7f);
+	if (v <= IUINT64_MASK(49))
+		return ptr + 7;
+	p[6] |= 0x80;
+	p[7] = (unsigned char)((v >> 49) & 0x7f);
+	if (v <= IUINT64_MASK(56))
+		return ptr + 8;
+	p[7] |= 0x80;
+	p[8] = (unsigned char)((v >> 56) & 0x7f);
+	if (v <= IUINT64_MASK(63))
+		return ptr + 9;
+	p[8] |= 0x80;
+	p[9] = (unsigned char)((v >> 63) & 0x7f);
+	return ptr + 10;
+}
+
+
+/* decode auto size unsigned integer */
+static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
+	const unsigned char *p = (const unsigned char*)ptr;
+	IUINT64 x = 0;
+
+	x |= ((IUINT32)(p[0] & 0x7f));
+	if ((p[0] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 1;
+	}
+
+	x |= (IUINT64)(((IUINT32)(p[1] & 0x7f)) << 7);
+	if ((p[1] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 2;
+	}
+
+	x |= ((IUINT32)(p[2] & 0x7f)) << 14;
+	if ((p[2] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 3;
+	}
+
+	x |= ((IUINT32)(p[3] & 0x7f)) << 21;
+	if ((p[3] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 4;
+	}
+
+	x |= ((IUINT64)(p[4] & 0x7f)) << 28;
+	if ((p[4] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 5;
+	}
+
+	x |= ((IUINT64)(p[5] & 0x7f)) << 35;
+	if ((p[5] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 6;
+	}
+
+	x |= ((IUINT64)(p[6] & 0x7f)) << 42;
+	if ((p[6] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 7;
+	}
+
+	x |= ((IUINT64)(p[7] & 0x7f)) << 49;
+	if ((p[7] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 8;
+	}
+
+	x |= ((IUINT64)(p[8] & 0x7f)) << 56;
+	if ((p[8] & 0x80) == 0) {
+		v[0] = x;
+		return ptr + 9;
+	}
+
+	x |= ((IUINT64)(p[9] & 0x7f)) << 63;
+	v[0] = x;
+
+	return ptr + 10;
+}
+
+/* encode auto size integer */
+static inline char *iencodei(char *p, IINT64 value) {
+	IUINT64 x, y;
+	y = *(IUINT64*)&value;
+	if (y & ((IUINT64)1 << 63)) x = ((~y) << 1) | 1;
+	else x = y << 1;
+	return iencodeu(p, x);
+}
+
+/* decode auto size integer */
+static inline const char *idecodei(const char *p, IINT64 *value) {
+	IUINT64 x, y;
+	p = idecodeu(p, &x);
+	if ((x & 1) == 0) y = x >> 1;
+	else y = ~(x >> 1);
+	*value = *(IINT64*)&y;
+	return p;
+}
+
+/* swap byte order of int16 */
+static inline unsigned short iexbyte16(unsigned short word) {
+	return ((word & 0xff) << 8) | ((word >> 8) & 0xff);
+}
+
+/* swap byte order of int32 */
+static inline IUINT32 iexbyte32(IUINT32 dword) {
+	IUINT32 b1 = (dword >>  0) & 0xff;
+	IUINT32 b2 = (dword >>  8) & 0xff;
+	IUINT32 b3 = (dword >> 16) & 0xff;
+	IUINT32 b4 = (dword >> 24) & 0xff;
+	return (b1 << 24) | (b2 << 16) | (b3 << 8) | (b4);
+}
+
+
+/**********************************************************************
+ * 32 bits unsigned integer operation
+ **********************************************************************/
+static inline IUINT32 _imin(IUINT32 a, IUINT32 b) {
+  return a <= b ? a : b;
+}
+
+static inline IUINT32 _imax(IUINT32 a, IUINT32 b) {
+  return a >= b ? a : b;
+}
+
+static inline IUINT32 _ibound(IUINT32 lower, IUINT32 middle, IUINT32 upper) {
+  return _imin(_imax(lower, middle), upper);
+}
+
+static inline long itimediff(IUINT32 later, IUINT32 earlier) {
+	return ((IINT32)(later - earlier));
+}
+
+
+/**********************************************************************
+ * 32 bits incremental hash functions
+ **********************************************************************/
+
+/* 32 bits fnv1a hash update */
+static inline IUINT32 inc_hash_fnv1a(IUINT32 h, IUINT32 x) {
+	const IUINT32 FNV1A_32_PRIME = 0x01000193;
+	h = (h ^ x) * FNV1A_32_PRIME;
+	return h;
+}
+
+/* 32 bits boost hash update */
+static inline IUINT32 inc_hash_boost(IUINT32 h, IUINT32 x) {
+	h ^= x + 0x9e3779b9 + (h << 6) + (h >> 2);
+	return h;
+}
+
+/* 32 bits xxhash update */
+static inline IUINT32 inc_hash_xxhash(IUINT32 h, IUINT32 x) {
+	const IUINT32 PRIME32_2 = 0x85ebca77;
+	const IUINT32 PRIME32_3 = 0xc2b2ae3d;
+	h = h + x * PRIME32_2;
+	h = ((h << 13) | (h >> 19)) * PRIME32_3;
+	return h;
+}
+
+/* 32 bits murmur hash update */
+static inline IUINT32 inc_hash_murmur(IUINT32 h, IUINT32 x) {
+	x = x * 0xcc9e2d51;
+	x = ((x << 15) | (x >> 17));
+	h = (h * 0x1b873593) ^ x;
+	h = (h << 13) | (h >> 19);
+	h = h * 5 + 0xe6546b64;
+	return h;
+}
+
+/* 32 bits crc32 hash update */
+extern IUINT32 inc_hash_crc32_table[256];
+
+/* CRC32 hash table initialize */
+void inc_hash_crc32_initialize(void);
+
+/* CRC32 hash update for 8 bits input */
+static inline IUINT32 inc_hash_crc32(IUINT32 crc, IUINT8 b) {
+	return (crc >> 8) ^ inc_hash_crc32_table[(crc & 0xff) ^ b];
+}
+
+
+/**********************************************************************
+ * misc operation
+ **********************************************************************/
+static inline int _ibit_chk(const void *data, ilong index)
+{
+	unsigned char *ptr = (unsigned char*)data + (index >> 3);
+	int offset = (int)(index & 7);
+	return (ptr[0] & (1 << offset)) >> offset;
+}
+
+static inline void _ibit_set(void *data, ilong index, int value)
+{
+	unsigned char *ptr = (unsigned char*)data + (index >> 3);
+	unsigned char val = (unsigned char)(value & 1);
+	unsigned char mask = 0;
+	int offset = (int)(index & 7);
+	mask = ~((unsigned char)1 << offset);
+	ptr[0] = (ptr[0] & mask) | (val << offset);
+}
+
+
+/**********************************************************************
+ * XOR crypt
+ **********************************************************************/
+static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
+	const unsigned char *ptr = (const unsigned char*)s;
+	unsigned char *out = (unsigned char*)d;
+	unsigned char masks[4];
+	ilong i;
+	masks[0] = (unsigned char)((m >> 24) & 0xff);
+	masks[1] = (unsigned char)((m >> 16) & 0xff);
+	masks[2] = (unsigned char)((m >>  8) & 0xff);
+	masks[3] = (unsigned char)((m >>  0) & 0xff);
+	for (i = 0; i < c; ptr++, out++, i++) {
+		out[0] = ptr[0] ^ masks[i & 3];
+	}
+}
+
+static inline void icrypt_xor_8(const void *s, void *d, ilong c, IUINT8 m) {
+	const unsigned char *ptr = (const unsigned char*)s;
+	unsigned char *out = (unsigned char*)d;
+	for (; c > 0; ptr++, out++, c--) {
+		out[0] = ptr[0] ^ m;
+	}
+}
+
+static inline IUINT32 icrypt_checksum(const void *src, ilong size) {
+	const unsigned char *ptr = (const unsigned char*)src;
+	IUINT32 checksum = 0;
+	for (; size > 0; ptr++, size--) 
+		checksum += ptr[0];
+	return checksum;
+}
+
+static inline void icrypt_xor_str(const void *src, void *dst, 
+		ilong size, const unsigned char *mask, int msize) {
+	const unsigned char *ptr = (const unsigned char*)src;
+	unsigned char *out = (unsigned char*)dst;
+	const unsigned char *mptr = mask;
+	const unsigned char *mend = mask + msize;
+	for (; size > 0; ptr++, out++, size--) {
+		out[0] = ptr[0] ^ mptr[0];
+		mptr++;
+		if (mptr >= mend) {
+			mptr = mask;
+		}
+	}
+}
+
+
 
 /**********************************************************************
  * VALUE OPERATION:
@@ -1080,198 +1374,6 @@ static inline void it_hashstr(ivalue_t *v)
 	it_rehash(v) = 1;
 }
 
-
-/**********************************************************************
- * DICTIONARY OPERATION
- *
- * basic dictionary (extended hash map) interface, support:
- * - lookup and delete 
- * - integer iterator (pos)
- * - auto-type key & value
- *
- * feature: 2.1-2.2 times faster than std::map (string or integer key)
- * feature: 1.3-1.5 times faster than stdext::hash_map 
- *  
- **********************************************************************/
-
-/* a single entry (key, value) in a dictionary */
-struct IDICTENTRY
-{
-	ivalue_t key;				/* key		*/
-	ivalue_t val;				/* val		*/
-	ilist_head queue;			/* bucket list iterator */
-	ilong pos;					/* integer iterator */
-	ilong sid;					/* index id */
-};
-
-/* a hash bucket in a dictionary */
-struct IDICTBUCKET
-{
-	ilist_head head;			/* bucket list head */
-	ilong count;				/* how many entries in the bucket */
-};
-
-#ifndef IDICT_LRUSHIFT
-#define IDICT_LRUSHIFT		4
-#endif
-
-#define IDICT_LRUSIZE		(1ul << IDICT_LRUSHIFT)
-
-
-/*-------------------------------------------------------------------*/
-/* IDICTIONARY - dictionary definition                               */
-/*-------------------------------------------------------------------*/
-struct IDICTIONARY
-{
-	struct IDICTBUCKET *table;		/* hash table */
-	struct IMEMNODE nodes;			/* entries container */
-	struct IVECTOR vect;			/* hash table memory */
-	ilong shift;					/* hash table size shift */
-	ilong mask;						/* hash table size mask */
-	ilong size;						/* how many entries in the dict */
-	ilong inc;						/* auto increasement */
-	ilong length;					/* hash table size */
-	struct IDICTENTRY *lru[IDICT_LRUSIZE];		/* lru cache */
-};
-
-typedef struct IDICTIONARY idict_t;
-typedef struct IDICTENTRY idictentry_t;
-
-
-/*-------------------------------------------------------------------*/
-/* dictionary basic interface                                        */
-/*-------------------------------------------------------------------*/
-
-/* create dictionary */
-idict_t *idict_create(void);
-
-/* delete dictionary */
-void idict_delete(idict_t *dict);
-
-
-/* search pair in dictionary */
-ivalue_t *idict_search(idict_t *dict, const ivalue_t *key, ilong *pos);
-
-/* add (key, val) pair into dictionary */
-ilong idict_add(idict_t *dict, const ivalue_t *key, const ivalue_t *val);
-
-/* delete pair from dictionary */
-int idict_del(idict_t *dict, const ivalue_t *key);
-
-
-/* update (key, val) from dictionary */
-ilong idict_update(idict_t *dict, const ivalue_t *key, const ivalue_t *val);
-
-/* get key from position */
-ivalue_t *idict_pos_get_key(idict_t *dict, ilong pos);
-
-/* get val from position */
-ivalue_t *idict_pos_get_val(idict_t *dict, ilong pos);
-
-/* get sid from position */
-ilong idict_pos_get_sid(idict_t *dict, ilong pos);
-
-/* update from position */
-void idict_pos_update(idict_t *dict, ilong pos, const ivalue_t *val);
-
-/* delete from position */
-void idict_pos_delete(idict_t *dict, ilong pos);
-
-/* get first position */
-ilong idict_pos_head(idict_t *dict);
-
-/* get next position */
-ilong idict_pos_next(idict_t *dict, ilong pos);
-
-/* position tag */
-#define idict_tag(dict, pos) (IMNODE_NODE(&((dict)->nodes), (pos)))
-
-/* clear dictionary */
-void idict_clear(idict_t *dict);
-
-
-/*-------------------------------------------------------------------*/
-/* directly typing interface                                         */
-/*-------------------------------------------------------------------*/
-
-/* search: key(str) val(str) */
-int idict_search_ss(idict_t *dict, const char *key, ilong keysize,
-	char **val, ilong *valsize);
-
-/* search: key(int) val(str) */
-int idict_search_is(idict_t *dict, ilong key, char **val, ilong *valsize);
-
-/* search: key(str) val(int) */
-int idict_search_si(idict_t *dict, const char *key, ilong keysize, 
-	ilong *val);
-
-/* search: key(int) val(int) */
-int idict_search_ii(idict_t *dict, ilong key, ilong *val);
-
-/* search: key(str) val(ptr) */
-int idict_search_sp(idict_t *dict, const char *key, ilong keysize, 
-	void**ptr);
-
-/* search: key(int) val(ptr) */
-int idict_search_ip(idict_t *dict, ilong key, void**ptr);
-
-/* add: key(str) val(str) */
-ilong idict_add_ss(idict_t *dict, const char *key, ilong keysize,
-	const char *val, ilong valsize);
-
-/* add: key(int) val(str) */
-ilong idict_add_is(idict_t *dict, ilong key, const char *val, 
-	ilong valsize);
-
-/* add: key(str) val(int) */
-ilong idict_add_si(idict_t *dict, const char *key, ilong keysize, 
-	ilong val);
-
-/* add: key(int) val(int) */
-ilong idict_add_ii(idict_t *dict, ilong key, ilong val);
-
-/* add: key(str) val(ptr) */
-ilong idict_add_sp(idict_t *dict, const char *key, ilong keysize, 
-	const void *ptr);
-
-/* add: key(int) val(ptr) */
-ilong idict_add_ip(idict_t *dict, ilong key, const void *ptr);
-
-/* update: key(str) val(str) */
-ilong idict_update_ss(idict_t *dict, const char *key, ilong keysize,
-	const char *val, ilong valsize);
-
-/* update: key(int) val(str) */
-ilong idict_update_is(idict_t *dict, ilong key, const char *val, 
-	ilong valsize);
-
-/* update: key(str) val(int) */
-ilong idict_update_si(idict_t *dict, const char *key, ilong keysize, 
-	ilong val);
-
-/* update: key(int) val(int) */
-ilong idict_update_ii(idict_t *dict, ilong key, ilong val);
-
-/* update: key(str) val(ptr) */
-ilong idict_update_sp(idict_t *dict, const char *key, ilong keysize, 
-	const void *ptr);
-
-/* update: key(int) val(ptr) */
-ilong idict_update_ip(idict_t *dict, ilong key, const void *ptr);
-
-/* delete: key(str) */
-int idict_del_s(idict_t *dict, const char *key, ilong keysize);
-
-/* delete: key(int) */
-int idict_del_i(idict_t *dict, ilong key);
-
-
-
-
-/**********************************************************************
- * Cross-Platform Data Encode / Decode                               
- **********************************************************************/
-
 /* encode auto-type value */
 static inline char *iencodev(char *p, const ivalue_t *v) {
 	switch (it_type(v))
@@ -1318,197 +1420,42 @@ static inline const char *idecodev(const char *p, ivalue_t *v) {
 }
 
 
-#ifndef _MSC_VER
-	#define IUINT64_CONST(__immediate) (__immediate ## ULL)
-#else
-	#define IUINT64_CONST(__immediate) (__immediate ## UI64)
+
+/**********************************************************************
+ * DICTIONARY OPERATION
+ *
+ * basic dictionary (extended hash map) interface, support:
+ * - lookup and delete 
+ * - integer iterator (pos)
+ * - auto-type key & value
+ *
+ * feature: 2.1-2.2 times faster than std::map (string or integer key)
+ * feature: 1.3-1.5 times faster than stdext::hash_map 
+ *  
+ **********************************************************************/
+
+/* a single entry (key, value) in a dictionary */
+struct IDICTENTRY
+{
+	ivalue_t key;				/* key		*/
+	ivalue_t val;				/* val		*/
+	ilist_head queue;			/* bucket list iterator */
+	ilong pos;					/* integer iterator */
+	ilong sid;					/* index id */
+};
+
+/* a hash bucket in a dictionary */
+struct IDICTBUCKET
+{
+	ilist_head head;			/* bucket list head */
+	ilong count;				/* how many entries in the bucket */
+};
+
+#ifndef IDICT_LRUSHIFT
+#define IDICT_LRUSHIFT		4
 #endif
 
-#define IUINT64_MASK(__bits) ((((IUINT64)1) << (__bits)) - 1)
-
-/* encode auto size unsigned integer */
-static inline char *iencodeu(char *ptr, IUINT64 v)
-{
-	unsigned char *p = (unsigned char*)ptr;
-	p[0] = (unsigned char)(v & 0x7f);
-	if (v <= IUINT64_MASK(7))
-		return ptr + 1;
-	p[0] |= 0x80;
-	p[1] = (unsigned char)((v >> 7) & 0x7f);
-	if (v <= IUINT64_MASK(14))
-		return ptr + 2;
-	p[1] |= 0x80;
-	p[2] = (unsigned char)((v >> 14) & 0x7f);
-	if (v <= IUINT64_MASK(21)) 
-		return ptr + 3;
-	p[2] |= 0x80;
-	p[3] = (unsigned char)((v >> 21) & 0x7f);
-	if (v <= IUINT64_MASK(28)) 
-		return ptr + 4;
-	p[3] |= 0x80;
-	p[4] = (unsigned char)((v >> 28) & 0x7f);
-	if (v <= IUINT64_MASK(35))
-		return ptr + 5;
-	p[4] |= 0x80;
-	p[5] = (unsigned char)((v >> 35) & 0x7f);
-	if (v <= IUINT64_MASK(42))
-		return ptr + 6;
-	p[5] |= 0x80;
-	p[6] = (unsigned char)((v >> 42) & 0x7f);
-	if (v <= IUINT64_MASK(49))
-		return ptr + 7;
-	p[6] |= 0x80;
-	p[7] = (unsigned char)((v >> 49) & 0x7f);
-	if (v <= IUINT64_MASK(56))
-		return ptr + 8;
-	p[7] |= 0x80;
-	p[8] = (unsigned char)((v >> 56) & 0x7f);
-	if (v <= IUINT64_MASK(63))
-		return ptr + 9;
-	p[8] |= 0x80;
-	p[9] = (unsigned char)((v >> 63) & 0x7f);
-	return ptr + 10;
-}
-
-
-/* decode auto size unsigned integer */
-static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
-	const unsigned char *p = (const unsigned char*)ptr;
-	IUINT64 x = 0;
-
-	x |= ((IUINT32)(p[0] & 0x7f));
-	if ((p[0] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 1;
-	}
-
-	x |= (IUINT64)(((IUINT32)(p[1] & 0x7f)) << 7);
-	if ((p[1] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 2;
-	}
-
-	x |= ((IUINT32)(p[2] & 0x7f)) << 14;
-	if ((p[2] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 3;
-	}
-
-	x |= ((IUINT32)(p[3] & 0x7f)) << 21;
-	if ((p[3] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 4;
-	}
-
-	x |= ((IUINT64)(p[4] & 0x7f)) << 28;
-	if ((p[4] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 5;
-	}
-
-	x |= ((IUINT64)(p[5] & 0x7f)) << 35;
-	if ((p[5] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 6;
-	}
-
-	x |= ((IUINT64)(p[6] & 0x7f)) << 42;
-	if ((p[6] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 7;
-	}
-
-	x |= ((IUINT64)(p[7] & 0x7f)) << 49;
-	if ((p[7] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 8;
-	}
-
-	x |= ((IUINT64)(p[8] & 0x7f)) << 56;
-	if ((p[8] & 0x80) == 0) {
-		v[0] = x;
-		return ptr + 9;
-	}
-
-	x |= ((IUINT64)(p[9] & 0x7f)) << 63;
-	v[0] = x;
-
-	return ptr + 10;
-}
-
-/* encode auto size integer */
-static inline char *iencodei(char *p, IINT64 value) {
-	IUINT64 x, y;
-	y = *(IUINT64*)&value;
-	if (y & ((IUINT64)1 << 63)) x = ((~y) << 1) | 1;
-	else x = y << 1;
-	return iencodeu(p, x);
-}
-
-/* decode auto size integer */
-static inline const char *idecodei(const char *p, IINT64 *value) {
-	IUINT64 x, y;
-	p = idecodeu(p, &x);
-	if ((x & 1) == 0) y = x >> 1;
-	else y = ~(x >> 1);
-	*value = *(IINT64*)&y;
-	return p;
-}
-
-/* swap byte order of int16 */
-static inline unsigned short iexbyte16(unsigned short word) {
-	return ((word & 0xff) << 8) | ((word >> 8) & 0xff);
-}
-
-/* swap byte order of int32 */
-static inline IUINT32 iexbyte32(IUINT32 dword) {
-	IUINT32 b1 = (dword >>  0) & 0xff;
-	IUINT32 b2 = (dword >>  8) & 0xff;
-	IUINT32 b3 = (dword >> 16) & 0xff;
-	IUINT32 b4 = (dword >> 24) & 0xff;
-	return (b1 << 24) | (b2 << 16) | (b3 << 8) | (b4);
-}
-
-
-/**********************************************************************
- * 32 bits unsigned integer operation
- **********************************************************************/
-static inline IUINT32 _imin(IUINT32 a, IUINT32 b) {
-  return a <= b ? a : b;
-}
-
-static inline IUINT32 _imax(IUINT32 a, IUINT32 b) {
-  return a >= b ? a : b;
-}
-
-static inline IUINT32 _ibound(IUINT32 lower, IUINT32 middle, IUINT32 upper) {
-  return _imin(_imax(lower, middle), upper);
-}
-
-static inline long itimediff(IUINT32 later, IUINT32 earlier) {
-	return ((IINT32)(later - earlier));
-}
-
-
-/**********************************************************************
- * misc operation
- **********************************************************************/
-static inline int _ibit_chk(const void *data, ilong index)
-{
-	unsigned char *ptr = (unsigned char*)data + (index >> 3);
-	int offset = (int)(index & 7);
-	return (ptr[0] & (1 << offset)) >> offset;
-}
-
-static inline void _ibit_set(void *data, ilong index, int value)
-{
-	unsigned char *ptr = (unsigned char*)data + (index >> 3);
-	unsigned char val = (unsigned char)(value & 1);
-	unsigned char mask = 0;
-	int offset = (int)(index & 7);
-	mask = ~((unsigned char)1 << offset);
-	ptr[0] = (ptr[0] & mask) | (val << offset);
-}
+#define IDICT_LRUSIZE		(1ul << IDICT_LRUSHIFT)
 
 
 /**********************************************************************
@@ -1675,53 +1622,152 @@ int istring_list_join(const istring_list_t *strings, const char *str,
 	ilong size, ivalue_t *output);
 
 
-/**********************************************************************
- * XOR crypt
- **********************************************************************/
-static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
-	const unsigned char *ptr = (const unsigned char*)s;
-	unsigned char *out = (unsigned char*)d;
-	unsigned char masks[4];
-	ilong i;
-	masks[0] = (unsigned char)((m >> 24) & 0xff);
-	masks[1] = (unsigned char)((m >> 16) & 0xff);
-	masks[2] = (unsigned char)((m >>  8) & 0xff);
-	masks[3] = (unsigned char)((m >>  0) & 0xff);
-	for (i = 0; i < c; ptr++, out++, i++) {
-		out[0] = ptr[0] ^ masks[i & 3];
-	}
-}
+/*-------------------------------------------------------------------*/
+/* IDICTIONARY - dictionary definition                               */
+/*-------------------------------------------------------------------*/
+struct IDICTIONARY
+{
+	struct IDICTBUCKET *table;		/* hash table */
+	struct IMEMNODE nodes;			/* entries container */
+	struct IVECTOR vect;			/* hash table memory */
+	ilong shift;					/* hash table size shift */
+	ilong mask;						/* hash table size mask */
+	ilong size;						/* how many entries in the dict */
+	ilong inc;						/* auto increasement */
+	ilong length;					/* hash table size */
+	struct IDICTENTRY *lru[IDICT_LRUSIZE];		/* lru cache */
+};
 
-static inline void icrypt_xor_8(const void *s, void *d, ilong c, IUINT8 m) {
-	const unsigned char *ptr = (const unsigned char*)s;
-	unsigned char *out = (unsigned char*)d;
-	for (; c > 0; ptr++, out++, c--) {
-		out[0] = ptr[0] ^ m;
-	}
-}
+typedef struct IDICTIONARY idict_t;
+typedef struct IDICTENTRY idictentry_t;
 
-static inline IUINT32 icrypt_checksum(const void *src, ilong size) {
-	const unsigned char *ptr = (const unsigned char*)src;
-	IUINT32 checksum = 0;
-	for (; size > 0; ptr++, size--) 
-		checksum += ptr[0];
-	return checksum;
-}
 
-static inline void icrypt_xor_str(const void *src, void *dst, 
-		ilong size, const unsigned char *mask, int msize) {
-	const unsigned char *ptr = (const unsigned char*)src;
-	unsigned char *out = (unsigned char*)dst;
-	const unsigned char *mptr = mask;
-	const unsigned char *mend = mask + msize;
-	for (; size > 0; ptr++, out++, size--) {
-		out[0] = ptr[0] ^ mptr[0];
-		mptr++;
-		if (mptr >= mend) {
-			mptr = mask;
-		}
-	}
-}
+/*-------------------------------------------------------------------*/
+/* dictionary basic interface                                        */
+/*-------------------------------------------------------------------*/
+
+/* create dictionary */
+idict_t *idict_create(void);
+
+/* delete dictionary */
+void idict_delete(idict_t *dict);
+
+
+/* search pair in dictionary */
+ivalue_t *idict_search(idict_t *dict, const ivalue_t *key, ilong *pos);
+
+/* add (key, val) pair into dictionary */
+ilong idict_add(idict_t *dict, const ivalue_t *key, const ivalue_t *val);
+
+/* delete pair from dictionary */
+int idict_del(idict_t *dict, const ivalue_t *key);
+
+
+/* update (key, val) from dictionary */
+ilong idict_update(idict_t *dict, const ivalue_t *key, const ivalue_t *val);
+
+/* get key from position */
+ivalue_t *idict_pos_get_key(idict_t *dict, ilong pos);
+
+/* get val from position */
+ivalue_t *idict_pos_get_val(idict_t *dict, ilong pos);
+
+/* get sid from position */
+ilong idict_pos_get_sid(idict_t *dict, ilong pos);
+
+/* update from position */
+void idict_pos_update(idict_t *dict, ilong pos, const ivalue_t *val);
+
+/* delete from position */
+void idict_pos_delete(idict_t *dict, ilong pos);
+
+/* get first position */
+ilong idict_pos_head(idict_t *dict);
+
+/* get next position */
+ilong idict_pos_next(idict_t *dict, ilong pos);
+
+/* position tag */
+#define idict_tag(dict, pos) (IMNODE_NODE(&((dict)->nodes), (pos)))
+
+/* clear dictionary */
+void idict_clear(idict_t *dict);
+
+
+/*-------------------------------------------------------------------*/
+/* directly typing interface                                         */
+/*-------------------------------------------------------------------*/
+
+/* search: key(str) val(str) */
+int idict_search_ss(idict_t *dict, const char *key, ilong keysize,
+	char **val, ilong *valsize);
+
+/* search: key(int) val(str) */
+int idict_search_is(idict_t *dict, ilong key, char **val, ilong *valsize);
+
+/* search: key(str) val(int) */
+int idict_search_si(idict_t *dict, const char *key, ilong keysize, 
+	ilong *val);
+
+/* search: key(int) val(int) */
+int idict_search_ii(idict_t *dict, ilong key, ilong *val);
+
+/* search: key(str) val(ptr) */
+int idict_search_sp(idict_t *dict, const char *key, ilong keysize, 
+	void**ptr);
+
+/* search: key(int) val(ptr) */
+int idict_search_ip(idict_t *dict, ilong key, void**ptr);
+
+/* add: key(str) val(str) */
+ilong idict_add_ss(idict_t *dict, const char *key, ilong keysize,
+	const char *val, ilong valsize);
+
+/* add: key(int) val(str) */
+ilong idict_add_is(idict_t *dict, ilong key, const char *val, 
+	ilong valsize);
+
+/* add: key(str) val(int) */
+ilong idict_add_si(idict_t *dict, const char *key, ilong keysize, 
+	ilong val);
+
+/* add: key(int) val(int) */
+ilong idict_add_ii(idict_t *dict, ilong key, ilong val);
+
+/* add: key(str) val(ptr) */
+ilong idict_add_sp(idict_t *dict, const char *key, ilong keysize, 
+	const void *ptr);
+
+/* add: key(int) val(ptr) */
+ilong idict_add_ip(idict_t *dict, ilong key, const void *ptr);
+
+/* update: key(str) val(str) */
+ilong idict_update_ss(idict_t *dict, const char *key, ilong keysize,
+	const char *val, ilong valsize);
+
+/* update: key(int) val(str) */
+ilong idict_update_is(idict_t *dict, ilong key, const char *val, 
+	ilong valsize);
+
+/* update: key(str) val(int) */
+ilong idict_update_si(idict_t *dict, const char *key, ilong keysize, 
+	ilong val);
+
+/* update: key(int) val(int) */
+ilong idict_update_ii(idict_t *dict, ilong key, ilong val);
+
+/* update: key(str) val(ptr) */
+ilong idict_update_sp(idict_t *dict, const char *key, ilong keysize, 
+	const void *ptr);
+
+/* update: key(int) val(ptr) */
+ilong idict_update_ip(idict_t *dict, ilong key, const void *ptr);
+
+/* delete: key(str) */
+int idict_del_s(idict_t *dict, const char *key, ilong keysize);
+
+/* delete: key(int) */
+int idict_del_i(idict_t *dict, ilong key);
 
 
 

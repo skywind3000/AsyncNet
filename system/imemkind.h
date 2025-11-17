@@ -20,17 +20,40 @@ extern "C" {
 
 
 //---------------------------------------------------------------------
-// Utilities
+// CAsyncReader - read data from stream with various modes
 //---------------------------------------------------------------------
+struct CAsyncReader;
+typedef struct CAsyncReader CAsyncReader;
 
-// push message into stream
-void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
-		IINT32 lparam, const void *data, IINT32 size);
+// new async reader
+CAsyncReader *async_reader_new(struct IMEMNODE *node);
+
+// delete async reader
+void async_reader_delete(CAsyncReader *reader);
 
 
-// read message from stream
-IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg, 
-		IINT32 *wparam, IINT32 *lparam, void *data, IINT32 maxsize);
+#define ASYNC_READER_BYTE		0
+#define ASYNC_READER_LINE		1
+#define ASYNC_READER_BLOCK		2
+
+// set reading mode: 
+// - ASYNC_READER_BYTE: read one byte each time
+// - ASYNC_READER_LINE: read one line each time, 'what' is the spliter
+// - ASYNC_READER_BLOCK: read fixed size block, 'what' is the block size
+void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
+
+
+// read data from reader, return value:
+// -1: not enough data
+// -2: buffer too small
+// >=0: number of bytes read
+long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
+
+// feed data into reader
+void async_reader_feed(CAsyncReader *reader, const void *data, long len);
+
+// clear stream data
+void async_reader_clear(CAsyncReader *reader);
 
 
 #ifdef __cplusplus

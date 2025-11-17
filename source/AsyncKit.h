@@ -166,6 +166,60 @@ private:
 };
 
 
+//---------------------------------------------------------------------
+// AsyncSplit
+//---------------------------------------------------------------------
+class AsyncSplit final
+{
+public:
+	~AsyncSplit();
+	AsyncSplit(AsyncLoop &loop);
+	AsyncSplit(CAsyncLoop *loop);
+
+public:
+
+	// initialize with a stream, header format, and borrow flag
+	void Initialize(CAsyncStream *stream, int header, bool borrow);
+
+	// initialize with a stream C++ wrapper
+	void Initialize(AsyncStream &stream, int header);
+
+	// destroy the split object
+	void Destroy();
+
+	// setup event callback
+	void SetCallback(std::function<void(int event)> cb);
+
+	// setup data callback
+	void SetReceiver(std::function<void(void *data, long size)> receiver);
+
+	// write message
+	void Write(const void * const vecptr[], const long veclen[], int count);
+
+	// write message
+	void Write(const void *ptr, long size);
+
+	// Enable ASYNC_EVENT_READ/WRITE of the underlying stream
+	void Enable(int event);
+
+	// Disable ASYNC_EVENT_READ/WRITE of the underlying stream
+	void Disable(int event);
+
+private:
+	static void SplitCB(CAsyncSplit *split, int event);
+	static void SplitReceiver(CAsyncSplit *split, void *data, long size);
+
+	typedef std::function<void(int event)> Callback;
+	typedef std::function<void(void *data, long size)> Receiver;
+
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+	std::shared_ptr<Receiver> _receiver_ptr = std::make_shared<Receiver>();
+
+	CAsyncSplit *_split = NULL;
+	CAsyncLoop *_loop = NULL;
+};
+
+
 
 //---------------------------------------------------------------------
 // AsyncUdp

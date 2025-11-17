@@ -82,6 +82,10 @@ public:
 	// C 接口里并没有对应概念
 	bool IsDummy() const;
 
+	// 是否正在运行，即有没有调用过 Exit 函数，而不是指 
+	// 函数 RunEndless 在没在运行。
+	bool IsRunning() const { return (_loop->exiting == 0); }
+
 	// 运行一次迭代（iteration），即调用一次 epoll_wait 捕获所有被激活
 	// 的事件并进行分发，参数 millisec 是等待时间
 	void RunOnce(uint32_t millisec = 10);
@@ -101,10 +105,28 @@ public:
 
 	// 写日志
 	void Log(int channel, const char *fmt, ...);
+
+	// Log: channel = ASYNC_LOOP_LOG_INFO
+	void Info(const char *fmt, ...);
+	
+	// Log: channel = ASYNC_LOOP_LOG_ERROR
+	void Error(const char *fmt, ...);
+
+	// Log: channel = ASYNC_LOOP_LOG_DEBUG
+	void Debug(const char *fmt, ...);
+
+	// Log: channel = ASYNC_LOOP_LOG_WARN
+	void Warn(const char *fmt, ...);
 	
 	// 设置日志掩码，当前掩码和 Log(channel, ...) 里的 channel 做 and 运算
 	// 不为零时才会真的打印该日志
 	void SetLogMask(int mask);
+
+	// 直接允许某个掩码的日志
+	void EnableLogMask(int mask) { _loop->logmask |= mask; }
+
+	// 直接禁止某个掩码的日志
+	void DisableLogMask(int mask) { _loop->logmask &= ~mask; }
 
 	// 检查日志掩码是否被设置，用于某些高频调用代码，提前判断是否需要输出
 	// 日志，不输出的话就跳过，只有需要输出时才回去具体调用 Log 接口，处理
@@ -154,6 +176,7 @@ private:
 	std::function<void()> _cb_timer;
 
 	std::string _log_cache;
+	std::string _log_format;
 	void *_ptr = NULL;
 
 	static void OnLog(void *logger, const char *text);
@@ -351,6 +374,13 @@ public:
 	// 检查延期事件是否正在等待执行，即 Start 之后和 Stop 之前的状态
 	inline bool IsActive() const { return async_post_is_active(&_postpone); }
 
+	// 确保已经安排了一个延期事件，如果已经安排过则不再重复安排
+	// 通常用于多次调用 Postpone 的场景
+	inline int Ensure() {
+		if (!IsActive()) return Start();
+		return 0;
+	}
+
 
 private:
 	static void InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone);
@@ -455,3 +485,6 @@ NAMESPACE_END(System);
 
 
 #endif
+
+
+

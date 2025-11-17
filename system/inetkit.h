@@ -254,6 +254,7 @@ void async_listener_stop(CAsyncListener *listener);
 void async_listener_pause(CAsyncListener *listener, int pause);
 
 
+
 //---------------------------------------------------------------------
 // CAsyncSplit
 //---------------------------------------------------------------------
@@ -317,6 +318,14 @@ void async_split_enable(CAsyncSplit *split, int event);
 
 // disable ASYNC_EVENT_READ/WRITE of the underlying stream
 void async_split_disable(CAsyncSplit *split, int event);
+
+
+// read size from header, return 0 on not enough data
+long async_split_hdr_peek(CAsyncStream *stream, int header, int *hdrsize);
+
+// push header before writing data
+void async_split_hdr_push(CAsyncStream *stream, int header, long size);
+
 
 
 //---------------------------------------------------------------------

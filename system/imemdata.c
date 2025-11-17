@@ -1889,6 +1889,32 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 }
 
 
+/**********************************************************************
+ * 32 bits incremental hash functions
+ **********************************************************************/
+IUINT32 inc_hash_crc32_table[256];
+
+/* CRC32 hash table initialize */
+void inc_hash_crc32_initialize(void)
+{
+	static int initialized = 0;
+	IUINT32 polynomial = 0xEDB88320;
+	IUINT32 i, j, crc;
+	if (initialized) return;
+	for (i = 0; i < 256; i++) {
+		crc = i;
+		for (j = 0; j < 8; j++) {
+			if (crc & 1) {
+				crc = (crc >> 1) ^ polynomial;
+			} else {
+				crc >>= 1;
+			}
+		}
+		inc_hash_crc32_table[i] = crc;
+	}
+	initialized = 1;
+}
+
 
 /**********************************************************************
  * Dictionary Basic Interface

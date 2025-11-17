@@ -1592,11 +1592,10 @@ static const int async_split_head_inc[15] =
 
 
 //---------------------------------------------------------------------
-// read size from the stream based on the header
+// read size from header, return 0 on not enough data
 //---------------------------------------------------------------------
-static inline long async_split_read_size(CAsyncSplit *split)
+long async_split_hdr_peek(CAsyncStream *stream, int header, int *hdrsize)
 {
-	CAsyncStream *stream;
 	unsigned char dsize[4];
 	long len;
 	IUINT8 len8;
@@ -1604,17 +1603,13 @@ static inline long async_split_read_size(CAsyncSplit *split)
 	IUINT32 len32;
 	int hdrlen;
 	int hdrinc;
-	int header;
 
-	assert(split);
-	assert(split->stream);
+	assert(stream);
 
-	stream = split->stream;
+	hdrlen = async_split_head_len[header];
+	hdrinc = async_split_head_inc[header];
 
-	hdrlen = async_split_head_len[split->header];
-	hdrinc = async_split_head_inc[split->header];
-
-	if (split->header == ASYNC_SPLIT_PREMITIVE) {
+	if (header == ASYNC_SPLIT_PREMITIVE) {
 		len = (long)_async_stream_remain(stream);
 		if (len > ASYNC_LOOP_BUFFER_SIZE) 
 			return ASYNC_LOOP_BUFFER_SIZE;
@@ -1624,11 +1619,9 @@ static inline long async_split_read_size(CAsyncSplit *split)
 	len = (unsigned short)_async_stream_peek(stream, dsize, hdrlen);
 	if (len < (long)hdrlen) return 0;
 	
-	if (split->header <= ASYNC_SPLIT_EBYTEMSB) {
-		header = (split->header < ASYNC_SPLIT_EWORDLSB)? 
-			split->header : (split->header - ASYNC_SPLIT_EWORDLSB);
-	}	else {
-		header = split->header;
+	if (header <= ASYNC_SPLIT_EBYTEMSB) {
+		header = (header < ASYNC_SPLIT_EWORDLSB)?  header : 
+			(header - ASYNC_SPLIT_EWORDLSB);
 	}
 
 	switch (header) {
@@ -1668,29 +1661,32 @@ static inline long async_split_read_size(CAsyncSplit *split)
 
 	len += (long)hdrinc;
 
+	if (hdrsize) *hdrsize = hdrlen;
+
 	return len;
 }
 
 
 //---------------------------------------------------------------------
-// write size
+// push header before writing data
 //---------------------------------------------------------------------
-static inline int async_split_write_size(CAsyncSplit *split, long size, char *out)
+void async_split_hdr_push(CAsyncStream *stream, int header, long size)
 {
-	IUINT32 header, len;
+	IUINT32 len;
 	int hdrlen;
 	int hdrinc;
+	char out[4];
 
-	assert(split);
+	assert(stream);
 
-	if (split->header >= ASYNC_SPLIT_PREMITIVE) return 0;
+	if (header >= ASYNC_SPLIT_PREMITIVE) return;
 
-	hdrlen = async_split_head_len[split->header];
-	hdrinc = async_split_head_inc[split->header];
+	hdrlen = async_split_head_len[header];
+	hdrinc = async_split_head_inc[header];
 
-	if (split->header != ASYNC_SPLIT_DWORDMASK) {
+	if (header != ASYNC_SPLIT_DWORDMASK) {
 		len = (IUINT32)size + hdrlen - hdrinc;
-		header = (split->header < 6)? split->header : split->header - 6;
+		header = (header < 6)? header : header - 6;
 		switch (header) {
 		case ASYNC_SPLIT_WORDLSB:
 			iencode16u_lsb((char*)out, (IUINT16)len);
@@ -1717,7 +1713,7 @@ static inline int async_split_write_size(CAsyncSplit *split, long size, char *ou
 		iencode32u_lsb((char*)out, (IUINT32)len);
 	}
 
-	return hdrlen;
+	_async_stream_write(stream, out, hdrlen);
 }
 
 
@@ -1728,9 +1724,9 @@ static long async_split_try_reading(CAsyncSplit *split, char *data, long maxsize
 {
 	long size, hr;
 	char header[8];
-	int hdrlen = async_split_head_len[split->header];
+	int hdrlen;
 	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
-		size = async_split_read_size(split);
+		size = async_split_hdr_peek(split->stream, split->header, &hdrlen);
 		if (size <= 0) return -1;
 		if (_async_stream_remain(split->stream) < size) return -1;
 		hr = _async_stream_read(split->stream, header, hdrlen);
@@ -1824,6 +1820,7 @@ static void async_split_callback(CAsyncStream *stream, int event, int args)
 		while (split->releasing == 0 && split->error == 0) {
 			long size = async_split_try_reading(split, data, ASYNC_LOOP_BUFFER_SIZE);
 			if (size < 0) break;
+			data[size] = 0;
 			split->busy = 1;
 			if (split->receiver) {
 				split->receiver(split, data, size);
@@ -1925,14 +1922,11 @@ void async_split_write_vector(CAsyncSplit *split,
 	assert(split);
 	assert(split->stream);
 	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
-		char header[8];
 		long totlen = 0;
-		int hdrlen;
 		for (i = 0; i < count; i++) {
 			totlen += veclen[i];
 		}
-		hdrlen = async_split_write_size(split, totlen, header);
-		_async_stream_write(split->stream, header, hdrlen);
+		async_split_hdr_push(split->stream, split->header, totlen);
 		for (i = 0; i < count; i++) {
 			_async_stream_write(split->stream, vecptr[i], veclen[i]);
 		}
@@ -1953,10 +1947,7 @@ void async_split_write(CAsyncSplit *split, const void *ptr, long size)
 	assert(split);
 	assert(split->stream);
 	if (split->header <= ASYNC_SPLIT_DWORDMASK) {
-		char header[8];
-		int hdrlen;
-		hdrlen = async_split_write_size(split, size, header);
-		_async_stream_write(split->stream, header, hdrlen);
+		async_split_hdr_push(split->stream, split->header, size);
 		_async_stream_write(split->stream, ptr, size);
 	}
 	else {
@@ -2140,6 +2131,10 @@ int async_udp_open(CAsyncUdp *udp, const struct sockaddr *addr, int addrlen, int
 int async_udp_assign(CAsyncUdp *udp, int fd)
 {
 	assert(udp);
+
+	if (udp->fd >= 0) {
+		async_udp_close(udp);
+	}
 
 	udp->fd = fd;
 	udp->error = -1;

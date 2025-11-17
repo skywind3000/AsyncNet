@@ -87,6 +87,7 @@ void AsyncStream::SetCallback(std::function<void(int event, int args)> cb)
 	(*_cb_ptr) = cb;
 	if (_stream) {
 		_stream->callback = TcpCB;
+		_stream->user = this;
 	}
 }
 
@@ -548,6 +549,7 @@ void AsyncListener::SetCallback(std::function<void(int fd, const sockaddr *addr,
 {
 	(*_cb_ptr) = cb;
 	_listener->callback = ListenCB;
+	_listener->user = this;
 }
 
 
@@ -596,6 +598,182 @@ void AsyncListener::Pause(bool pause)
 {
 	async_listener_pause(_listener, pause? 1 : 0);
 }
+
+
+
+//=====================================================================
+// AsyncSplit
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncSplit::~AsyncSplit()
+{
+	_loop = NULL;
+	Destroy();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSplit::AsyncSplit(AsyncLoop &loop)
+{
+	_loop = loop.GetLoop();
+	(*_cb_ptr) = nullptr;
+	(*_receiver_ptr) = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncSplit::AsyncSplit(CAsyncLoop *loop)
+{
+	_loop = loop;
+	(*_cb_ptr) = nullptr;
+	(*_receiver_ptr) = nullptr;
+}
+
+
+//---------------------------------------------------------------------
+// initialize with a stream, header format, and borrow flag
+//---------------------------------------------------------------------
+void AsyncSplit::Initialize(CAsyncStream *stream, int header, bool borrow)
+{
+	Destroy();
+	assert(stream);
+	_split = async_split_new(stream, header, borrow ? 1 : 0, SplitCB, SplitReceiver);
+	assert(_split);
+	_split->user = this;
+	_split->callback = SplitCB;
+	_split->receiver = SplitReceiver;
+	_loop = stream->loop;
+}
+
+
+//---------------------------------------------------------------------
+// initialize with a stream C++ wrapper
+//---------------------------------------------------------------------
+void AsyncSplit::Initialize(AsyncStream &stream, int header)
+{
+	CAsyncStream *s = stream.GetStream();
+	assert(s);
+	Initialize(s, header, false);
+}
+
+
+//---------------------------------------------------------------------
+// destroy the split object
+//---------------------------------------------------------------------
+void AsyncSplit::Destroy()
+{
+	if (_split) {
+		async_split_delete(_split);
+		_split = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup event callback
+//---------------------------------------------------------------------
+void AsyncSplit::SetCallback(std::function<void(int event)> cb)
+{
+	(*_cb_ptr) = cb;
+	if (_split) {
+		_split->callback = SplitCB;
+		_split->receiver = SplitReceiver;
+		_split->user = this;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// setup data callback
+//---------------------------------------------------------------------
+void AsyncSplit::SetReceiver(std::function<void(void *data, long size)> receiver)
+{
+	(*_receiver_ptr) = receiver;
+	if (_split) {
+		_split->callback = SplitCB;
+		_split->receiver = SplitReceiver;
+		_split->user = this;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// callback
+//---------------------------------------------------------------------
+void AsyncSplit::SplitCB(CAsyncSplit *split, int event)
+{
+	AsyncSplit *self = (AsyncSplit*)split->user;
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_cb = self->_cb_ptr;
+		(*ref_cb)(event);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// receiver callback
+//---------------------------------------------------------------------
+void AsyncSplit::SplitReceiver(CAsyncSplit *split, void *data, long size)
+{
+	AsyncSplit *self = (AsyncSplit*)split->user;
+	if ((*self->_receiver_ptr) != nullptr) {
+		auto ref_receiver = self->_receiver_ptr;
+		(*ref_receiver)(data, size);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write message
+//---------------------------------------------------------------------
+void AsyncSplit::Write(const void * const vecptr[], const long veclen[], int count)
+{
+	if (_split) {
+		async_split_write_vector(_split, vecptr, veclen, count);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write message
+//---------------------------------------------------------------------
+void AsyncSplit::Write(const void *ptr, long size)
+{
+	if (_split) {
+		async_split_write(_split, ptr, size);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Enable ASYNC_EVENT_READ/WRITE of the underlying stream
+//---------------------------------------------------------------------
+void AsyncSplit::Enable(int event)
+{
+	if (_split) {
+		async_split_enable(_split, event);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Disable ASYNC_EVENT_READ/WRITE of the underlying stream
+//---------------------------------------------------------------------
+void AsyncSplit::Disable(int event)
+{
+	if (_split) {
+		async_split_disable(_split, event);
+	}
+}
+
 
 
 
