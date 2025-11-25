@@ -26,6 +26,7 @@
 // For more information, please see the readme file.
 //
 //=====================================================================
+#include "imembase.h"
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -236,6 +237,15 @@ CAsyncLoop* async_loop_new(void)
 
 	assert(loop->internal);
 
+	loop->textline = ib_string_new();
+	loop->logcache = ib_string_new();
+
+	assert(loop->textline);
+	assert(loop->logcache);
+
+	ib_string_resize(loop->textline, 0);
+	ib_string_resize(loop->logcache, 256);
+
 	loop->timestamp = iclock_nano(0);
 	loop->monotonic = iclock_nano(1);
 	loop->current = (IUINT32)(loop->monotonic / 1000000);
@@ -243,6 +253,7 @@ CAsyncLoop* async_loop_new(void)
 
 	loop->reseted = 0;
 	loop->proceeds = 0;
+
 
 	itimer_mgr_init(&loop->timer_mgr, 1);
 	itimer_mgr_run(&loop->timer_mgr, loop->current);
@@ -370,6 +381,16 @@ void async_loop_delete(CAsyncLoop *loop)
 	loop->internal = NULL;
 	loop->buffer = NULL;
 	loop->cache = NULL;
+
+	if (loop->textline) {
+		ib_string_delete(loop->textline);
+		loop->textline = NULL;
+	}
+
+	if (loop->logcache) {
+		ib_string_delete(loop->logcache);
+		loop->logcache = NULL;
+	}
 
 	if (loop->poller) {
 		ipoll_delete(loop->poller);
@@ -1241,10 +1262,14 @@ static int async_loop_dispatch_once(CAsyncLoop *loop, int priority)
 //---------------------------------------------------------------------
 void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...)
 {
-	char buffer[1024];
 	va_list argptr;
 	if (channel & loop->logmask) {
 		if (loop->writelog != NULL) {
+			char *buffer;
+			if (ib_string_size(loop->logcache) < 2048) {
+				ib_string_resize(loop->logcache, 2048);
+			}
+			buffer = ib_string_ptr(loop->logcache);
 			va_start(argptr, fmt);
 			vsprintf(buffer, fmt, argptr);
 			va_end(argptr);

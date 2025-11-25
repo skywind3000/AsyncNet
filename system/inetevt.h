@@ -227,11 +227,13 @@ struct CAsyncLoop {
 	struct IVECTOR v_semaphore;    // semaphore vector for semaphores
 	struct IMEMNODE semnode;       // semaphore memory node
 	struct IMEMNODE memnode;       // memory node for internal usage
-	void *self;         // this pointer for loop object (for C++ wrapper)
-	void *user;         // user data pointer for loop object
-	void *extension;    // external data pointer for extension;
-	int logmask;        // log mask for loop object
-	void *logger;       // logger for loop object, can be NULL
+	void *self;           // this pointer for loop object (for C++ wrapper)
+	void *user;           // user data pointer for loop object
+	void *extension;      // external data pointer for extension;
+	ib_string *textline;  // global text buffer for loop object
+	ib_string *logcache;  // global text buffer for loop object
+	int logmask;          // log mask for loop object
+	void *logger;         // logger for loop object, can be NULL
 	void (*writelog)(void *logger, const char *msg);
 	void (*on_once)(CAsyncLoop *loop);
 	void (*on_timer)(CAsyncLoop *loop);

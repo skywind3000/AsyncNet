@@ -7,8 +7,102 @@
 //
 //=====================================================================
 #include <stddef.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "imemkind.h"
+#include "imembase.h"
+
+
+//=====================================================================
+// common utilities
+//=====================================================================
+
+//---------------------------------------------------------------------
+// get sprintf size
+//---------------------------------------------------------------------
+ilong iposix_fmt_length(const char *fmt, va_list ap)
+{
+	ilong size = -1;
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	size = (ilong)vsnprintf(NULL, 0, fmt, ap); 
+#elif defined(_MSC_VER)
+	size = (ilong)_vscprintf(fmt, ap);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	size = (ilong)_vsnprintf(NULL, 0, fmt, ap); 
+#else
+	size = (ilong)vsnprintf(NULL, 0, fmt, ap); 
+#endif
+	return size;
+}
+
+
+//---------------------------------------------------------------------
+// printf: size must >= strlen + 1, which includes trailing zero
+//---------------------------------------------------------------------
+ilong iposix_fmt_printf(char *buf, ilong size, const char *fmt, va_list ap)
+{
+	ilong hr = 0;
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	hr = (ilong)vsnprintf(buf, size, fmt, ap); 
+#elif defined(_MSC_VER)
+	hr = (ilong)vsprintf(buf, fmt, ap);
+	assert(hr + 1 == size);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	hr = (ilong)_vsnprintf(buf, size, fmt, ap); 
+#else
+	hr = (ilong)vsnprintf(buf, size, fmt, ap); 
+#endif
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// format string into ib_string
+//---------------------------------------------------------------------
+ilong iposix_str_format(ib_string *out, const char *fmt, ...)
+{
+	ilong size = -1;
+	va_list argptr;
+	va_start(argptr, fmt);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	size = (ilong)vsnprintf(NULL, 0, fmt, argptr); 
+#elif defined(_MSC_VER)
+	size = (ilong)_vscprintf(fmt, argptr);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	size = (ilong)_vsnprintf(NULL, 0, fmt, argptr); 
+#else
+	size = (ilong)vsnprintf(NULL, 0, fmt, argptr); 
+#endif
+	va_end(argptr);
+	if (size < 0) {
+		ib_string_resize(out, 0);
+		return -1;
+	}
+	else {
+		char *buffer;
+		ilong hr = 0;
+		ib_string_resize(out, size + 10);
+		buffer = ib_string_ptr(out);
+		size++;
+		va_start(argptr, fmt);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+		size = (ilong)vsnprintf(buffer, size, fmt, argptr); 
+#elif defined(_MSC_VER)
+		hr = (ilong)vsprintf(buffer, fmt, argptr);
+		assert(hr + 1 == size);
+		size = hr;
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+		size = (ilong)_vsnprintf(buffer, size, fmt, argptr); 
+#else
+		size = (ilong)vsnprintf(buffer, size, fmt, argptr); 
+#endif
+		va_end(argptr);
+		hr = size;
+		ib_string_resize(out, hr);
+	}
+	return size;
+}
 
 
 //=====================================================================

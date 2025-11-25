@@ -18,6 +18,19 @@
 extern "C" {
 #endif
 
+//---------------------------------------------------------------------
+// common utilities
+//---------------------------------------------------------------------
+
+// get sprintf size
+ilong iposix_fmt_length(const char *fmt, va_list ap);
+
+// printf: size must >= strlen + 1, which includes trailing zero
+ilong iposix_fmt_printf(char *buf, ilong size, const char *fmt, va_list ap);
+
+// format string into ib_string
+ilong iposix_str_format(ib_string *out, const char *fmt, ...);
+
 
 //---------------------------------------------------------------------
 // CAsyncReader - read data from stream with various modes
