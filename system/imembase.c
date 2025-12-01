@@ -245,6 +245,12 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size)
 	return 0;
 }
 
+/* clear vector data */
+int iv_clear(struct IVECTOR *v)
+{
+	return iv_resize(v, 0);
+}
+
 
 /*====================================================================*/
 /* IMEMNODE - array index allocator (aka. node manager)               */
@@ -488,8 +494,19 @@ ilong imnode_prev(const struct IMEMNODE *mnode, ilong index)
 	return (mnode)? IMNODE_PREV(mnode, index) : -1;
 }
 
+/* clear all nodes */
+void imnode_clear(struct IMEMNODE *mnode)
+{
+	ilong index;
+	while (1) {
+		index = imnode_head(mnode);
+		if (index < 0) break;
+		imnode_del(mnode, index);
+	}
+}
+
 /* get data pointer of the node */
-void *imnode_data(struct IMEMNODE *mnode, ilong index)
+void* imnode_data(struct IMEMNODE *mnode, ilong index)
 {
 	return (char*)IMNODE_DATA(mnode, index);
 }
@@ -563,6 +580,7 @@ ib_array *ib_array_new(void (*destroy_func)(void*))
 	iv_init(&array->vec, ikmem_allocator);
 	array->fn_destroy = destroy_func;
 	array->size = 0;
+	array->items = NULL;
 	return array;
 };
 
@@ -721,8 +739,14 @@ void* ib_array_pop_at(ib_array *array, size_t index)
 	void *item;
 	int hr;
 	assert(array->size > 0);
+	assert(index < array->size);
+	if (array->size == 0 || index >= array->size) {
+		return NULL;
+	}
 	item = array->items[index];
 	hr = iv_obj_erase(&array->vec, void*, index, 1);
+	ib_array_update(array);
+	array->size--;
 	if (hr) {
 		assert(hr == 0);
 	}
@@ -1511,6 +1535,10 @@ int ib_string_compare(const struct ib_string *a, const struct ib_string *b)
 	return 0;
 }
 
+ib_string* ib_string_clear(ib_string *str)
+{
+	return ib_string_resize(str, 0);
+}
 
 ib_string* ib_string_assign(ib_string *str, const char *src)
 {
@@ -1841,10 +1869,12 @@ void ib_hash_erase(struct ib_hash_table *ht, struct ib_hash_node *node)
 	index = &ht->index[node->hash & ht->index_mask];
 	if (index->avlroot.node == &node->avlnode && node->avlnode.height == 1) {
 		index->avlroot.node = NULL;
-		ilist_del_init(&index->node);
 	}
 	else {
 		ib_node_erase(&node->avlnode, &index->avlroot);
+	}
+	if (index->avlroot.node == NULL) {
+		ilist_del_init(&index->node);
 	}
 	ib_node_init(&node->avlnode);
 	ht->count--;

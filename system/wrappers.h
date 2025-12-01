@@ -14,6 +14,7 @@
 #include "isecure.h"
 
 #include <stdint.h>
+#include <iostream>
 
 #ifdef _MSC_VER
 #pragma warning(disable: 4819)
@@ -88,6 +89,14 @@ public:
 		return text;
 	}
 
+	IUINT32 GetHash() const {
+		return iposix_addr_hash(&_address);
+	}
+
+	IINT64 uuid() const {
+		return iposix_addr_uuid(&_address);
+	}
+
 public:
 	PosixAddress& operator = (const PosixAddress &src) { _address = src._address; return *this; }
 	PosixAddress& operator = (const iPosixAddress &src) { _address = src; return *this; }
@@ -149,6 +158,15 @@ public:
 public:
 	iPosixAddress _address;
 };
+
+
+//---------------------------------------------------------------------
+// 输出日志
+//---------------------------------------------------------------------
+static inline std::ostream& operator << (std::ostream &os, const PosixAddress &addr) {
+	os << addr.ToString();
+	return os;
+}
 
 
 //---------------------------------------------------------------------

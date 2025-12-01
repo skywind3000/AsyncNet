@@ -21,7 +21,7 @@
 //=====================================================================
 #ifndef __INTEGER_32_BITS__
 #define __INTEGER_32_BITS__
-#if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
+#if defined(__UINT32_TYPE__) && defined(__INT32_TYPE__)
 	typedef __UINT32_TYPE__ ISTDUINT32;
 	typedef __INT32_TYPE__ ISTDINT32;
 #elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)

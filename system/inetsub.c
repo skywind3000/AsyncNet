@@ -518,7 +518,7 @@ static void async_signal_default_handler(CAsyncSignal *signal, int signum)
 }
 
 // for atexit
-static void async_signal_cleanup()
+static void async_signal_cleanup(void)
 {
 	if (_async_signal_default) {
 		if (_async_signal_default->active) {

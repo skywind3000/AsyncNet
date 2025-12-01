@@ -103,21 +103,12 @@ public:
 	// 是否开启无 tick 模式
 	void SetTickless(bool enabled);
 
+	// 取得 uptime，单位毫秒
+	int64_t UptimeMillisec() const;
+
 	// 写日志
 	void Log(int channel, const char *fmt, ...);
 
-	// Log: channel = ASYNC_LOOP_LOG_INFO
-	void Info(const char *fmt, ...);
-	
-	// Log: channel = ASYNC_LOOP_LOG_ERROR
-	void Error(const char *fmt, ...);
-
-	// Log: channel = ASYNC_LOOP_LOG_DEBUG
-	void Debug(const char *fmt, ...);
-
-	// Log: channel = ASYNC_LOOP_LOG_WARN
-	void Warn(const char *fmt, ...);
-	
 	// 设置日志掩码，当前掩码和 Log(channel, ...) 里的 channel 做 and 运算
 	// 不为零时才会真的打印该日志
 	void SetLogMask(int mask);
@@ -176,7 +167,6 @@ private:
 	std::function<void()> _cb_timer;
 
 	std::string _log_cache;
-	std::string _log_format;
 	void *_ptr = NULL;
 
 	static void OnLog(void *logger, const char *text);

@@ -86,11 +86,6 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	} else {
 		this->_log_cache.clear();
 	}
-	if (src._log_format.size() > 0) {
-		this->_log_format = std::move(src._log_format);
-	} else {
-		this->_log_format.clear();
-	}
 }
 
 
@@ -178,6 +173,16 @@ void AsyncLoop::SetTickless(bool enabled)
 
 
 //---------------------------------------------------------------------
+// 取得 uptime，单位纳秒
+//---------------------------------------------------------------------
+int64_t AsyncLoop::UptimeMillisec() const
+{
+	int64_t now = Timestamp(1);
+	return (now - _loop->uptime) / 1000000;
+}
+
+
+//---------------------------------------------------------------------
 // callback for c
 //---------------------------------------------------------------------
 void AsyncLoop::OnLog(void *logger, const char *text)
@@ -260,8 +265,8 @@ void AsyncLoop::Log(int channel, const char *fmt, ...)
 		if (_loop->writelog != nullptr) {
 			va_list argptr;
 			char *buffer;
-			if (_log_cache.size() < 1024) {
-				_log_cache.resize(1024);
+			if (_log_cache.size() < 4096) {
+				_log_cache.resize(4096);
 			}
 			buffer = &_log_cache[0];
 			va_start(argptr, fmt);
@@ -271,86 +276,6 @@ void AsyncLoop::Log(int channel, const char *fmt, ...)
 				_cb_log(buffer);
 			}
 		}
-	}
-}
-
-
-//---------------------------------------------------------------------
-// Log: channel = ASYNC_LOOP_LOG_INFO
-//---------------------------------------------------------------------
-void AsyncLoop::Info(const char *fmt, ...)
-{
-	if (ASYNC_LOOP_LOG_INFO & _loop->logmask) {
-		va_list argptr;
-		char *buffer;
-		if (_log_format.size() < 1024) {
-			_log_format.resize(1024);
-		}
-		buffer = &_log_format[0];
-		va_start(argptr, fmt);
-		vsprintf(buffer, fmt, argptr);
-		va_end(argptr);
-		Log(ASYNC_LOOP_LOG_INFO, "[info] %s", buffer);
-	}
-}
-
-
-//---------------------------------------------------------------------
-// Log: channel = ASYNC_LOOP_LOG_ERROR
-//---------------------------------------------------------------------
-void AsyncLoop::Error(const char *fmt, ...)
-{
-	if (ASYNC_LOOP_LOG_ERROR & _loop->logmask) {
-		va_list argptr;
-		char *buffer;
-		if (_log_format.size() < 1024) {
-			_log_format.resize(1024);
-		}
-		buffer = &_log_format[0];
-		va_start(argptr, fmt);
-		vsprintf(buffer, fmt, argptr);
-		va_end(argptr);
-		Log(ASYNC_LOOP_LOG_ERROR, "[error] %s", buffer);
-	}
-}
-
-
-//---------------------------------------------------------------------
-// Log: channel = ASYNC_LOOP_LOG_DEBUG
-//---------------------------------------------------------------------
-void AsyncLoop::Debug(const char *fmt, ...)
-{
-	if (ASYNC_LOOP_LOG_DEBUG & _loop->logmask) {
-		va_list argptr;
-		char *buffer;
-		if (_log_format.size() < 1024) {
-			_log_format.resize(1024);
-		}
-		buffer = &_log_format[0];
-		va_start(argptr, fmt);
-		vsprintf(buffer, fmt, argptr);
-		va_end(argptr);
-		Log(ASYNC_LOOP_LOG_DEBUG, "[debug] %s", buffer);
-	}
-}
-
-
-//---------------------------------------------------------------------
-// Log: channel = ASYNC_LOOP_LOG_WARN
-//---------------------------------------------------------------------
-void AsyncLoop::Warn(const char *fmt, ...)
-{
-	if (ASYNC_LOOP_LOG_WARN & _loop->logmask) {
-		va_list argptr;
-		char *buffer;
-		if (_log_format.size() < 1024) {
-			_log_format.resize(1024);
-		}
-		buffer = &_log_format[0];
-		va_start(argptr, fmt);
-		vsprintf(buffer, fmt, argptr);
-		va_end(argptr);
-		Log(ASYNC_LOOP_LOG_WARN, "[warn] %s", buffer);
 	}
 }
 

@@ -237,19 +237,17 @@ CAsyncLoop* async_loop_new(void)
 
 	assert(loop->internal);
 
-	loop->textline = ib_string_new();
 	loop->logcache = ib_string_new();
 
-	assert(loop->textline);
 	assert(loop->logcache);
 
-	ib_string_resize(loop->textline, 0);
 	ib_string_resize(loop->logcache, 256);
 
 	loop->timestamp = iclock_nano(0);
 	loop->monotonic = iclock_nano(1);
 	loop->current = (IUINT32)(loop->monotonic / 1000000);
 	loop->iteration = 0;
+	loop->uptime = loop->monotonic;
 
 	loop->reseted = 0;
 	loop->proceeds = 0;
@@ -381,11 +379,6 @@ void async_loop_delete(CAsyncLoop *loop)
 	loop->internal = NULL;
 	loop->buffer = NULL;
 	loop->cache = NULL;
-
-	if (loop->textline) {
-		ib_string_delete(loop->textline);
-		loop->textline = NULL;
-	}
 
 	if (loop->logcache) {
 		ib_string_delete(loop->logcache);
@@ -723,7 +716,7 @@ static void async_loop_changes_commit(CAsyncLoop *loop)
 		CAsyncEntry *entry = NULL;
 		ilist_head *it;
 		int mask = 0;
-		if (fd < 0 && fd >= loop->fds_size) {
+		if (fd < 0 || fd >= loop->fds_size) {
 			continue;
 		}
 		entry = &loop->fds[fd];
@@ -840,8 +833,13 @@ static void async_loop_sem_handle(CAsyncLoop *loop, IINT32 uid, IINT32 sid)
 		CAsyncSemaphore *sem = (CAsyncSemaphore*)
 			ib_array_ptr(loop->sem_dict)[uid];
 		if (sem != NULL) {
-			if (sem->callback != NULL) {
-				if (sem->uid == uid && sem->sid == sid) {
+			if (sem->uid == uid && sem->sid == sid) {
+				IINT32 count = 0;
+				IMUTEX_LOCK(&sem->lock);
+				count = sem->count;
+				sem->count = 0;
+				IMUTEX_UNLOCK(&sem->lock);
+				if (sem->callback != NULL && count > 0) {
 					sem->callback(loop, sem);
 				}
 			}
@@ -911,6 +909,7 @@ int async_loop_sem_attach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	sem->loop = loop;
 	sem->uid = uid;
 	sem->sid = sid;
+	sem->count = 0;
 
 	loop->num_semaphore++;
 
@@ -941,6 +940,7 @@ int async_loop_sem_detach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	sem->loop = NULL;
 	sem->uid = -1;
 	sem->sid = -1;
+	sem->count = 0;
 
 	loop->num_semaphore--;
 
@@ -1110,13 +1110,13 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 //---------------------------------------------------------------------
 void async_loop_run(CAsyncLoop *loop)
 {
-	IINT32 waitms = loop->interval;
-	if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
-		waitms = 100;
-	}
 	while (loop->exiting == 0) {
-		IINT32 delay = waitms;
+		IINT32 delay = loop->interval;
 		int cc = 0;
+		if (delay < 1) delay = 1;
+		if (loop->xfd[ASYNC_LOOP_PIPE_TIMER] >= 0) {
+			delay = 100;
+		}
 		if (loop->tickless) {
 			IUINT32 nearest, expires, limit = 128;
 			nearest = itimer_core_nearest(&loop->timer_mgr.core, limit);
@@ -1330,6 +1330,7 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 {
 	CAsyncEntry *entry = NULL;
 	int fd = evt->fd;
+	int hr;
 
 	if (evt->active != 0) {
 		if (loop->logmask & ASYNC_LOOP_LOG_WARN) {
@@ -1376,7 +1377,15 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 		return -5;
 	}
 
-	async_loop_fds_ensure(loop, fd);
+	hr = async_loop_fds_ensure(loop, fd);
+
+	if (hr != 0) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_ERROR,
+			"[error] event starting failed: cannot ensure fd ptr=%p, fd=%d", 
+			(void*)evt, fd);
+		assert(hr == 0);
+		return -6;
+	}
 
 	entry = &loop->fds[fd];
 
@@ -1561,6 +1570,7 @@ void async_sem_init(CAsyncSemaphore *sem,
 	sem->uid = -1;
 	sem->sid = -1;
 	sem->loop = NULL;
+	sem->count = 0;
 }
 
 
@@ -1634,22 +1644,25 @@ int async_sem_active(const CAsyncSemaphore *sem)
 
 
 //---------------------------------------------------------------------
-// post semaphore from another thread
+// post semaphore from another thread, multiple posts between 
+// one event loop iteration will be coalesced into one callback
 //---------------------------------------------------------------------
 int async_sem_post(CAsyncSemaphore *sem)
 {
 	IINT32 uid, sid;
+	int needpost = 0;
 	CAsyncLoop *loop = NULL;
 	IMUTEX_LOCK(&sem->lock);
 	uid = sem->uid;
 	sid = sem->sid;
 	loop = sem->loop;
-	IMUTEX_UNLOCK(&sem->lock);
-	if (uid >= 0 && loop != NULL) {
-		async_loop_queue_append(loop, uid, sid);
+	if (sem->count == 0 && uid >= 0 && loop != NULL) {
+		needpost = 1;
 	}
-	else {
-		return -1;
+	sem->count++;
+	IMUTEX_UNLOCK(&sem->lock);
+	if (needpost) {
+		async_loop_queue_append(loop, uid, sid);
 	}
 	return 0;
 }

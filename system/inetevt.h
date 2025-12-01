@@ -135,6 +135,7 @@ struct CAsyncTimer {
 struct CAsyncSemaphore {
 	IINT32 uid;
 	IINT32 sid;
+	IINT32 count;
 	void (*callback)(CAsyncLoop *loop, CAsyncSemaphore *notify);
 	void *user;
 	CAsyncLoop *loop;
@@ -213,6 +214,7 @@ struct CAsyncLoop {
 	IINT64 reseted;                // fd reset count
 	IINT64 proceeds;               // number of events dispatched
 	IINT32 interval;               // interval for timer (default to 1ms)
+	IINT64 uptime;                 // loop uptime in nanosec (monotonic)
 	IMUTEX_TYPE lock_xfd;          // lock for xfd
 	IMUTEX_TYPE lock_queue;        // lock for pending queue
 	ib_array *sem_dict;            // semaphore dictionary
@@ -230,7 +232,6 @@ struct CAsyncLoop {
 	void *self;           // this pointer for loop object (for C++ wrapper)
 	void *user;           // user data pointer for loop object
 	void *extension;      // external data pointer for extension;
-	ib_string *textline;  // global text buffer for loop object
 	ib_string *logcache;  // global text buffer for loop object
 	int logmask;          // log mask for loop object
 	void *logger;         // logger for loop object, can be NULL
@@ -369,7 +370,8 @@ int async_sem_stop(CAsyncLoop *loop, CAsyncSemaphore *sem);
 // returns non-zero if the semaphore is active
 int async_sem_active(const CAsyncSemaphore *sem);
 
-// post semaphore from another thread
+// post semaphore from another thread, multiple posts between 
+// one event loop iteration will be coalesced into one callback
 int async_sem_post(CAsyncSemaphore *sem);
 
 

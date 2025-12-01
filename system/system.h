@@ -45,6 +45,8 @@
 #include <vector>
 #include <sstream>
 #include <iostream>
+#include <stdexcept>
+#include <map>
 
 #include "imembase.h"
 #include "imemdata.h"
@@ -104,6 +106,25 @@
 #pragma warning(disable: 4819)
 #pragma warning(disable: 28125)
 #endif
+
+// va_copy compatibility
+#if defined(_MSC_VER)
+    #if _MSC_VER >= 1800  // Visual Studio 2013
+        #define IHAVE_VA_COPY 1
+    #else
+        #define va_copy(dest, src) ((dest) = (src))
+    #endif
+#elif defined(__GNUC__) || defined(__clang__)
+    #if (!defined(va_copy)) && defined(__va_copy)
+        #define va_copy(d, s) __va_copy(d, s)
+    #endif
+    #define IHAVE_VA_COPY 1
+#else
+    #if !defined(va_copy)
+        #define va_copy(dest, src) ((dest) = (src))
+    #endif
+#endif
+
 
 NAMESPACE_BEGIN(System)
 
@@ -213,16 +234,24 @@ class CriticalSection
 public:
 	CriticalSection() { IMUTEX_INIT(&_mutex); }
 	virtual ~CriticalSection() { IMUTEX_DESTROY(&_mutex); }
+
+public:
 	void enter() { IMUTEX_LOCK(&_mutex); }
 	void leave() { IMUTEX_UNLOCK(&_mutex); }
 
 	IMUTEX_TYPE& mutex() { return _mutex; }
 	const IMUTEX_TYPE& mutex() const { return _mutex; }
 
-private:
-	CriticalSection(const CriticalSection &) = delete;
+#if _CPP_STANDARD >= 11
+public:
 	CriticalSection(CriticalSection&&) = delete;
-	CriticalSection& operator=(const CriticalSection &) = delete;
+	CriticalSection(const CriticalSection &) = delete;
+	CriticalSection& operator=(const CriticalSection&) = delete;
+#else
+private:
+	CriticalSection(const CriticalSection &);
+	CriticalSection& operator=(const CriticalSection &);
+#endif
 
 protected:
 	IMUTEX_TYPE _mutex;
@@ -376,6 +405,8 @@ protected:
 class ConditionLock
 {
 public:
+
+	ConditionLock() {}
 
 	// 唤醒所有等待进程
 	void wake(bool all = false) { if (!all) _cond.wake(); else _cond.wake_all(); }
@@ -550,6 +581,7 @@ public:
 	}
 
 #if _CPP_STANDARD >= 11
+public:
 	Thread(const Thread &src) = delete;
 	Thread& operator=(const Thread &) = delete;
 #else
@@ -579,9 +611,8 @@ protected:
 //---------------------------------------------------------------------
 // 时间函数
 //---------------------------------------------------------------------
-class Clock
-{
-public:
+struct Clock {
+
 	// 取得 32位的毫秒级别时钟
 	static inline IUINT32 GetInMs() { return iclock(); }
 
@@ -811,6 +842,13 @@ public:
 		return (src.get_ip() != get_ip() || src.get_port() != get_port());
 	}
 
+	IINT64 hash() const {
+		struct sockaddr_in *addr = (struct sockaddr_in*)&_remote;
+		IUINT32 ip = ntohl(addr->sin_addr.s_addr);
+		IUINT32 port = ntohs(addr->sin_port);
+		return ((IINT64)ip) | (((IINT64)port) << 32);
+	}
+
 protected:
 	sockaddr _remote;
 };
@@ -832,7 +870,19 @@ public:
 		_nodesize = nodesize;
 	}
 
-	virtual ~MemNode() { imnode_delete(_node); _node = NULL; }
+	virtual ~MemNode() { 
+		if (_node) {
+			imnode_delete(_node); 
+			_node = NULL; 
+		}
+	}
+
+	MemNode(MemNode &&src) {
+		_node = src._node;
+		_nodesize = src._nodesize;
+		src._node = NULL;
+		src._nodesize = 0;
+	}
 
 	// 分配一个新节点
 	ilong new_node() { return imnode_new(_node); }
@@ -878,12 +928,28 @@ public:
 	ib_memnode* node_ptr() { return _node; }
 	const ib_memnode* node_ptr() const { return _node; }
 
+	// 取得标签
+	ilong GetTag(ilong index) const {
+		if (index >= _node->node_max || index < 0) {
+			SYSTEM_THROW("memnode index error", 90001);
+		}
+		return IMNODE_NODE(_node, index);
+	}
+
+	// 设置标签
+	void SetTag(ilong index, ilong tag) {
+		if (index >= _node->node_max || index < 0) {
+			SYSTEM_THROW("memnode index error", 90001);
+		}
+		IMNODE_NODE(_node, index) = tag;
+	}
+
 	ilong node_max() const { return _node->node_max; }
 	long size() const { return (long)(_node->node_used); }
 
 private:
-	MemNode(const MemNode &);
-	MemNode& operator=(const MemNode &);
+	MemNode(const MemNode &) = delete;
+	MemNode& operator=(const MemNode &) = delete;
 
 protected:
 	int _nodesize;
@@ -1634,11 +1700,13 @@ inline std::ostream & operator << (std::ostream & os, const DateTime &m) {
 // 字符串处理
 //---------------------------------------------------------------------
 typedef std::vector<std::string> StringList;
+typedef std::map<std::string, std::string> StringMap;
 
 // 去除头部尾部多余字符，比如：StringStrip(text, "\r\n\t ")
-static inline void StringStrip(std::string &str, const char *seps) {
+static inline void StringStrip(std::string &str, const char *seps = NULL) {
 	size_t p1, p2, i;
 	if (str.size() == 0) return;
+	if (seps == NULL) seps = "\r\n\t ";
 	for (p1 = 0; p1 < str.size(); p1++) {
 		char ch = str[p1];
 		int skip = 0;
@@ -1847,6 +1915,49 @@ static inline bool Base64Decode(const char *b64, int len, std::string &data) {
 	int hr = (int)ibase64_decode((const char*)b64, len, &data[0]);
 	data.resize((hr < 0)? 0 : hr);
 	return (hr < 0)? false : true;
+}
+
+// format with va_list
+static inline std::string StringVAFmt(const char *fmt, va_list ap)
+{
+	int size = -1;
+	va_list ap_copy;
+	va_copy(ap_copy, ap);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	size = (int)vsnprintf(NULL, 0, fmt, ap_copy); 
+#elif defined(_MSC_VER)
+	size = (int)_vscprintf(fmt, ap_copy);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	size = (int)_vsnprintf(NULL, 0, fmt, ap_copy); 
+#else
+	size = (int)vsnprintf(NULL, 0, fmt, ap_copy); 
+#endif
+	va_end(ap_copy);
+	if (size < 0) {
+		throw std::runtime_error("string format error");
+	}
+	else if (size == 0) {
+		return std::string();
+	}
+	else {
+		std::string out;
+		size++;
+		out.resize(size + 10);
+		char *buffer = &out[0];
+		int hr = -1;
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+		hr = (int)vsnprintf(buffer, size, fmt, ap); 
+#elif defined(_MSC_VER)
+		hr = (int)vsprintf(buffer, fmt, ap);
+#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+		hr = (int)_vsnprintf(buffer, size, fmt, ap); 
+#else
+		hr = (int)vsnprintf(buffer, size, fmt, ap); 
+#endif
+		assert(hr + 1 == size);
+		out.resize(hr);
+		return out;
+	}
 }
 
 static inline std::string StringFormat(const char *fmt, ...)

@@ -1,83 +1,276 @@
-#ifndef __TRACELOG_H__
-#define __TRACELOG_H__
+//=====================================================================
+//
+// TraceLog.h - 
+//
+// Last Modified: 2025/11/26 16:55:26
+//
+//=====================================================================
+#pragma once
+#include <stddef.h>
+#include <stdarg.h>
+
+#include <map>
+#include <functional>
+#include <sstream>
 
 #include "../system/system.h"
 
-NAMESPACE_BEGIN(AsyncNet)
 
 //---------------------------------------------------------------------
-// 日志输出
+// Namespace begin
 //---------------------------------------------------------------------
-class Trace
+NAMESPACE_BEGIN(System);
+
+
+//---------------------------------------------------------------------
+// Predefined
+//---------------------------------------------------------------------
+class TraceHandler;
+enum TRACE_LEVEL: int;
+
+
+//---------------------------------------------------------------------
+// TraceLog: Logging (thread unsafe)
+//---------------------------------------------------------------------
+class TraceLog final
 {
 public:
-	Trace(const char *prefix = NULL, bool STDOUT = false, int color = -1);
-	virtual ~Trace();
+	TraceLog(const char *name = NULL);
+	TraceLog(const char *name, TraceHandler *handler, int level = 100);
+	TraceLog(const char *name, std::function<void(const char *text)> output, int level = 100);
 
-	typedef void (*TraceOut)(const char *text, void *user);
+	TraceLog(const TraceLog &src);
+	TraceLog(TraceLog &&src);
 
-	bool available(int mask) const { return ((_mask & mask) && _output); }
+	TraceLog& operator= (const TraceLog &src);
 
-	void setmask(int mask) { _mask = mask; }
-	void enable(int mask) { _mask |= mask; }
-	void disable(int mask) { _mask &= ~mask; }
+public:
 
-	void setout(TraceOut out, void *user);
-	void out(int mask, const char *fmt, ...);
-	void binary(int mask, const void *bin, int size);
+	// set output callback function, the first parameter of
+	// the function is the log text, pass NULL to flush
+	void SetOutput(std::function<void(const char *)> output);
 
-	// 如果 prefix == NULL则不向文件输出
-	void open(const char *prefix, bool STDOUT = false);
-	void close();
+	// set output handler
+	void SetOutput(TraceHandler *handler);
 
-	// 设置颜色，只用于控制台输出(open时 STDOUT=true)，高四位为背景色，低四位为前景色
-	// 色彩编码见：http://en.wikipedia.org/wiki/ANSI_escape_code，返回先前颜色
-	int color(int color = -1);
+	// get output function
+	std::function<void(const char*)> GetOutput();
 
-	static Trace Global;
-	static Trace Null;
-	static Trace ConsoleWhite;
-    static Trace LogFile;
-	static Trace ConsoleMagenta;
-	static Trace ConsoleGreen;
+	// set self name
+	void SetName(const char *name);
 
-protected:
-	static void StaticOut(const char *text, void *user);
+	// set level name
+	void SetLevelName(int level, const char *name);
 
-protected:
-	TraceOut _output;
-	System::DateTime _saved_date;
-	void *_user;
-	char *_buffer;
-	char *_prefix;
-	bool _stdout;
-	int _saved_day;
-	FILE *_fp;
-	char *_tmtext;
-	char *_fntext;
-	int _color;
+	// set log level
+	inline void SetLevel(int level) { _level = level; }
+
+	// get log level
+	inline int GetLevel() const { return _level; }
+
+	// check log level available
+	inline bool Available(int level) const { return (_level >= level); }
+
+	// write log with level
+	void Log(int level, const char *fmt, ...);
+
+	// dump binary data
+	void DumpBinary(int level, const void *data, int size);
+
+	// dump string binary
+	void DumpBinary(int level, const std::string &data);
+
+	// critical log
+	void Critical(const char *fmt, ...);
+
+	// error log
+	void Error(const char *fmt, ...);
+
+	// warn log
+	void Warn(const char *fmt, ...);
+
+	// info log
+	void Info(const char *fmt, ...);
+
+	// debug log
+	void Debug(const char *fmt, ...);
+
+	// verbose log
+	void Verbose(const char *fmt, ...);
+
+
+public:
+
+	// control code
+	enum ControlCode :int { 
+		CC_FLUSH = 1,
+		CC_LEVEL = 2, 
+	};
+
+	// stream control structure
+	struct Manipulator { ControlCode code; int args; };
+
+	// return manipulator
+	static Manipulator GetManipulator(ControlCode code, int args = 0);
+
+	// stream style output
+	template <typename T> inline TraceLog& operator<< (const T& data) {
+		if (_output != nullptr && Available(_stream_level)) {
+			System::CriticalScope scope_lock(_lock);
+			_stream << data;
+			StreamAppend(_stream.str());
+			_stream.str("");
+			_stream.clear();
+		}
+		return *this;
+	}
+
+	// manipulator support
+	TraceLog& operator<< (std::ostream& (*pf)(std::ostream&));
+
+	// internal manipulator
+	TraceLog& operator<< (const Manipulator &ctrl);
+
+	// handle stream level
+	inline TraceLog& operator<< (TRACE_LEVEL level) {
+		System::CriticalScope scope_lock(_lock);
+		_stream_level = static_cast<int>(level);
+		return *this;
+	}
+
+private:
+
+	// log write premitive
+	void FormatRaw(int level, const char *prefix, const char *fmt, va_list ap);
+
+	// get prefix
+	std::string GetPrefix(int level);
+
+	// append to stream
+	void StreamAppend(const std::string &text);
+
+private:
 	System::CriticalSection _lock;
-	int _mask;
+	std::function<void(const char *text)> _output;
+	std::string _name;
+	std::string _format;
+	std::string _logtext;
+	std::string _stream_cache;
+	std::stringstream _stream;
+	std::map<int, std::string> _level_names;
+	int _level;
+	int _stream_level;
 };
 
 
-#define TRACE_ERROR				1
-#define TRACE_WARNING			2
-#define TRACE_MGR_PACKET		4
-#define TRACE_MGR_SYN			8
-#define TRACE_MGR_EVENT			16
-#define TRACE_SESSION			32
-#define TRACE_KCP				64
-#define TRACE_SERVER			128
-#define TRACE_CLIENT			256
-#define TRACE_UDP_BASIC			512
-#define TRACE_UDP_BYTES			1024
-#define TRACE_UDP_ERROR			2048
-#define TRACE_RTT_REPORT        8192
+//---------------------------------------------------------------------
+// Manipulators
+//---------------------------------------------------------------------
+
+// set stream level
+static inline TraceLog::Manipulator TraceLevel(int level) {
+	return TraceLog::GetManipulator(TraceLog::CC_LEVEL, level);
+};
+
+// stream flush
+static inline TraceLog::Manipulator TraceFlush() {
+	return TraceLog::GetManipulator(TraceLog::CC_FLUSH, 0);
+}
 
 
-NAMESPACE_END(AsyncNet)
+//---------------------------------------------------------------------
+// LogLevel
+//---------------------------------------------------------------------
+enum TRACE_LEVEL: int {
+	TRACE_CRITICAL = 0,
+	TRACE_ERROR = 10,
+	TRACE_WARN = 20,
+	TRACE_INFO = 30,
+	TRACE_DEBUG = 40,
+	TRACE_VERBOSE = 50,
+};
 
 
-#endif
+//---------------------------------------------------------------------
+// TraceHandler: Log output handler interface
+//---------------------------------------------------------------------
+struct TraceHandler {
+	virtual ~TraceHandler() {}
+
+	// output log text, flush if text is NULL
+	virtual void Output(const char *text) = 0;
+};
+
+
+//---------------------------------------------------------------------
+// BasicTraceHandler
+//---------------------------------------------------------------------
+class BasicTraceHandler : public TraceHandler
+{
+public:
+	virtual ~BasicTraceHandler();
+	BasicTraceHandler();
+	BasicTraceHandler(const char *prefix, bool STDOUT, int color = -1);
+
+	// provide output implementation
+	void Output(const char *text) override;
+
+	// open file or stdout
+	void Open(const char *prefix, bool stdout_enabled = false, int color = -1);
+
+	// close both stdout and file
+	void Close();
+
+	// set color
+	void SetColor(int color) { _color = color; }
+
+protected:
+
+	// output to console
+	void WriteConsole(const char *text);
+	
+	// output to file
+	void WriteFile(const char *text);
+
+protected:
+	FILE *_fp = NULL;
+	bool _enable_stdout = false;
+	bool _enable_file = false;
+	int _color = -1;
+	int _saved_day = 0;
+	System::DateTime _saved_date;
+	System::CriticalSection _lock;
+	std::string _prefix = "";
+	std::string _timestamp = "";
+	std::string _filename = "";
+};
+
+
+
+//---------------------------------------------------------------------
+// Instance
+//---------------------------------------------------------------------
+extern BasicTraceHandler DefaultTraceHandler;
+extern BasicTraceHandler NullTraceHandler;
+extern BasicTraceHandler ConsoleTraceHandler;
+extern BasicTraceHandler WhiteTraceHandler;
+extern BasicTraceHandler MagentaTraceHandler;
+extern BasicTraceHandler GreenTraceHandler;
+extern BasicTraceHandler FileTraceHandler;
+
+extern TraceLog TraceDefault;
+extern TraceLog TraceNull;
+extern TraceLog TraceConsole;
+extern TraceLog TraceWhite;
+extern TraceLog TraceGreen;
+extern TraceLog TraceMagenta;
+extern TraceLog TraceFile;
+
+
+//---------------------------------------------------------------------
+// Namespace end
+//---------------------------------------------------------------------
+NAMESPACE_END(System);
+
+
 

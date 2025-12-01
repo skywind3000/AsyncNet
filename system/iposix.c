@@ -388,7 +388,7 @@ static char *_istrset(iposix_string_t *s, const char *p, int max)
 {
 	assert((max > 0) && p && s);
 	s->p = (char*)p;
-	s->l = strlen(p);
+	s->l = (int)strlen(p);
 	s->m = max;
 	return (char*)p;
 }
@@ -529,6 +529,10 @@ char *iposix_path_normal(const char *srcpath, char *path, int maxsize)
 
 	if (srcpath[0] == 0) {
 		if (maxsize > 0) path[0] = 0;
+		if (maxsize > 1) {
+			path[0] = '.';
+			path[1] = 0;
+		}
 		return path;
 	}
 
@@ -1024,7 +1028,7 @@ void *iposix_file_load_content(const char *filename, long *size)
 
 	fclose(fp);
 	
-	if (size) size[0] = length;
+	if (size) size[0] = (long)length;
 
 	return ptr;
 }

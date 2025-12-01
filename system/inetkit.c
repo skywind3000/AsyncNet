@@ -285,7 +285,7 @@ static long async_pair_move(CAsyncStream *stream)
 				return 0; // no data to move
 			}
 			// move data from partner's sendbuf to recvbuf
-			size = ims_move(&pair->recvbuf, &partner_pair->sendbuf, size);
+			size = (long)ims_move(&pair->recvbuf, &partner_pair->sendbuf, size);
 			return size;
 		}
 	}
@@ -386,7 +386,7 @@ static long async_pair_read(CAsyncStream *stream, void *ptr, long size)
 	if (pair->partner == NULL) {
 		return -1; // no partner
 	}
-	hr = ims_read(&pair->recvbuf, ptr, size);
+	hr = (long)ims_read(&pair->recvbuf, ptr, size);
 	if (hr > 0) {
 		async_pair_check(stream, ASYNC_STREAM_INPUT);
 	}
@@ -404,7 +404,7 @@ static long async_pair_write(CAsyncStream *stream, const void *ptr, long size)
 	if (pair->partner == NULL) {
 		return -1; // no partner
 	}
-	hr = ims_write(&pair->sendbuf, ptr, size);
+	hr = (long)ims_write(&pair->sendbuf, ptr, size);
 	if (hr > 0) {
 		async_pair_check(stream, ASYNC_STREAM_OUTPUT);
 	}
@@ -422,7 +422,7 @@ static long async_pair_peek(CAsyncStream *stream, void *ptr, long size)
 	if (pair->partner == NULL) {
 		return -1; // no partner
 	}
-	hr = ims_peek(&pair->recvbuf, ptr, size);
+	hr = (long)ims_peek(&pair->recvbuf, ptr, size);
 	return hr;
 }
 
@@ -892,7 +892,7 @@ long async_tcp_try_reading(CAsyncStream *stream)
 		long canread = ASYNC_LOOP_BUFFER_SIZE;
 		long retval;
 		if (stream->hiwater > 0) {
-			long limit = stream->hiwater - tcp->recvbuf.size;
+			long limit = stream->hiwater - (long)(tcp->recvbuf.size);
 			if (limit < 0) limit = 0;
 			if (canread > limit) canread = limit;
 		}
@@ -961,7 +961,7 @@ long async_tcp_try_writing(CAsyncStream *stream)
 		total += retval;
 		if (retval < size) break;
 	}
-	return total;
+	return (long)total;
 }
 
 
@@ -1294,7 +1294,7 @@ long async_stream_tcp_move(CAsyncStream *stream, long size)
 	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	ilong hr = ims_move(&tcp->sendbuf, &tcp->recvbuf, (ilong)size);
 	async_tcp_check(stream);
-	return hr;
+	return (long)hr;
 }
 
 

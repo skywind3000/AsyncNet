@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 
 /*====================================================================*/
@@ -28,7 +29,7 @@
 /*====================================================================*/
 #ifndef __INTEGER_32_BITS__
 #define __INTEGER_32_BITS__
-#if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
+#if defined(__UINT32_TYPE__) && defined(__INT32_TYPE__)
 	typedef __UINT32_TYPE__ ISTDUINT32;
 	typedef __INT32_TYPE__ ISTDINT32;
 #elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)
@@ -63,7 +64,7 @@
 	typedef int32_t ISTDINT32;
 #else 
 #include <limits.h>
-#if UINT_MAX == 0xFFFFU
+#if ULONG_MAX == 0xFFFFU
 	typedef unsigned long ISTDUINT32; 
 	typedef long ISTDINT32;
 #else
@@ -132,8 +133,9 @@ typedef ISTDUINT32 IUINT32;
 #endif
 
 /* you can change this by config.h or predefined macro */
+/* set it to ((void)0) to skip assertion */
 #ifndef ASSERTION
-#define ASSERTION(x) ((void)0)
+#define ASSERTION(x) assert(x);
 #endif
 
 
@@ -222,6 +224,8 @@ int iv_insert(struct IVECTOR *v, size_t pos, const void *data, size_t size);
 /* remove bytes at the given position */
 int iv_erase(struct IVECTOR *v, size_t pos, size_t size);
 
+/* clear vector data */
+int iv_clear(struct IVECTOR *v);
 
 /* fast access */
 #define iv_size(v) ((v)->size)
@@ -306,8 +310,11 @@ ilong imnode_next(const struct IMEMNODE *mnode, ilong index);
 /* get the next/prev node index in the close list */
 ilong imnode_prev(const struct IMEMNODE *mnode, ilong index);
 
+/* clear all nodes */
+void imnode_clear(struct IMEMNODE *mnode);
+
 /* get data pointer of the node */
-void*imnode_data(struct IMEMNODE *mnode, ilong index);
+void* imnode_data(struct IMEMNODE *mnode, ilong index);
 
 /* get data pointer of the node (const version) */
 const void* imnode_data_const(const struct IMEMNODE *mnode, ilong index);
@@ -731,6 +738,7 @@ void ib_string_delete(ib_string *str);
 
 ib_string* ib_string_resize(ib_string *str, int newsize);
 
+ib_string* ib_string_clear(ib_string *str);
 ib_string* ib_string_assign(ib_string *str, const char *src);
 ib_string* ib_string_assign_size(ib_string *str, const char *src, int size);
 

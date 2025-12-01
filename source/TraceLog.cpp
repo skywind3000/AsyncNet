@@ -1,113 +1,333 @@
-#include "TraceLog.h"
-
+//=====================================================================
+//
+// TraceLog.cpp - 
+//
+// Last Modified: 2025/11/26 16:55:36
+//
+//=====================================================================
+#include <stddef.h>
 #include <stdarg.h>
 
+#include "../system/imemkind.h"
 
-NAMESPACE_BEGIN(AsyncNet)
+#include "TraceLog.h"
+
 
 //---------------------------------------------------------------------
-// Logging：日志输出
+// Namespace begin
 //---------------------------------------------------------------------
-Trace Trace::Global;
-Trace Trace::Null;
-Trace Trace::ConsoleWhite(NULL, true, CTEXT_WHITE);
-Trace Trace::LogFile("RttTrace_", false, CTEXT_WHITE);
-Trace Trace::ConsoleMagenta(NULL, true, CTEXT_BOLD_MAGENTA);
-Trace Trace::ConsoleGreen(NULL, true, CTEXT_BOLD_GREEN);
+NAMESPACE_BEGIN(System);
 
-Trace::Trace(const char *prefix, bool STDOUT, int color)
- { 
-	_mask = 0; 
-	_user = NULL; 
-	_buffer = new char [8192];
-	_output = NULL; 
-	_prefix = NULL;
-	_fp = NULL;
-	_tmtext = NULL;
-	_fntext = NULL;
-	_stdout = false;
-	_color = -1;
-	if (prefix || STDOUT) {
-		open(prefix, STDOUT);
+
+//=====================================================================
+// TraceLog
+//=====================================================================
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+TraceLog::TraceLog(const char *name)
+{
+	_name = "";
+	if (name != NULL) _name = name;
+	_output = nullptr;
+	_level = 100;
+	_stream_level = TRACE_INFO;
+	SetLevelName(TRACE_CRITICAL, "critical");
+	SetLevelName(TRACE_ERROR, "error");
+	SetLevelName(TRACE_WARN, "warn");
+	SetLevelName(TRACE_INFO, "info");
+	SetLevelName(TRACE_DEBUG, "debug");
+	SetLevelName(TRACE_VERBOSE, "verbose");
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+TraceLog::TraceLog(const char *name, TraceHandler *handler, int level):
+	TraceLog(name)
+{
+	SetOutput(handler);
+	_level = level;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+TraceLog::TraceLog(const char *name, std::function<void(const char *text)> output, int level):
+	TraceLog(name)
+{
+	SetOutput(output);
+	_level = level;
+}
+
+
+//---------------------------------------------------------------------
+// copy ctor
+//---------------------------------------------------------------------
+TraceLog::TraceLog(const TraceLog &src)
+{
+	this->operator=(src);
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+TraceLog::TraceLog(TraceLog &&src):
+	_output(std::move(src._output)),
+	_name(std::move(src._name)),
+	_format(std::move(src._format)),
+	_logtext(std::move(src._logtext)),
+	_stream_cache(std::move(src._stream_cache)),
+	_stream(std::move(src._stream)),
+	_level_names(std::move(src._level_names)),
+	_level(src._level),
+	_stream_level(src._stream_level)
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// copy assignment
+//---------------------------------------------------------------------
+TraceLog& TraceLog::operator= (const TraceLog &src)
+{
+	_output = src._output;
+	_name = src._name;
+	_format = src._format;
+	_logtext = src._logtext;
+	_stream_cache = src._stream_cache;
+	_level_names = src._level_names;
+	_stream.str(src._stream.str());
+	_stream.clear();
+	_level = src._level;
+	_stream_level = src._stream_level;
+	return *this;
+}
+
+
+//---------------------------------------------------------------------
+// set output callback function
+//---------------------------------------------------------------------
+void TraceLog::SetOutput(std::function<void(const char *text)> output)
+{
+	System::CriticalScope scope_lock(_lock);
+	_output = output;
+}
+
+
+//---------------------------------------------------------------------
+// set output callback function
+//---------------------------------------------------------------------
+void TraceLog::SetOutput(TraceHandler *handler)
+{
+	System::CriticalScope scope_lock(_lock);
+	std::function<void(const char *text)> output = nullptr;
+	if (handler != nullptr) {
+		output = [handler](const char *text) {
+			handler->Output(text);
+		};
 	}
-	if (color >= 0) {
-		this->color(color);
-	}
+	_output = output;
 }
 
-Trace::~Trace()
+
+//---------------------------------------------------------------------
+// get output function
+//---------------------------------------------------------------------
+std::function<void(const char*)> TraceLog::GetOutput()
 {
-	close();
-	_mask = 0; 
-	_user = NULL; 
-	_output = NULL; 
-	delete []_buffer;
-	_buffer = NULL;
+	System::CriticalScope scope_lock(_lock);
+	return _output;
 }
 
-void Trace::close()
+
+//---------------------------------------------------------------------
+// set self name
+//---------------------------------------------------------------------
+void TraceLog::SetName(const char *name)
 {
-	if (_fp) fclose(_fp);
-	if (_prefix) delete []_prefix;
-	if (_tmtext) delete []_tmtext;
-	if (_fntext) delete []_fntext;
-	_fp = NULL;
-	_prefix = NULL;
-	_tmtext = NULL;
-	_fntext = NULL;
-	_stdout = false;
-	setout(NULL, NULL);
+	System::CriticalScope scope_lock(_lock);
+	_name = name;
 }
 
-void Trace::open(const char *prefix, bool STDOUT)
+
+//---------------------------------------------------------------------
+// log write premitive
+//---------------------------------------------------------------------
+void TraceLog::FormatRaw(int level, const char *prefix, const char *fmt, va_list ap)
 {
-	close();
-	if (prefix != NULL) {
-		//prefix = "";
-		int size = strlen(prefix);
-		_prefix = new char [size + 1];
-		memcpy(_prefix, prefix, size + 1);
+	if (_output == nullptr) return;
+	if (_level < level) return;
+	_format = StringVAFmt(fmt, ap);
+	if (_format.empty()) return;
+	if (prefix == NULL) {
+		_output(_format.c_str());
 	}
 	else {
-		if (_prefix) delete _prefix;
-		_prefix = NULL;
+		_logtext = prefix;
+		_logtext.append(_format);
+		_output(_logtext.c_str());
 	}
-	_tmtext = new char [64];
-	_fntext = new char [1024];
-	_saved_date.datetime = 0;
-	_fntext[0] = 0;
-	_stdout = STDOUT;
-	setout(StaticOut, this);
 }
 
-void Trace::setout(TraceOut out, void *user)
+
+//---------------------------------------------------------------------
+// set level name
+//---------------------------------------------------------------------
+void TraceLog::SetLevelName(int level, const char *name)
 {
-	_output = out;
-	_user = user;
+	System::CriticalScope scope_lock(_lock);
+	_level_names[level] = name? name : "";
 }
 
-void Trace::out(int mask, const char *fmt, ...)
+
+//---------------------------------------------------------------------
+// get prefix
+//---------------------------------------------------------------------
+std::string TraceLog::GetPrefix(int level)
 {
-	if ((mask & _mask) != 0 && _output != NULL) {
+	std::string level_name = "";
+
+	auto it = _level_names.find(level);
+	if (it != _level_names.end()) {
+		level_name = it->second;
+	}
+
+	if (_name.size() > 0) {
+		if (level_name.size() > 0) {
+			return StringFormat("[%s] [%s] ", _name.c_str(), level_name.c_str());
+		}
+		else {
+			return StringFormat("[%s] ", _name.c_str());
+		}
+	}
+	else {
+		if (level_name.size() > 0) {
+			return StringFormat("[%s] ", level_name.c_str());
+		}
+		else {
+			return "";
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write log with level
+//---------------------------------------------------------------------
+void TraceLog::Log(int level, const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(level)) {
 		System::CriticalScope scope_lock(_lock);
-		va_list argptr;
-		va_start(argptr, fmt);
-		vsprintf(_buffer, fmt, argptr);
-		va_end(argptr);
-		_output(_buffer, _user);
+		std::string prefix = GetPrefix(level);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(level, prefix.c_str(), fmt, ap);
+		va_end(ap);
 	}
 }
 
-void Trace::binary(int mask, const void *bin, int size)
+
+//---------------------------------------------------------------------
+// append to stream
+//---------------------------------------------------------------------
+void TraceLog::StreamAppend(const std::string &text)
+{
+	ssize_t length = (ssize_t)text.size();
+	ssize_t start = 0, pos;
+	const char *src = text.c_str();
+	if (length == 0) return;
+	std::string prefix = GetPrefix(_stream_level);
+	std::string cache;
+	while (start < length) {
+		for (pos = start; pos < length; pos++) {
+			if (src[pos] == '\n') break;
+		}
+		if (pos >= length) {
+			_stream_cache.append(src + start, length - start);
+			break;
+		}
+		_stream_cache.append(src + start, pos - start);
+		start = pos + 1;
+		if (prefix.empty()) {
+			_output(_stream_cache.c_str());
+		} else {
+			cache = prefix;
+			cache.append(_stream_cache);
+			_output(cache.c_str());
+		}
+		_stream_cache.clear();
+	}
+}
+
+
+//---------------------------------------------------------------------
+// manipulator support
+//---------------------------------------------------------------------
+TraceLog& TraceLog::operator<< (std::ostream& (*pf)(std::ostream&))
+{
+	if (_output == nullptr) return *this;
+	if (Available(_stream_level)) {
+		System::CriticalScope scope_lock(_lock);
+		if (pf == static_cast<std::ostream& (*)(std::ostream&)>(std::endl)) {
+			_stream << "\n";
+		}   else {
+			_stream << pf;
+		}
+		StreamAppend(_stream.str());
+		_stream.str("");
+		_stream.clear();
+	}
+	return *this;
+}
+
+
+//---------------------------------------------------------------------
+// internal manipulator
+//---------------------------------------------------------------------
+TraceLog& TraceLog::operator << (const Manipulator &ctrl)
+{
+	System::CriticalScope scope_lock(_lock);
+	if (ctrl.code == CC_FLUSH) {
+	}
+	else if (ctrl.code == CC_LEVEL) {
+		_stream_level = ctrl.args;
+	}
+	return *this;
+}
+
+
+//---------------------------------------------------------------------
+// return manipulator
+//---------------------------------------------------------------------
+TraceLog::Manipulator TraceLog::GetManipulator(ControlCode code, int args)
+{
+	Manipulator ctrl;
+	ctrl.code = code;
+	ctrl.args = args;
+	return ctrl;
+}
+
+
+//---------------------------------------------------------------------
+// dump binary data
+//---------------------------------------------------------------------
+void TraceLog::DumpBinary(int level, const void *data, int size)
 {
 	static const char hex[17] = "0123456789ABCDEF";
-	if ((mask & _mask) != 0 || _output != NULL) {
-		System::CriticalScope scope_lock(_lock);
-		const unsigned char *src = (const unsigned char*)bin;
+	if (Available(level) && _output != nullptr) {
+		const unsigned char *src = (const unsigned char*)data;
 		char line[100];
 		int count = (size + 15) / 16;
 		int offset = 0;
-		for (int i = 0; i < count; i++, src += 16, offset += 16) {
+		int i, j;
+		for (i = 0; i < count; i++, src += 16, offset += 16) {
 			int length = size > 16? 16 : size;
 			memset(line, ' ', 99);
 			line[99] = 0;
@@ -115,77 +335,336 @@ void Trace::binary(int mask, const void *bin, int size)
 			line[1] = hex[(offset >>  8) & 15];
 			line[2] = hex[(offset >>  4) & 15];
 			line[3] = hex[(offset >>  0) & 15];
-			for (int j = 0; j < 16 && j < length; j++) {
+			for (j = 0; j < 16 && j < length; j++) {
 				int start = 6 + j * 3;
 				line[start + 0] = hex[src[j] >> 4];
 				line[start + 1] = hex[src[j] & 15];
 				if (j == 8) line[start - 1] = '-';
 			}
 			line[6 + length * 3] = '\0';
-			_output(line, _user);
+			Log(level, "%s", line);
 		}
 	}
 }
 
-void Trace::StaticOut(const char *text, void *user)
+
+//---------------------------------------------------------------------
+// dump string binary
+//---------------------------------------------------------------------
+void TraceLog::DumpBinary(int level, const std::string &data)
 {
-	Trace *self = (Trace*)user;
+	DumpBinary(level, data.data(), (int)data.size());
+}
 
+
+//---------------------------------------------------------------------
+// critical log
+//---------------------------------------------------------------------
+void TraceLog::Critical(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_CRITICAL)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_CRITICAL);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_CRITICAL, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// error log
+//---------------------------------------------------------------------
+void TraceLog::Error(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_ERROR)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_ERROR);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_ERROR, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// warn log
+//---------------------------------------------------------------------
+void TraceLog::Warn(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_WARN)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_WARN);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_WARN, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// info log
+//---------------------------------------------------------------------
+void TraceLog::Info(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_INFO)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_INFO);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_INFO, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// debug log
+//---------------------------------------------------------------------
+void TraceLog::Debug(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_DEBUG)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_DEBUG);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_DEBUG, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// verbose log
+//---------------------------------------------------------------------
+void TraceLog::Verbose(const char *fmt, ...)
+{
+	if (_output == nullptr) return;
+	if (Available(TRACE_VERBOSE)) {
+		System::CriticalScope scope_lock(_lock);
+		std::string prefix = GetPrefix(TRACE_VERBOSE);
+		va_list ap;
+		va_start(ap, fmt);
+		FormatRaw(TRACE_VERBOSE, prefix.c_str(), fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+
+//=====================================================================
+// TraceHandler
+//=====================================================================
+
+//---------------------------------------------------------------------
+// calculate timestamp string
+//---------------------------------------------------------------------
+std::string TraceLog_Timestamp(System::DateTime dt) {
+	std::string text;
+	text.resize(64);
+	sprintf(&text[0], "%02d:%02d:%02d:%03d",
+		dt.hour(),
+		dt.minute(),
+		dt.second(),
+		dt.millisec());
+	text.resize(strlen(text.c_str()));
+	return text;
+}
+
+
+//=====================================================================
+// BasicTraceHandler
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+BasicTraceHandler::~BasicTraceHandler()
+{
+	Close();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+BasicTraceHandler::BasicTraceHandler()
+{
+	_saved_date.datetime = 0;
+	_enable_file = false;
+	_enable_stdout = false;
+	_fp = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+BasicTraceHandler::BasicTraceHandler(const char *prefix, bool STDOUT, int color):
+	BasicTraceHandler()
+{
+	Open(prefix, STDOUT, color);
+}
+
+
+//---------------------------------------------------------------------
+// output implementation
+//---------------------------------------------------------------------
+void BasicTraceHandler::Output(const char *text)
+{
+	System::CriticalScope scope_lock(_lock);
 	System::DateTime now;
-
 	now.localtime();
 
-	if (now.datetime != self->_saved_date.datetime) {
-		self->_saved_date.datetime = now.datetime;
-		sprintf(self->_tmtext, "%02d:%02d:%02d:%03d", now.hour(), 
-			now.minute(), now.second(), now.millisec());
-		int nowday = now.mday() + now.month() * 32;
-		if (self->_saved_day != nowday) {
-			self->_saved_day = nowday;
-			self->_fntext[0] = 0;
+	// flush
+	if (text == NULL) {
+		if (_enable_file && _fp) {
+			fflush(_fp);
 		}
+		return;
 	}
-
-	if (self->_prefix) {
-		if (self->_fntext[0] == 0) {
-			if (self->_fp) fclose(self->_fp);
-			self->_fp = NULL;
-			sprintf(self->_fntext, "%s%04d%02d%02d.log", 
-				self->_prefix, now.year(), now.month(), now.mday());
-			self->_fp = fopen(self->_fntext, "a");
-			if (self->_fp) {
-				fseek(self->_fp, 0, SEEK_END);
+	
+	if (now.datetime != _saved_date.datetime) {
+		_saved_date.datetime = now.datetime;
+		int nowday = now.mday() + now.month() * 32;
+		_timestamp = TraceLog_Timestamp(now);
+		if (_saved_day != nowday) {
+			_saved_day = nowday;
+			if (_filename.size() > 0) {
+				_filename = "";
 			}
 		}
-
-		if (self->_fp) {
-			fprintf(self->_fp, "[%s] %s\n", self->_tmtext, text);
-            fflush(self->_fp);
-		}
 	}
 
-	if (self->_stdout) {
-		if (self->_color >= 0) {
-			console_set_color(self->_color);
-		}
-		printf("[%s] %s\n", self->_tmtext, text);
-		if (self->_color >= 0) {
-			console_reset();
-		}
-		fflush(stdout);
+	if (_enable_stdout) {
+		WriteConsole(text);
+	}
+
+	if (_enable_file) {
+		WriteFile(text);
 	}
 }
 
 
-// 设置颜色，只用于控制台输出(open时 STDOUT=true)，高四位为背景色，低四位为前景色
-// 色彩编码见：http://en.wikipedia.org/wiki/ANSI_escape_code
-int Trace::color(int color)
+//---------------------------------------------------------------------
+// output to console
+//---------------------------------------------------------------------
+void BasicTraceHandler::WriteConsole(const char *text)
 {
-	int old = _color;
-	_color = color;
-	return old;
+	if (_color >= 0) {
+		console_set_color(_color);
+	}
+	printf("[%s] %s\n", _timestamp.c_str(), text);
+	if (_color >= 0) {
+		console_reset();
+	}
+	fflush(stdout);
 }
 
 
-NAMESPACE_END(AsyncNet)
+//---------------------------------------------------------------------
+// output to file
+//---------------------------------------------------------------------
+void BasicTraceHandler::WriteFile(const char *text)
+{
+	if (_filename.empty()) {
+		if (_fp) fclose(_fp);
+		_fp = NULL;
+		_filename = StringFormat("%s%04d%02d%02d.log",
+						_prefix.c_str(), 
+						_saved_date.year(), 
+						_saved_date.month(), 
+						_saved_date.mday());
+		_fp = fopen(_filename.c_str(), "a");
+		if (_fp) {
+			fseek(_fp, 0, SEEK_END);
+		}
+	}
+
+	if (_fp) {
+		fprintf(_fp, "[%s] %s\n", _timestamp.c_str(), text);
+		fflush(_fp);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// open file or stdout
+//---------------------------------------------------------------------
+void BasicTraceHandler::Open(const char *prefix, bool stdout_enabled, int color)
+{
+	Close();
+	_enable_stdout = stdout_enabled;
+	if (prefix == NULL) {
+		_enable_file = false;
+		_prefix = "";
+		_color = -1;
+	}
+	else {
+		_enable_file = true;
+		_prefix = prefix;
+		_color = color;
+	}
+	_timestamp = "";
+	_filename = "";
+	_saved_day = -1;
+	_color = color;
+}
+
+
+//---------------------------------------------------------------------
+// close both stdout and file
+//---------------------------------------------------------------------
+void BasicTraceHandler::Close()
+{
+	if (_enable_stdout) {
+		_enable_stdout = false;
+	}
+	if (_enable_file) {
+		if (_fp) {
+			fclose(_fp);
+			_fp = NULL;
+		}
+		_filename = "";
+	}
+	_timestamp = "";
+	_filename = "";
+	_saved_day = -1;
+}
+
+
+//---------------------------------------------------------------------
+// Instance
+//---------------------------------------------------------------------
+BasicTraceHandler DefaultTraceHandler(NULL, true, -1);
+BasicTraceHandler NullTraceHandler;
+BasicTraceHandler ConsoleTraceHandler(NULL, true, -1);
+BasicTraceHandler WhiteTraceHandler(NULL, true, CTEXT_WHITE);
+BasicTraceHandler MagentaTraceHandler(NULL, true, CTEXT_MAGENTA);
+BasicTraceHandler GreenTraceHandler(NULL, true, CTEXT_GREEN);
+BasicTraceHandler FileTraceHandler("d", true);
+
+TraceLog TraceDefault(NULL, &DefaultTraceHandler);
+TraceLog TraceNull(NULL, &NullTraceHandler);
+TraceLog TraceConsole(NULL, &ConsoleTraceHandler);
+TraceLog TraceWhite(NULL, &WhiteTraceHandler);
+TraceLog TraceGreen(NULL, &GreenTraceHandler);
+TraceLog TraceMagenta(NULL, &MagentaTraceHandler);
+TraceLog TraceFile(NULL, &FileTraceHandler);
+
+
+//---------------------------------------------------------------------
+// Namespace end
+//---------------------------------------------------------------------
+NAMESPACE_END(System);
+
 

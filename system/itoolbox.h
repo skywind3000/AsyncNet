@@ -76,6 +76,11 @@ char *iposix_addr_get_ip_text(const iPosixAddress *addr, char *text);
 int iposix_addr_make(iPosixAddress *addr, int family, const char *t, int p);
 char *iposix_addr_str(const iPosixAddress *addr, char *text);
 
+// hash posix address
+IUINT32 iposix_addr_hash(const iPosixAddress *addr);
+
+// uuid: can be used as a key in hash table
+IINT64 iposix_addr_uuid(const iPosixAddress *addr);
 
 // returns zero if a1 equals to a2
 // returns 1 if a1 is greater than a2
@@ -112,27 +117,17 @@ iPosixRes *iposix_res_get(const char *hostname, int ipv);
 
 
 //=====================================================================
-// Protocol Reader
+// Panic
 //=====================================================================
-struct CAsyncReader;
-typedef struct CAsyncReader CAsyncReader;
 
-CAsyncReader *async_reader_new(ib_memnode *fnode);
+// panic handler function pointer
+extern void (*iposix_panic_cb)(const char *fn, int ln, const char *msg);
 
-void async_reader_delete(CAsyncReader *reader);
+// panic at file and line with formatted message
+void iposix_panic_at(const char *fn, int line, const char *fmt, ...);
 
-
-#define ISTREAM_READ_BYTE		0
-#define ISTREAM_READ_LINE		1
-#define ISTREAM_READ_BLOCK		2
-
-void async_reader_mode(CAsyncReader *reader, int mode, ilong what);
-
-long async_reader_read(CAsyncReader *reader, void *data, long maxsize);
-
-void async_reader_feed(CAsyncReader *reader, const void *data, long len);
-
-void async_reader_clear(CAsyncReader *reader);
+// convenient macro for panic
+#define iposix_panic(...) iposix_panic_at(__FILE__, __LINE__, __VA_ARGS__)
 
 
 //=====================================================================
@@ -226,6 +221,7 @@ IUINT32 hash_signature_time(const char *signature);
 //---------------------------------------------------------------------
 void signal_init();
 int signal_quiting();
+void signal_watcher(void (*watcher)(int));
 
 
 #ifdef __cplusplus

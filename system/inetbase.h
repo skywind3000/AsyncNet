@@ -281,7 +281,7 @@ typedef SOCKET Socket;
 /*===================================================================*/
 #ifndef __INTEGER_32_BITS__
 #define __INTEGER_32_BITS__
-#if defined(__UINT32_TYPE__) && defined(__UINT32_TYPE__)
+#if defined(__UINT32_TYPE__) && defined(__INT32_TYPE__)
 	typedef __UINT32_TYPE__ ISTDUINT32;
 	typedef __INT32_TYPE__ ISTDINT32;
 #elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)
@@ -315,8 +315,14 @@ typedef SOCKET Socket;
 	typedef uint32_t ISTDUINT32;
 	typedef int32_t ISTDINT32;
 #else 
+#include <limits.h>
+#if ULONG_MAX == 0xFFFFU
 	typedef unsigned long ISTDUINT32; 
 	typedef long ISTDINT32;
+#else
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#endif
 #endif
 #endif
 

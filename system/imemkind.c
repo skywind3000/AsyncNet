@@ -14,6 +14,7 @@
 #include "imembase.h"
 
 
+
 //=====================================================================
 // common utilities
 //=====================================================================
@@ -58,6 +59,32 @@ ilong iposix_fmt_printf(char *buf, ilong size, const char *fmt, va_list ap)
 
 
 //---------------------------------------------------------------------
+// format string with va_list into ib_string
+//---------------------------------------------------------------------
+ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
+{
+	ilong size = -1, require, hr;
+	va_list copy_ap;
+	char *buffer;
+	va_copy(copy_ap, ap);
+	size = iposix_fmt_length(fmt, copy_ap);
+	va_end(copy_ap);
+	if (size <= 0) {
+		ib_string_resize(out, 0);
+		return 0;
+	}
+	size++;
+	require = size + 10;
+	ib_string_resize(out, (int)require);
+	buffer = ib_string_ptr(out);
+	hr = iposix_fmt_printf(buffer, require, fmt, ap);
+	assert(hr + 1 == size);
+	ib_string_resize(out, (int)hr);
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
 // format string into ib_string
 //---------------------------------------------------------------------
 ilong iposix_str_format(ib_string *out, const char *fmt, ...)
@@ -82,7 +109,7 @@ ilong iposix_str_format(ib_string *out, const char *fmt, ...)
 	else {
 		char *buffer;
 		ilong hr = 0;
-		ib_string_resize(out, size + 10);
+		ib_string_resize(out, (int)size + 10);
 		buffer = ib_string_ptr(out);
 		size++;
 		va_start(argptr, fmt);
@@ -99,7 +126,7 @@ ilong iposix_str_format(ib_string *out, const char *fmt, ...)
 #endif
 		va_end(argptr);
 		hr = size;
-		ib_string_resize(out, hr);
+		ib_string_resize(out, (int)hr);
 	}
 	return size;
 }

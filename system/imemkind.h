@@ -10,9 +10,32 @@
 #define _IMEMKIND_H_
 
 #include <stddef.h>
+#include <stdarg.h>
 
 #include "imembase.h"
 #include "imemdata.h"
+
+
+//---------------------------------------------------------------------
+// va_copy compatibility
+//---------------------------------------------------------------------
+#if defined(_MSC_VER)
+    #if _MSC_VER >= 1800  // Visual Studio 2013
+        #define IHAVE_VA_COPY 1
+    #else
+        #define va_copy(dest, src) ((dest) = (src))
+    #endif
+#elif defined(__GNUC__) || defined(__clang__)
+    #if (!defined(va_copy)) && defined(__va_copy)
+        #define va_copy(d, s) __va_copy(d, s)
+    #endif
+    #define IHAVE_VA_COPY 1
+#else
+    #if !defined(va_copy)
+        #define va_copy(dest, src) ((dest) = (src))
+    #endif
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,6 +53,9 @@ ilong iposix_fmt_printf(char *buf, ilong size, const char *fmt, va_list ap);
 
 // format string into ib_string
 ilong iposix_str_format(ib_string *out, const char *fmt, ...);
+
+// format string with va_list into ib_string
+ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap);
 
 
 //---------------------------------------------------------------------

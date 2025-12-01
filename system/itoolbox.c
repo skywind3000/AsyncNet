@@ -6,6 +6,8 @@
 // Last Modified: 2023/12/11 00:22:17
 //
 //=====================================================================
+#include <stdlib.h>
+#include <stdarg.h>
 #include <signal.h>
 
 #include "itoolbox.h"
@@ -263,6 +265,64 @@ int iposix_addr_compare(const iPosixAddress *a1, const iPosixAddress *a2)
 	return 0;
 }
 
+// hash posix address
+IUINT32 iposix_addr_hash(const iPosixAddress *addr)
+{
+	int family = iposix_addr_family(addr);
+	IUINT32 h = (IUINT32)family;
+	const unsigned char *ptr;
+	int i;
+	switch (family) {
+	case AF_INET:
+		h = inc_hash_xxhash(h, ntohl(addr->sin4.sin_addr.s_addr));
+		h = inc_hash_xxhash(h, (IUINT32)ntohs(addr->sin4.sin_port));
+		break;
+	case AF_INET6:
+		ptr = iposix_addr_v6_cu8(addr);
+		for (i = 0; i < 4; i++, ptr += 4) {
+			IUINT32 x = 0;
+			idecode32u_lsb((const char*)ptr, &x);
+			h = inc_hash_xxhash(h, x);
+		}
+		h = inc_hash_xxhash(h, (IUINT32)ntohs(addr->sin6.sin6_port));
+		break;
+	default:
+		h = inc_hash_xxhash(h, ntohs(addr->sin4.sin_port));
+		break;
+	}
+	return h;
+}
+
+// uuid: can be used as a key in hash table
+IINT64 iposix_addr_uuid(const iPosixAddress *addr)
+{
+	int family = iposix_addr_family(addr);
+	const unsigned char *ptr;
+	IINT64 h = 0, p;
+	IUINT32 w = 0;
+	int i;
+	switch (family) {
+	case AF_INET:
+		p = ntohs(addr->sin4.sin_port) | ((((IUINT32)family) & 0x7fff) << 16);
+		h = (p << 32) | ntohl(addr->sin4.sin_addr.s_addr);
+		break;
+	case AF_INET6:
+		p = ntohs(addr->sin6.sin6_port) | ((((IUINT32)family) & 0x7fff) << 16);
+		ptr = iposix_addr_v6_cu8(addr);
+		for (i = 0; i < 4; i++, ptr += 4) {
+			IUINT32 x = 0;
+			idecode32u_lsb((const char*)ptr, &x);
+			w = inc_hash_xxhash(w, x);
+		}
+		h = (p << 32) | ((IINT64)w);
+		break;
+	default:
+		h = inc_hash_xxhash((IUINT32)h, ntohs(addr->sin4.sin_port));
+		break;
+	}
+	return h;
+}
+
 
 //=====================================================================
 // DNS Resolve
@@ -448,176 +508,39 @@ int iposix_addr_version(const char *text)
 
 
 //=====================================================================
-// Protocol Reader
+// Panic
 //=====================================================================
-struct CAsyncReader
-{
-	int mode;
-	int complete;
-	ilong need;
-	unsigned char spliter;
-	struct IMSTREAM cache;
-	struct IMSTREAM input;
-};
+
+// panic handler function pointer
+void (*iposix_panic_cb)(const char *fn, int ln, const char *msg) = NULL;
 
 
-CAsyncReader *async_reader_new(ib_memnode *fnode)
+//---------------------------------------------------------------------
+// panic at file and line with formatted message
+//---------------------------------------------------------------------
+void iposix_panic_at(const char *fn, int line, const char *fmt, ...)
 {
-	CAsyncReader *reader;
-	reader = (CAsyncReader*)ikmem_malloc(sizeof(CAsyncReader));
-	if (reader == NULL) return NULL;
-	ims_init(&reader->input, fnode, 0, 0);
-	ims_init(&reader->cache, fnode, 0, 0);
-	reader->spliter = (unsigned char)'\n';
-	reader->mode = ISTREAM_READ_BYTE;
-	reader->need = 0;
-	reader->complete = 0;
-	return reader;
-}
+	va_list ap;
+	char buffer[1024];
 
-void async_reader_delete(CAsyncReader *reader)
-{
-	if (reader != NULL) {
-		ims_destroy(&reader->input);
-		ims_destroy(&reader->cache);
-		memset(reader, 0, sizeof(CAsyncReader));
-		ikmem_free(reader);
-	}
-}
-
-static void async_reader_redirect(struct IMSTREAM *dst, struct IMSTREAM *src)
-{
-	while (ims_dsize(src) > 0) {
-		ilong size;
-		void *ptr;
-		size = ims_flat(src, &ptr);
-		if (size > 0) {
-			ims_write(dst, ptr, size);
-			ims_drop(src, size);
-		}
-	}
-}
-
-static void async_reader_reset(CAsyncReader *reader)
-{
-	if (ims_dsize(&reader->cache) > 0) {
-		struct IMSTREAM tmp;
-		ims_init(&tmp, reader->cache.fixed_pages, 0, 0);
-		async_reader_redirect(&tmp, &reader->input);
-		async_reader_redirect(&reader->input, &reader->cache);
-		async_reader_redirect(&reader->input, &tmp);
-		ims_destroy(&tmp);
-		reader->complete = 0;
-		assert(ims_dsize(&reader->cache) == 0);
-	}
-}
-
-void async_reader_mode(CAsyncReader *reader, int mode, ilong what)
-{
-	if (mode == ISTREAM_READ_LINE) {
-		if (reader->mode == mode && 
-			reader->spliter == (unsigned char)what) 
-			return;
-		reader->spliter = (unsigned char)what;
-	}
-	else if (mode == ISTREAM_READ_BLOCK) {
-		reader->need = what;
-		if (reader->mode == mode) return;
+	if (iposix_panic_cb == NULL) {
+		va_start(ap, fmt);
+		fprintf(stderr, "PANIC: %s (%d): ", fn, line);
+		vfprintf(stderr, fmt, ap);
+		fprintf(stderr, "\n");
+		va_end(ap);
+		fflush(stderr);
 	}
 	else {
-		assert(mode == ISTREAM_READ_BYTE);
-		if (reader->mode == mode) return;
+		va_start(ap, fmt);
+		vsprintf(buffer, fmt, ap);
+		va_end(ap);
+		iposix_panic_cb(fn, line, buffer);
 	}
-	reader->mode = mode;
-	async_reader_reset(reader);
+
+	abort();
 }
 
-long async_reader_read(CAsyncReader *reader, void *data, long maxsize)
-{
-	unsigned char *out = (unsigned char*)data;
-	ilong size = 0;
-	ilong remain = 0;
-	if (reader->mode == ISTREAM_READ_BYTE) {
-		void *pointer;
-		remain = ims_flat(&reader->input, &pointer);
-		if (remain == 0) return -1;
-		if (data == NULL) return 1;
-		if (maxsize < 1) return -2;
-		out[0] = *((unsigned char*)pointer);
-		ims_drop(&reader->input, 1);
-		return 1;
-	}
-	else if (reader->mode == ISTREAM_READ_LINE) {
-		if (reader->complete) {
-			remain = ims_dsize(&reader->cache);
-			if (data == NULL) return (long)remain;
-			if (maxsize < remain) return -2;
-			ims_read(&reader->cache, data, remain);
-			reader->complete = 0;
-			return (long)remain;
-		}	else {
-			unsigned char spliter = reader->spliter;
-			while (1) {
-				void *pointer;
-				unsigned char *src;
-				ilong i;
-				remain = ims_flat(&reader->input, &pointer);
-				if (remain == 0) return -1;
-				src = (unsigned char*)pointer;
-				for (i = 0; i < remain; i++) {
-					if (src[i] == spliter) break;
-				}
-				if (i >= remain) {
-					ims_write(&reader->cache, src, remain);
-					ims_drop(&reader->input, remain);
-				}	else {
-					ims_write(&reader->cache, src, i + 1);
-					ims_drop(&reader->input, i + 1);
-					size = ims_dsize(&reader->cache);
-					if (data == NULL) {
-						reader->complete = 1;
-						return (long)size;
-					}
-					if (maxsize < size) {
-						reader->complete = 1;
-						return -2;
-					}
-					ims_read(&reader->cache, data, size);
-					reader->complete = 0;
-					return (long)size;
-				}
-			}
-		}
-	}
-	else if (reader->mode == ISTREAM_READ_BLOCK) {
-		remain = ims_dsize(&reader->input);
-		size = reader->need;
-		if (remain < size) return -1;
-		if (data == NULL) return (long)size;
-		if (maxsize < size) return -2;
-		ims_read(&reader->input, data, size);
-		return (long)size;
-	}
-	return -1;
-}
-
-void async_reader_feed(CAsyncReader *reader, const void *data, long len)
-{
-	if (len > 0 && data != NULL) {
-		ims_write(&reader->input, data, len);
-	}
-}
-
-
-void async_reader_clear(CAsyncReader *reader)
-{
-	reader->mode = ISTREAM_READ_BYTE;
-	reader->need = 0;
-	reader->complete = 0;
-	reader->spliter = (unsigned char)'\n';
-	ims_clear(&reader->input);
-	ims_clear(&reader->cache);
-}
 
 
 //=====================================================================
@@ -828,7 +751,11 @@ void console_set_color(int color)
 	int foreground = color & 7;
 	int background = (color >> 4) & 7;
 	int bold = color & 8;
-	printf("\033[%s3%d;4%dm", bold? "01;" : "", foreground, background);
+	if (background != 0) {
+		printf("\033[%s3%d;4%dm", bold? "01;" : "", foreground, background);
+	}   else {
+		printf("\033[%s3%dm", bold? "01;" : "", foreground);
+	}
 	#endif
 }
 
@@ -943,9 +870,13 @@ IUINT32 hash_signature_time(const char *signature)
 // signal handles
 //---------------------------------------------------------------------
 static volatile int _signal_quit = 0;
+static void (*_signal_watcher)(int) = NULL;
 static void signal_handle_quit(int sig)
 {
 	_signal_quit = 1;
+	if (_signal_watcher) {
+		_signal_watcher(sig);
+	}
 }
 
 void signal_init()
@@ -966,5 +897,10 @@ void signal_init()
 int signal_quiting()
 {
 	return _signal_quit;
+}
+
+void signal_watcher(void (*watcher)(int))
+{
+	_signal_watcher = watcher;
 }
 
