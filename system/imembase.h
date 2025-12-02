@@ -741,11 +741,13 @@ ib_string* ib_string_new_size(const char *text, int size);
 void ib_string_delete(ib_string *str);
 
 ib_string* ib_string_resize(ib_string *str, int newsize);
+ib_string* ib_string_reserve(ib_string *str, int newsize);
 
 ib_string* ib_string_clear(ib_string *str);
 ib_string* ib_string_assign(ib_string *str, const char *src);
 ib_string* ib_string_assign_size(ib_string *str, const char *src, int size);
 
+ib_string* ib_string_clone(const ib_string *str);
 ib_string* ib_string_erase(ib_string *str, int pos, int size);
 ib_string* ib_string_insert(ib_string *str, int pos, 
 		const void *data, int size);
@@ -770,6 +772,7 @@ int ib_string_find_c(const ib_string *str, char ch, int start);
 ib_array* ib_string_split(const ib_string *str, const char *sep, int len);
 ib_array* ib_string_split_c(const ib_string *str, char sep);
 
+ib_string* ib_string_join(const ib_array *array, const char *sep, int len);
 ib_string* ib_string_strip(ib_string *str, const char *seps);
 
 

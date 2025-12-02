@@ -76,6 +76,31 @@ void itimer_core_destroy(itimer_core *core)
 
 
 //---------------------------------------------------------------------
+// for each node call function
+//---------------------------------------------------------------------
+void itimer_core_foreach(itimer_core *core, 
+		void (*fn)(itimer_node*, void*), void *args)
+{
+	ilist_head *it, *next = NULL;
+	int i, j;
+	for (i = 0; i < 5; i++) {
+		int count = (i == 0)? ITVR_SIZE : ITVN_SIZE;
+		for (j = 0; j < count; j++) {
+			ilist_head *root = &(core->tv1.vec[j]);
+			if (i > 0) root = &(core->tvecs[i]->vec[j]);
+			for (it = root->next; it != root; it = next) {
+				itimer_node *node = ilist_entry(it, itimer_node, head);
+				next = it->next;
+				if (fn) {
+					fn(node, args);
+				}
+			}
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
 // run timer core 
 //---------------------------------------------------------------------
 void itimer_core_run(itimer_core *core, IUINT32 jiffies)
@@ -150,6 +175,7 @@ int itimer_node_del(itimer_core *core, itimer_node *node)
 		return -1;
 	}
 	if (!ilist_is_empty(&node->head)) {
+		assert(node->core == core);
 		assert(node->core != NULL);
 		ilist_del_init(&node->head);
 		node->core = NULL;
@@ -306,9 +332,17 @@ void itimer_mgr_init(itimer_mgr *mgr, IUINT32 interval)
 	itimer_core_init(&mgr->core, mgr->jiffies);
 }
 
+// clear node status
+static void itimer_core_clear_node(itimer_node *node, void *args)
+{
+	itimer_evt *evt = (itimer_evt*)node->data;
+	evt->mgr = NULL;
+}
+
 // destroy timer manager
 void itimer_mgr_destroy(itimer_mgr *mgr)
 {
+	itimer_core_foreach(&mgr->core, itimer_core_clear_node, NULL);
 	itimer_core_destroy(&mgr->core);
 }
 
@@ -409,7 +443,6 @@ void itimer_evt_init(itimer_evt *evt, void (*fn)(void *data, void *user),
 	evt->period = 0;
 	evt->slap = 0;
 	evt->repeat = 0;
-	evt->running = 0;
 }
 
 // destroy timer event
@@ -423,7 +456,6 @@ void itimer_evt_destroy(itimer_evt *evt)
 	evt->period = 0;
 	evt->slap = 0;
 	evt->repeat = 0;
-	evt->running = 0;
 }
 
 // start timer: repeat <= 0 (infinite repeat)
@@ -437,7 +469,7 @@ void itimer_evt_start(itimer_mgr *mgr, itimer_evt *evt,
 	}
 	evt->period = (period < 1)? 1 : period;
 	evt->repeat = (repeat <= 0)? -1 : repeat;
-	evt->slap = mgr->current + period;
+	evt->slap = mgr->current + evt->period;
 	evt->mgr = mgr;
 	if (interval > 1) {
 		expires = (evt->slap - mgr->current + interval - 1) / interval;
@@ -446,17 +478,16 @@ void itimer_evt_start(itimer_mgr *mgr, itimer_evt *evt,
 	}
 	if (expires >= 0x70000000) expires = 0x70000000;
 	itimer_node_add(&mgr->core, &evt->node, mgr->jiffies + expires);
-	evt->running = 0;
 }
 
 // stop timer
 void itimer_evt_stop(itimer_mgr *mgr, itimer_evt *evt)
 {
 	if (evt->mgr) {
+		assert(mgr == evt->mgr);
 		itimer_node_del(&evt->mgr->core, &evt->node);
 		evt->mgr = NULL;
 	}
-	evt->running = 0;
 }
 
 // returns 0 for stopped and 1 for running

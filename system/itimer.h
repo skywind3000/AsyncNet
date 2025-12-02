@@ -66,7 +66,7 @@
 //=====================================================================
 #ifndef __IINT8_DEFINED
 #define __IINT8_DEFINED
-typedef char IINT8;
+typedef signed char IINT8;
 #endif
 
 #ifndef __IUINT8_DEFINED
@@ -239,8 +239,8 @@ struct itimer_node {
 typedef struct itimer_core itimer_core;
 typedef struct itimer_node itimer_node;
 
-#define itimer_core_jiffies(core) ((core)->jiffies)
-#define itimer_node_pending(node) (!iqueue_is_empty(&(node)->head))
+#define itimer_core_jiffies(core) ((core)->timer_jiffies)
+#define itimer_node_pending(node) (!ilist_is_empty(&(node)->head))
 
 
 #ifdef __cplusplus
@@ -279,6 +279,9 @@ int itimer_node_del(itimer_core *core, itimer_node *node);
 // modify node
 int itimer_node_mod(itimer_core *core, itimer_node *node, IUINT32 expires);
 
+// foreach all nodes
+void itimer_core_foreach(itimer_core *core, 
+		void (*fn)(itimer_node*, void*), void *args);
 
 
 //=====================================================================
@@ -300,7 +303,6 @@ struct itimer_evt
 	IUINT32 period;
 	IUINT32 slap;
 	int repeat;
-	int running;
 	void (*callback)(void *data, void *user);
 	void *data;
 	void *user;

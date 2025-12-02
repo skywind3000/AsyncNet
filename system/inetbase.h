@@ -363,7 +363,7 @@ typedef SOCKET Socket;
 
 #ifndef __IINT8_DEFINED
 #define __IINT8_DEFINED
-typedef char IINT8;
+typedef signed char IINT8;
 #endif
 
 #ifndef __IUINT8_DEFINED

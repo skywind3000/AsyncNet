@@ -1485,6 +1485,14 @@ ib_string* ib_string_reserve(ib_string *str, int newsize)
 	return str;
 }
 
+ib_string* ib_string_clone(const ib_string *str)
+{
+	ib_string *newstr = ib_string_new();
+	ASSERTION(newstr);
+	ib_string_assign_size(newstr, str->ptr, str->size);
+	return newstr;
+}
+
 ib_string* ib_string_insert(ib_string *str, int pos, 
 		const void *data, int size)
 {
@@ -1695,6 +1703,35 @@ ib_array* ib_string_split_c(const ib_string *str, char sep)
 			}
 		}
 		return array;
+	}
+}
+
+ib_string* ib_string_join(const ib_array *array, const char *sep, int len)
+{
+	if (array == NULL || array->size == 0) {
+		return ib_string_new();
+	}
+	else {
+		ib_string *str = ib_string_new();
+		int i, size = 0;
+		len = (len >= 0)? len : ((int)strlen(sep));
+		for (i = 0; i < array->size; i++) {
+			ib_string *item = (ib_string*)array->items[i];
+			size += item->size;
+			if (i > 0) size += len;
+		}
+		ib_string_resize(str, size);
+		char *ptr = str->ptr;
+		for (i = 0; i < array->size; i++) {
+			ib_string *item = (ib_string*)array->items[i];
+			memcpy(ptr, item->ptr, item->size);
+			ptr += item->size;
+			if (i < array->size - 1) {
+				memcpy(ptr, sep, len);
+				ptr += len;
+			}
+		}
+		return str;
 	}
 }
 
