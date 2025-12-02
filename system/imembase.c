@@ -610,7 +610,7 @@ void ib_array_reserve(ib_array *array, size_t new_size)
 {
 	int hr = iv_obj_reserve(&array->vec, char*, new_size);
 	if (hr != 0) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	ib_array_update(array);
 }
@@ -627,13 +627,13 @@ void** ib_array_ptr(ib_array *array)
 
 void* ib_array_index(ib_array *array, size_t index)
 {
-	assert(index < array->size);
+	ASSERTION(index < array->size);
 	return array->items[index];
 }
 
 const void* ib_array_const_index(const ib_array *array, size_t index)
 {
-	assert(index < array->size);
+	ASSERTION(index < array->size);
 	return array->items[index];
 }
 
@@ -641,7 +641,7 @@ void ib_array_push(ib_array *array, void *item)
 {
 	int hr = iv_obj_push(&array->vec, void*, &item);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	ib_array_update(array);
 	array->size++;
@@ -651,7 +651,7 @@ void ib_array_push_left(ib_array *array, void *item)
 {
 	int hr = iv_obj_insert(&array->vec, void*, 0, &item);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	ib_array_update(array);
 	array->size++;
@@ -659,7 +659,7 @@ void ib_array_push_left(ib_array *array, void *item)
 
 void ib_array_replace(ib_array *array, size_t index, void *item)
 {
-	assert(index < array->size);
+	ASSERTION(index < array->size);
 	if (array->fn_destroy) {
 		array->fn_destroy(array->items[index]);
 	}
@@ -670,13 +670,13 @@ void* ib_array_pop(ib_array *array)
 {
 	void *item;
 	int hr;
-	assert(array->size > 0);
+	ASSERTION(array->size > 0);
 	array->size--;
 	item = array->items[array->size];
 	hr = iv_obj_resize(&array->vec, void*, array->size);
 	ib_array_update(array);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	return item;
 }
@@ -685,20 +685,20 @@ void* ib_array_pop_left(ib_array *array)
 {
 	void *item;
 	int hr;
-	assert(array->size > 0);
+	ASSERTION(array->size > 0);
 	array->size--;
 	item = array->items[0];
 	hr = iv_obj_erase(&array->vec, void*, 0, 1);
 	ib_array_update(array);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	return item;
 }
 
 void ib_array_remove(ib_array *array, size_t index)
 {
-	assert(index < array->size);
+	ASSERTION(index < array->size);
 	if (array->fn_destroy) {
 		array->fn_destroy(array->items[index]);
 	}
@@ -720,7 +720,7 @@ void ib_array_clear(ib_array *array)
 	hr = iv_obj_resize(&array->vec, void*, array->size);
 	ib_array_update(array);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 }
 
@@ -728,7 +728,7 @@ void ib_array_insert_before(ib_array *array, size_t index, void *item)
 {
 	int hr = iv_obj_insert(&array->vec, void*, index, &item);
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	ib_array_update(array);
 	array->size++;
@@ -738,8 +738,8 @@ void* ib_array_pop_at(ib_array *array, size_t index)
 {
 	void *item;
 	int hr;
-	assert(array->size > 0);
-	assert(index < array->size);
+	ASSERTION(array->size > 0);
+	ASSERTION(index < array->size);
 	if (array->size == 0 || index >= array->size) {
 		return NULL;
 	}
@@ -748,7 +748,7 @@ void* ib_array_pop_at(ib_array *array, size_t index)
 	ib_array_update(array);
 	array->size--;
 	if (hr) {
-		assert(hr == 0);
+		ASSERTION(hr == 0);
 	}
 	return item;
 }
@@ -1358,7 +1358,7 @@ void* ib_fastbin_new(struct ib_fastbin *fb)
 		fb->next = ib_read_ptr(fb->next);
 		return obj;
 	}
-	if (fb->start + obj_size > fb->endup) {
+	if (fb->start == NULL || fb->start + obj_size > fb->endup) {
 		char *page = (char*)ikmem_malloc(fb->page_size);
 		size_t lineptr = (size_t)page;
 		ASSERTION(page);
@@ -1391,7 +1391,7 @@ void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 ib_string* ib_string_new(void)
 {
 	struct ib_string* str = (ib_string*)ikmem_malloc(sizeof(ib_string));
-	assert(str);
+	ASSERTION(str);
 	str->ptr = str->sso;
 	str->size = 0;
 	str->capacity = IB_STRING_SSO;
@@ -1402,7 +1402,7 @@ ib_string* ib_string_new(void)
 
 void ib_string_delete(ib_string *str)
 {
-	assert(str);
+	ASSERTION(str);
 	if (str) {
 		if (str->ptr && str->ptr != str->sso) 
 			ikmem_free(str->ptr);
@@ -1430,8 +1430,8 @@ ib_string* ib_string_new_from(const char *text)
 
 static void _ib_string_set_capacity(ib_string *str, int capacity)
 {
-	assert(str);
-	assert(capacity >= 0);
+	ASSERTION(str);
+	ASSERTION(capacity >= 0);
 	if (capacity <= IB_STRING_SSO) {
 		capacity = IB_STRING_SSO;
 		if (str->ptr != str->sso) {
@@ -1447,7 +1447,7 @@ static void _ib_string_set_capacity(ib_string *str, int capacity)
 	else {
 		char *ptr = (char*)ikmem_malloc(capacity + 2);
 		int csize = (capacity < str->size) ? capacity : str->size;
-		assert(ptr);
+		ASSERTION(ptr);
 		if (csize > 0) {
 			memcpy(ptr, str->ptr, csize);
 		}
@@ -1463,7 +1463,7 @@ static void _ib_string_set_capacity(ib_string *str, int capacity)
 
 ib_string* ib_string_resize(ib_string *str, int newsize)
 {
-	assert(str && newsize >= 0);
+	ASSERTION(str && newsize >= 0);
 	if (newsize > str->capacity) {
 		int capacity = str->capacity * 2;
 		if (capacity < newsize) {
@@ -1547,7 +1547,7 @@ ib_string* ib_string_assign(ib_string *str, const char *src)
 
 ib_string* ib_string_assign_size(ib_string *str, const char *src, int size)
 {
-	assert(size >= 0);
+	ASSERTION(size >= 0);
 	ib_string_resize(str, size);
 	if (src) {
 		memcpy(str->ptr, src, size);
@@ -1976,7 +1976,12 @@ void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
 	size_t index_size = 1;
 	struct ILISTHEAD head;
 	size_t i;
-	ASSERTION(nbytes >= sizeof(struct ib_hash_index));
+	if (new_index != NULL) {
+		if (nbytes < sizeof(struct ib_hash_index)) {
+			ASSERTION(nbytes >= sizeof(struct ib_hash_index));
+			return NULL;
+		}
+	}
 	if (new_index == NULL) {
 		if (ht->index == ht->init) {
 			return NULL;
@@ -2080,7 +2085,6 @@ struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm,
 void ib_map_init(struct ib_hash_map *hm, size_t (*hash)(const void*),
 		int (*compare)(const void *, const void *))
 {
-	hm->count = 0;
 	hm->key_copy = NULL;
 	hm->key_destroy = NULL;
 	hm->value_copy = NULL;
@@ -2229,7 +2233,7 @@ ib_map_add(struct ib_hash_map *hm, void *key, void *value, int *success)
 struct ib_hash_entry*
 ib_map_set(struct ib_hash_map *hm, void *key, void *value)
 {
-	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 0);
+	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 1);
 	ib_map_rehash(hm, hm->ht.count);
 	return entry;
 }
@@ -2270,7 +2274,7 @@ void ib_map_clear(struct ib_hash_map *hm)
 		if (entry == NULL) break;
 		ib_map_erase(hm, entry);
 	}
-	ASSERTION(hm->count == 0);
+	ASSERTION(hm->ht.count == 0);
 }
 
 
@@ -2304,10 +2308,13 @@ size_t ib_hash_bytes_stl(const void *ptr, size_t size, size_t seed)
 	const unsigned char *buf = (const unsigned char*)ptr;
 	const size_t m = 0x5bd1e995;
 	size_t hash = size ^ seed;
+	IUINT32 z = 0;
 	for (; size >= 4; buf += 4, size -= 4) {
-		size_t k = *((IUINT32*)buf);
+		memcpy(&z, buf, sizeof(IUINT32));
+		size_t k = z;
 		k *= m;
-		k = (k >> 24) * m;
+		k ^= k >> 24;
+		k *= m;
 		hash = (hash * m) ^ k;
 	}
 	switch (size) {
@@ -2425,6 +2432,10 @@ struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key)
 	return hr;
 }
 
+size_t ib_map_count(const struct ib_hash_map *hm)
+{
+	return hm->ht.count;
+}
 
 
 /*--------------------------------------------------------------------*/
@@ -2481,14 +2492,15 @@ void* ib_stack_next(struct ib_stack *stack, size_t size)
 		required = (minsize < relsize)? relsize : minsize;
 		required = IROUND_UP(required, sizeof(char*));
 		page = (char*)internal_malloc(stack->allocator, required);
+		ASSERTION(page != NULL);
 		ib_write_ptr(page, stack->pages);
 		stack->pages = page;
 		stack->ptr = page + sizeof(void*);
 		stack->avail = required - sizeof(void*);
 		stack->allocated += required;
 	}
-	assert(stack->ptr != NULL);
-	assert(stack->avail >= size);
+	ASSERTION(stack->ptr != NULL);
+	ASSERTION(stack->avail >= size);
 	obj = stack->ptr;
 	stack->ptr += size;
 	stack->avail -= size;
@@ -2501,7 +2513,7 @@ static void* ib_stack_alloc(struct IALLOCATOR *allocator, size_t size)
 {
 	struct ib_stack *stack = (struct ib_stack*)allocator->udata;
 	char *obj = (char*)ib_stack_next(stack, size + sizeof(size_t));
-	assert(obj != NULL);
+	ASSERTION(obj != NULL);
 	memcpy(obj, &size, sizeof(size_t));
 	return obj + sizeof(size_t);
 }
@@ -2517,7 +2529,7 @@ static void* ib_stack_realloc(struct IALLOCATOR *allocator,
 {
 	void *obj;
 	obj = ib_stack_alloc(allocator, size);
-	assert(obj != NULL);
+	ASSERTION(obj != NULL);
 	if (ptr != NULL) {
 		size_t oldsize = 0;
 		memcpy(&oldsize, ((char*)ptr) - sizeof(size_t), sizeof(size_t));

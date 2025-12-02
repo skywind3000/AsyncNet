@@ -272,6 +272,9 @@ CAsyncLoop* async_loop_new(void)
 	cc = -1;
 #if IENABLE_TIMERFD
 	cc = timerfd_create(0, TFD_CLOEXEC | TFD_NONBLOCK);
+	if (loop->interval > 10) {
+		loop->interval = 10;
+	}
 #endif
 	if (cc >= 0) {
 		struct itimerspec ts;

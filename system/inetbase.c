@@ -463,7 +463,20 @@ void ithread_once(int *control, void (*run_once)(void))
 /* create socket */
 int isocket(int family, int type, int protocol)
 {
+#ifdef __unix
 	return (int)socket(family, type, protocol);
+#else
+	SOCKET sock = socket(family, type, protocol);
+	size_t linear = (size_t)sock;
+	if (sock == INVALID_SOCKET) {
+		return -1;
+	}
+	assert(linear <= 0x7fffffff);
+	if (linear <= 0x7fffffff) {
+		return (int)linear;
+	}
+	return -1;
+#endif
 }
 
 /* close socket */
@@ -533,6 +546,8 @@ int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 	int hr;
 #ifdef _WIN32
 	unsigned char remote[32];
+	SOCKET newfd;
+	size_t linear;
 #endif
 	if (addr == NULL) {
 		return (int)accept(sock, NULL, NULL);
@@ -546,7 +561,19 @@ int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 		len = 28;
 	}
 #endif
+#ifndef _WIN32
 	hr = (int)accept(sock, target, &len);
+#else
+	newfd = accept((SOCKET)sock, target, &len);
+	if (newfd == INVALID_SOCKET) return -1;
+	linear = (size_t)newfd;
+	assert(linear <= 0x7fffffff);
+	if (linear <= 0x7fffffff) {
+		hr = (int)linear;
+	} else {
+		hr = -1;
+	}
+#endif
 #ifdef _WIN32
 	if (target != addr) {
 		memcpy(addr, remote, 24);
@@ -1142,16 +1169,21 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 	}
 	
 
-#elif defined(SOL_TCL) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
+#elif defined(SOL_TCP) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
 
 	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
+	if (!enable) goto keepalive_skip;
+#if defined(TCP_KEEPCNT)
 	value = keepcnt;
 	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (char*)&value, sizeof(long));
+#endif
 	value = keepidle;
 	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (char*)&value, sizeof(long));
 	value = keepintvl;
 	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (char*)&value, sizeof(long));
+keepalive_skip:
+
 #elif defined(SO_KEEPALIVE)
 	value = enable? 1 : 0;
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
@@ -1475,7 +1507,7 @@ int isocket_option(int fd, int option, int enable)
 		#ifdef FD_CLOEXEC
 		value = fcntl(fd, F_GETFD);
 		if (enable) {
-			retval = FD_CLOEXEC | value;
+			value = FD_CLOEXEC | value;
 		}	else {
 			value &= ~FD_CLOEXEC;
 		}
@@ -1657,16 +1689,17 @@ int isocket_get_family(int sock)
 /* set recv buf and send buf */
 int isocket_set_buffer(int sock, long rcvbuf_size, long sndbuf_size)
 {
-	long len = sizeof(long);
+	IINT32 len = (IINT32)sizeof(IINT32);
+	IINT32 val;
 	int retval;
 	if (rcvbuf_size > 0) {
-		retval = isetsockopt(sock, SOL_SOCKET, SO_RCVBUF, 
-			(char*)&rcvbuf_size, len);
+		val = (IINT32)rcvbuf_size;
+		retval = isetsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&val, len);
 		if (retval < 0) return retval;
 	}
 	if (sndbuf_size > 0) {
-		retval = isetsockopt(sock, SOL_SOCKET, SO_SNDBUF, 
-			(char*)&sndbuf_size, len);
+		val = (IINT32)sndbuf_size;
+		retval = isetsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char*)&val, len);
 		if (retval < 0) return retval;
 	}
 	return 0;

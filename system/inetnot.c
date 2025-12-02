@@ -296,7 +296,7 @@ static void async_notify_set(CAsyncNotify *self, int mode, int sid, long hid)
 // set into sid blacklist
 static void async_notify_black_set(CAsyncNotify *notify, int sid, int mode)
 {
-	long seconds = notify->seconds;
+	long seconds = (long)notify->seconds;
 	if (mode == 0) {
 		idict_del_i(notify->sidblack, sid);
 	}	else {
@@ -1598,7 +1598,7 @@ int async_notify_close(CAsyncNotify *notify, int sid, int mode, int code)
 //---------------------------------------------------------------------
 static void async_notify_on_timer(CAsyncNotify *notify)
 {
-	long seconds = notify->seconds;
+	long seconds = (long)(notify->seconds);
 	CAsyncNode *node;
 	if (notify->cfg.timeout_keepalive > 0) {
 		while (1) {
@@ -1625,7 +1625,7 @@ static void async_notify_on_timer(CAsyncNotify *notify)
 			if (seconds - node->ts_idle <= notify->cfg.timeout_idle_kill) {
 				break;
 			}
-			x = seconds - node->ts_idle;
+			x = (long)(seconds - node->ts_idle);
 			async_notify_node_active(notify, node->hid, 1);
 			async_core_close(notify->core, node->hid, 8301);
 			async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO,

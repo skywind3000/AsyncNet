@@ -135,7 +135,11 @@ typedef ISTDUINT32 IUINT32;
 /* you can change this by config.h or predefined macro */
 /* set it to ((void)0) to skip assertion */
 #ifndef ASSERTION
-#define ASSERTION(x) assert(x);
+	#if defined(NDEBUG)
+		#define ASSERTION(x) do { if (!(x)) abort(); } while (0)
+	#else
+		#define ASSERTION(x) assert(x)
+	#endif
 #endif
 
 
@@ -876,7 +880,6 @@ struct ib_hash_entry
 
 struct ib_hash_map
 {
-	size_t count;
 	int insert;
 	int fixed;
 	int builtin;
@@ -897,6 +900,7 @@ void ib_map_init(struct ib_hash_map *hm, size_t (*hash)(const void*),
 
 void ib_map_destroy(struct ib_hash_map *hm);
 
+/* iteration functions */
 struct ib_hash_entry* ib_map_first(struct ib_hash_map *hm);
 struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm);
 
@@ -919,11 +923,15 @@ void* ib_map_get(struct ib_hash_map *hm, const void *key);
 
 void ib_map_erase(struct ib_hash_map *hm, struct ib_hash_entry *entry);
 
+void ib_map_reserve(struct ib_hash_map *hm, size_t capacity);
 
 /* returns 0 for success, -1 for key mismatch */
 int ib_map_remove(struct ib_hash_map *hm, const void *key);
 
 void ib_map_clear(struct ib_hash_map *hm);
+
+/* return object count in the hash map */
+size_t ib_map_count(const struct ib_hash_map *hm);
 
 
 /*--------------------------------------------------------------------*/
