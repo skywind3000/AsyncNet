@@ -6,7 +6,7 @@
  * Provides efficient memory operations, dynamic containers, and data
  * structures including allocators, vectors, memory pools, AVL trees,
  * hash tables, strings, and arrays with cross-platform support.
- * 
+ *
  * For more information, please see the readme file.
  *
  **********************************************************************/
@@ -62,10 +62,10 @@
 	#include <stdint.h>
 	typedef uint32_t ISTDUINT32;
 	typedef int32_t ISTDINT32;
-#else 
+#else
 #include <limits.h>
 #if ULONG_MAX == 0xFFFFU
-	typedef unsigned long ISTDUINT32; 
+	typedef unsigned long ISTDUINT32;
 	typedef long ISTDINT32;
 #else
 	typedef unsigned int ISTDUINT32;
@@ -124,7 +124,7 @@ typedef ISTDUINT32 IUINT32;
 #elif (defined(_MSC_VER) || defined(__WATCOMC__))
 #define INLINE __inline
 #else
-#define INLINE 
+#define INLINE
 #endif
 #endif
 
@@ -406,7 +406,7 @@ typedef struct ILISTHEAD ilist_head;
 
 #define ilist_foreach_entry(pos, head) \
 	for( (pos) = (head)->next; (pos) != (head) ; (pos) = (pos)->next )
-	
+
 
 #define __ilist_splice(list, head) do {	\
 		ilist_head *first = (list)->next, *last = (list)->prev; \
@@ -446,8 +446,8 @@ typedef struct ILISTHEAD ilist_head;
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0500
 #endif
-#ifndef WIN32_LEAN_AND_MEAN  
-#define WIN32_LEAN_AND_MEAN  
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #else
@@ -532,12 +532,12 @@ void ib_array_reverse(ib_array *array);
 #define ib_array_obj_const(array, type, index) \
 	((type)ib_array_const_index((array), (index)))
 
-void ib_array_sort(ib_array *array, 
+void ib_array_sort(ib_array *array,
 		int (*compare)(const void*, const void*));
 
-ilong ib_array_search(const ib_array *array, 
+ilong ib_array_search(const ib_array *array,
 		int (*compare)(const void*, const void*),
-		const void *item, 
+		const void *item,
 		ilong start_pos);
 
 ilong ib_array_bsearch(const ib_array *array,
@@ -665,7 +665,7 @@ struct ib_tree
 /* initialize avltree, use IB_OFFSET(type, member) for "offset"
  * eg:
  *     ib_tree_init(&mytree, mystruct_compare,
- *          sizeof(struct mystruct_t), 
+ *          sizeof(struct mystruct_t),
  *          IB_OFFSET(struct mystruct_t, node));
  */
 void ib_tree_init(struct ib_tree *tree,
@@ -683,9 +683,16 @@ void *ib_tree_nearest(struct ib_tree *tree, const void *data);
 /* returns NULL for success, otherwise returns conflict node with same key */
 void *ib_tree_add(struct ib_tree *tree, void *data);
 
+/* remove a node by data pointer, the data must be a node in the tree */
 void ib_tree_remove(struct ib_tree *tree, void *data);
+
+/* find and remove a node by data pointer, the data is used as key */
+void ib_tree_find_and_remove(struct ib_tree *tree, const void *data);
+
+/* replace a node by data pointer, the victim node must be in the tree */
 void ib_tree_replace(struct ib_tree *tree, void *victim, void *newdata);
 
+/* clear all nodes in the tree, call destroy(data) for each node data */
 void ib_tree_clear(struct ib_tree *tree, void (*destroy)(void *data));
 
 
@@ -749,7 +756,7 @@ ib_string* ib_string_assign_size(ib_string *str, const char *src, int size);
 
 ib_string* ib_string_clone(const ib_string *str);
 ib_string* ib_string_erase(ib_string *str, int pos, int size);
-ib_string* ib_string_insert(ib_string *str, int pos, 
+ib_string* ib_string_insert(ib_string *str, int pos,
 		const void *data, int size);
 
 ib_string* ib_string_append(ib_string *str, const char *src);
@@ -761,7 +768,7 @@ ib_string* ib_string_prepend_size(ib_string *str, const char *src, int size);
 ib_string* ib_string_prepend_c(ib_string *str, char c);
 
 ib_string* ib_string_rewrite(ib_string *str, int pos, const char *src);
-ib_string* ib_string_rewrite_size(ib_string *str, int pos, 
+ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 		const char *src, int size);
 
 int ib_string_compare(const struct ib_string *a, const struct ib_string *b);
@@ -769,11 +776,17 @@ int ib_string_compare(const struct ib_string *a, const struct ib_string *b);
 int ib_string_find(const ib_string *str, const char *src, int len, int start);
 int ib_string_find_c(const ib_string *str, char ch, int start);
 
+int ib_string_rfind(const ib_string *str, const char *src, int len, int start);
+int ib_string_rfind_c(const ib_string *str, char ch, int start);
+
 ib_array* ib_string_split(const ib_string *str, const char *sep, int len);
 ib_array* ib_string_split_c(const ib_string *str, char sep);
 
 ib_string* ib_string_join(const ib_array *array, const char *sep, int len);
 ib_string* ib_string_strip(ib_string *str, const char *seps);
+
+ib_string* ib_string_replace(const ib_string *str, const char *src,
+		int srcsize, const char *dst, int dstsize);
 
 
 /*--------------------------------------------------------------------*/
@@ -807,20 +820,20 @@ struct ib_hash_table
 };
 
 
-void ib_hash_init(struct ib_hash_table *ht, 
+void ib_hash_init(struct ib_hash_table *ht,
 		size_t (*hash)(const void *key),
 		int (*compare)(const void *key1, const void *key2));
 
 struct ib_hash_node* ib_hash_node_first(struct ib_hash_table *ht);
 struct ib_hash_node* ib_hash_node_last(struct ib_hash_table *ht);
 
-struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht, 
+struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht,
 		struct ib_hash_node *node);
 
-struct ib_hash_node* ib_hash_node_prev(struct ib_hash_table *ht, 
+struct ib_hash_node* ib_hash_node_prev(struct ib_hash_table *ht,
 		struct ib_hash_node *node);
 
-static inline void ib_hash_node_key(struct ib_hash_table *ht, 
+static inline void ib_hash_node_key(struct ib_hash_table *ht,
 		struct ib_hash_node *node, void *key) {
 	node->key = key;
 	node->hash = ht->hash(key);
@@ -837,7 +850,7 @@ struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 
 void ib_hash_erase(struct ib_hash_table *ht, struct ib_hash_node *node);
 
-void ib_hash_replace(struct ib_hash_table *ht, 
+void ib_hash_replace(struct ib_hash_table *ht,
 		struct ib_hash_node *victim, struct ib_hash_node *newnode);
 
 void ib_hash_clear(struct ib_hash_table *ht,
@@ -907,16 +920,16 @@ void ib_map_destroy(struct ib_hash_map *hm);
 struct ib_hash_entry* ib_map_first(struct ib_hash_map *hm);
 struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm);
 
-struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm, 
+struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm,
 		struct ib_hash_entry *n);
-struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm, 
+struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm,
 		struct ib_hash_entry *n);
 
 struct ib_hash_entry* ib_map_find(struct ib_hash_map *hm, const void *key);
 
 void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval);
 
-struct ib_hash_entry* ib_map_add(struct ib_hash_map *hm, 
+struct ib_hash_entry* ib_map_add(struct ib_hash_map *hm,
 		void *key, void *value, int *success);
 
 struct ib_hash_entry* ib_map_set(struct ib_hash_map *hm,

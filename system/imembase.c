@@ -6,7 +6,7 @@
  * Provides efficient memory operations, dynamic containers, and data
  * structures including allocators, vectors, memory pools, AVL trees,
  * hash tables, strings, and arrays with cross-platform support.
- * 
+ *
  * For more information, please see the readme file.
  *
  **********************************************************************/
@@ -21,13 +21,13 @@
 
 #if (defined(__BORLANDC__) || defined(__WATCOMC__))
 #if defined(_WIN32) || defined(WIN32)
-#pragma warn -8002  
-#pragma warn -8004  
-#pragma warn -8008  
+#pragma warn -8002
+#pragma warn -8004
+#pragma warn -8008
 #pragma warn -8012
 #pragma warn -8027
-#pragma warn -8057  
-#pragma warn -8066 
+#pragma warn -8057
+#pragma warn -8066
 #endif
 #endif
 
@@ -200,7 +200,7 @@ int iv_push(struct IVECTOR *v, const void *data, size_t size)
 	size_t current = v->size;
 	if (iv_resize(v, current + size) != 0)
 		return -1;
-	if (data != NULL) 
+	if (data != NULL)
 		memcpy(v->data + current, data, size);
 	return 0;
 }
@@ -210,7 +210,7 @@ size_t iv_pop(struct IVECTOR *v, void *data, size_t size)
 {
 	size_t current = v->size;
 	if (size >= current) size = current;
-	if (data != NULL) 
+	if (data != NULL)
 		memcpy(data, v->data + current - size, size);
 	iv_resize(v, current - size);
 	return size;
@@ -220,14 +220,14 @@ size_t iv_pop(struct IVECTOR *v, void *data, size_t size)
 int iv_insert(struct IVECTOR *v, size_t pos, const void *data, size_t size)
 {
 	size_t current = v->size;
-	if (pos > current) 
+	if (pos > current)
 		return -1;
 	if (iv_resize(v, current + size) != 0)
 		return -1;
 	if (pos < current) {
 		memmove(v->data + pos + size, v->data + pos, current - pos);
 	}
-	if (data != NULL) 
+	if (data != NULL)
 		memcpy(v->data + pos, data, size);
 	return 0;
 }
@@ -240,7 +240,7 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size)
 	if (pos + size >= current) size = current - pos;
 	if (size == 0) return 0;
 	memmove(v->data + pos, v->data + pos + size, current - pos - size);
-	if (iv_resize(v, current - size) != 0) 
+	if (iv_resize(v, current - size) != 0)
 		return -1;
 	return 0;
 }
@@ -357,7 +357,7 @@ static int imnode_mem_add(struct IMEMNODE*mnode, ilong node_count, void**mem)
 
 	if (mnode->mem_count >= mnode->mem_max) {
 		newsize = (mnode->mem_max <= 0)? 16 : mnode->mem_max * 2;
-		if (iv_resize(&mnode->vmem, newsize * sizeof(void*))) 
+		if (iv_resize(&mnode->vmem, newsize * sizeof(void*)))
 			return -1;
 		mnode->mem_max = newsize;
 		mnode->mmem = (char**)((void*)mnode->vmem.data);
@@ -767,22 +767,45 @@ void ib_array_reverse(ib_array *array)
 	}
 }
 
-void ib_array_sort(ib_array *array, 
+static void ib_array_heap_down(void **items, size_t start, size_t end,
 		int (*compare)(const void*, const void*))
 {
-	if (array->size) {
-		void **items = array->items;
-		size_t size = array->size;
-		size_t i, j;
-		for (i = 0; i < size - 1; i++) {
-			for (j = i + 1; j < size; j++) {
-				if (compare(items[i], items[j]) > 0) {
-					void *tmp = items[i];
-					items[i] = items[j];
-					items[j] = tmp;
-				}
-			}
+	while (1) {
+		size_t child = (start << 1) + 1;
+		void *tmp;
+		if (child > end) break;
+		if (child + 1 <= end && compare(items[child], items[child + 1]) < 0) {
+			child++;
 		}
+		if (compare(items[start], items[child]) >= 0) {
+			break;
+		}
+		tmp = items[start];
+		items[start] = items[child];
+		items[child] = tmp;
+		start = child;
+	}
+}
+
+void ib_array_sort(ib_array *array,
+		int (*compare)(const void*, const void*))
+{
+	void **items;
+	size_t count;
+	size_t i;
+	if (array->size <= 1) {
+		return;
+	}
+	items = array->items;
+	count = array->size;
+	for (i = (count >> 1); i > 0; i--) {
+		ib_array_heap_down(items, i - 1, count - 1, compare);
+	}
+	for (i = count - 1; i > 0; i--) {
+		void *tmp = items[0];
+		items[0] = items[i];
+		items[i] = tmp;
+		ib_array_heap_down(items, 0, i - 1, compare);
 	}
 }
 
@@ -797,9 +820,9 @@ void ib_array_for_each(ib_array *array, void (*iterator)(void *item))
 	}
 }
 
-ilong ib_array_search(const ib_array *array, 
+ilong ib_array_search(const ib_array *array,
 		int (*compare)(const void*, const void*),
-		const void *item, 
+		const void *item,
 		ilong start_pos)
 {
 	ilong size = (ilong)array->size;
@@ -825,14 +848,13 @@ ilong ib_array_bsearch(const ib_array *array,
 	if (array->size == 0) return -1;
 	top = 0;
 	bottom = (ilong)array->size - 1;
-	while (1) {
+	while (top <= bottom) {
 		int hr;
 		mid = (top + bottom) >> 1;
 		hr = compare(item, items[mid]);
-		if (hr < 0) bottom = mid;
-		else if (hr > 0) top = mid;
+		if (hr < 0) bottom = mid - 1;
+		else if (hr > 0) top = mid + 1;
 		else return mid;
-		if (top == bottom) break;
 	}
 	return -1;
 }
@@ -847,7 +869,7 @@ struct ib_node *ib_node_first(struct ib_root *root)
 {
 	struct ib_node *node = root->node;
 	if (node == NULL) return NULL;
-	while (node->left) 
+	while (node->left)
 		node = node->left;
 	return node;
 }
@@ -856,7 +878,7 @@ struct ib_node *ib_node_last(struct ib_root *root)
 {
 	struct ib_node *node = root->node;
 	if (node == NULL) return NULL;
-	while (node->right) 
+	while (node->right)
 		node = node->right;
 	return node;
 }
@@ -866,7 +888,7 @@ struct ib_node *ib_node_next(struct ib_node *node)
 	if (node == NULL) return NULL;
 	if (node->right) {
 		node = node->right;
-		while (node->left) 
+		while (node->left)
 			node = node->left;
 	}
 	else {
@@ -885,7 +907,7 @@ struct ib_node *ib_node_prev(struct ib_node *node)
 	if (node == NULL) return NULL;
 	if (node->left) {
 		node = node->left;
-		while (node->right) 
+		while (node->right)
 			node = node->right;
 	}
 	else {
@@ -899,14 +921,14 @@ struct ib_node *ib_node_prev(struct ib_node *node)
 	return node;
 }
 
-static inline void 
-_ib_child_replace(struct ib_node *oldnode, struct ib_node *newnode, 
-		struct ib_node *parent, struct ib_root *root) 
+static inline void
+_ib_child_replace(struct ib_node *oldnode, struct ib_node *newnode,
+		struct ib_node *parent, struct ib_root *root)
 {
 	if (parent) {
 		if (parent->left == oldnode)
 			parent->left = newnode;
-		else 
+		else
 			parent->right = newnode;
 	}	else {
 		root->node = newnode;
@@ -920,7 +942,7 @@ _ib_node_rotate_left(struct ib_node *node, struct ib_root *root)
 	struct ib_node *parent = node->parent;
 	node->right = right->left;
 	ASSERTION(node && right);
-	if (right->left) 
+	if (right->left)
 		right->left->parent = node;
 	right->left = node;
 	right->parent = parent;
@@ -936,7 +958,7 @@ _ib_node_rotate_right(struct ib_node *node, struct ib_root *root)
 	struct ib_node *parent = node->parent;
 	node->left = left->right;
 	ASSERTION(node && left);
-	if (left->right) 
+	if (left->right)
 		left->right->parent = node;
 	left->right = node;
 	left->parent = parent;
@@ -963,7 +985,7 @@ void ib_node_replace(struct ib_node *victim, struct ib_node *newnode,
 /* avl - node manipulation                                            */
 /*--------------------------------------------------------------------*/
 
-static inline int IB_MAX(int x, int y) 
+static inline int IB_MAX(int x, int y)
 {
 #if 1
 	return (x < y)? y : x;    /* this is faster with cmov on x86 */
@@ -1020,7 +1042,7 @@ _ib_node_fix_r(struct ib_node *node, struct ib_root *root)
 	return node;
 }
 
-static inline void 
+static inline void
 _ib_node_rebalance(struct ib_node *node, struct ib_root *root)
 {
 	while (node) {
@@ -1030,7 +1052,7 @@ _ib_node_rebalance(struct ib_node *node, struct ib_root *root)
 		int height = IB_MAX(h0, h1) + 1;
 		if (node->height != height) {
 			node->height = height;
-		}	
+		}
 		else if (diff >= -1 && diff <= 1) {
 			break;
 		}
@@ -1094,7 +1116,7 @@ void ib_node_erase(struct ib_node *node, struct ib_root *root)
 		}
 	}
 	else {
-		if (node->left == NULL) 
+		if (node->left == NULL)
 			child = node->right;
 		else
 			child = node->left;
@@ -1116,7 +1138,7 @@ struct ib_node* ib_node_tear(struct ib_root *root, struct ib_node **next)
 	struct ib_node *node = *next;
 	struct ib_node *parent;
 	if (node == NULL) {
-		if (root->node == NULL) 
+		if (root->node == NULL)
 			return NULL;
 		node = root->node;
 	}
@@ -1255,7 +1277,7 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 		hr = compare(data, pd);
 		if (hr == 0) {
 			return pd;
-		}	
+		}
 		else if (hr < 0) {
 			link = &(parent->left);
 		}
@@ -1269,10 +1291,12 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 	return NULL;
 }
 
-
+/* remove a node by data pointer, the data must be a node in the tree */
 void ib_tree_remove(struct ib_tree *tree, void *data)
 {
-	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
+	struct ib_node *node;
+	ASSERTION(data);
+	node = IB_DATA2NODE(data, tree->offset);
 	if (!ib_node_empty(node)) {
 		ib_node_erase(node, &tree->root);
 		node->parent = node;
@@ -1280,7 +1304,16 @@ void ib_tree_remove(struct ib_tree *tree, void *data)
 	}
 }
 
+/* find and remove a node by data pointer, the data is used as key */
+void ib_tree_find_and_remove(struct ib_tree *tree, const void *data)
+{
+	void *found = ib_tree_find(tree, data);
+	if (found) {
+		ib_tree_remove(tree, found);
+	}
+}
 
+/* replace a node by data pointer, the victim node must in the tree */
 void ib_tree_replace(struct ib_tree *tree, void *victim, void *newdata)
 {
 	struct ib_node *vicnode = IB_DATA2NODE(victim, tree->offset);
@@ -1315,7 +1348,7 @@ void ib_fastbin_init(struct ib_fastbin *fb, size_t obj_size)
 	fb->next = NULL;
 	fb->pages = NULL;
 	fb->obj_size = (obj_size + align - 1) & (~(align - 1));
-	need = fb->obj_size * 32 + sizeof(void*) + 16;	
+	need = fb->obj_size * 32 + sizeof(void*) + 16;
 	fb->page_size = (align <= 2)? 8 : 32;
 	while (fb->page_size < need) {
 		fb->page_size *= 2;
@@ -1404,7 +1437,7 @@ void ib_string_delete(ib_string *str)
 {
 	ASSERTION(str);
 	if (str) {
-		if (str->ptr && str->ptr != str->sso) 
+		if (str->ptr && str->ptr != str->sso)
 			ikmem_free(str->ptr);
 		str->ptr = NULL;
 		str->size = str->capacity = 0;
@@ -1493,12 +1526,13 @@ ib_string* ib_string_clone(const ib_string *str)
 	return newstr;
 }
 
-ib_string* ib_string_insert(ib_string *str, int pos, 
+ib_string* ib_string_insert(ib_string *str, int pos,
 		const void *data, int size)
 {
 	int current = str->size;
-	if (pos < 0 || pos > str->size)
-		return NULL;
+	if (pos < 0 || pos > str->size) {
+		return str;
+	}
 	ib_string_resize(str, str->size + size);
 	if (pos < current) {
 		memmove(str->ptr + pos + size, str->ptr + pos, current - pos);
@@ -1506,6 +1540,7 @@ ib_string* ib_string_insert(ib_string *str, int pos,
 	if (data) {
 		memcpy(str->ptr + pos, data, size);
 	}
+	str->ptr[str->size] = 0;
 	return str;
 }
 
@@ -1525,9 +1560,9 @@ ib_string* ib_string_insert_c(ib_string *str, int pos, char c)
 ib_string* ib_string_erase(ib_string *str, int pos, int size)
 {
 	int current = str->size;
-	if (pos >= current) return 0;
+	if (pos >= current) return str;
 	if (pos + size >= current) size = current - pos;
-	if (size == 0) return 0;
+	if (size == 0) return str;
 	memmove(str->ptr + pos, str->ptr + pos + size, current - pos - size);
 	return ib_string_resize(str, current - size);
 }
@@ -1555,7 +1590,7 @@ ib_string* ib_string_assign(ib_string *str, const char *src)
 
 ib_string* ib_string_assign_size(ib_string *str, const char *src, int size)
 {
-	ASSERTION(size >= 0);
+	if (size < 0) size = (int)strlen(src);
 	ib_string_resize(str, size);
 	if (src) {
 		memcpy(str->ptr, src, size);
@@ -1608,7 +1643,7 @@ ib_string* ib_string_rewrite(ib_string *str, int pos, const char *src)
 	return ib_string_rewrite_size(str, pos, src, (int)strlen(src));
 }
 
-ib_string* ib_string_rewrite_size(ib_string *str, int pos, 
+ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 		const char *src, int size)
 {
 	if (pos < 0) size += pos, pos = 0;
@@ -1619,7 +1654,6 @@ ib_string* ib_string_rewrite_size(ib_string *str, int pos,
 	}
 	return str;
 }
-
 
 int ib_string_find(const ib_string *str, const char *src, int len, int start)
 {
@@ -1638,12 +1672,40 @@ int ib_string_find(const ib_string *str, const char *src, int len, int start)
 	return -1;
 }
 
+int ib_string_rfind(const ib_string *str, const char *src, int len, int start)
+{
+	const char *text = str->ptr;
+	int length = (len >= 0)? len : ((int)strlen(src));
+	int endup = str->size - length;
+	int pos = (start > endup)? endup : start;
+	char ch;
+	if (length <= 0) return pos;
+	for (ch = src[0]; pos >= 0; pos--) {
+		if (text[pos] == ch) {
+			if (memcmp(text + pos, src, length) == 0)
+				return pos;
+		}
+	}
+	return -1;
+}
+
 int ib_string_find_c(const ib_string *str, char ch, int start)
 {
 	const char *text = str->ptr;
 	int pos = (start < 0)? 0 : start;
 	int endup = str->size;
 	for (; pos < endup; pos++) {
+		if (text[pos] == ch) return pos;
+	}
+	return -1;
+}
+
+int ib_string_rfind_c(const ib_string *str, char ch, int start)
+{
+	const char *text = str->ptr;
+	int endup = str->size - 1;
+	int pos = (start > endup)? endup : start;
+	for (; pos >= 0; pos--) {
 		if (text[pos] == ch) return pos;
 	}
 	return -1;
@@ -1690,7 +1752,7 @@ ib_array* ib_string_split_c(const ib_string *str, char sep)
 			int pos = ib_string_find_c(str, sep, start);
 			if (pos < 0) {
 				ib_string *newstr = ib_string_new();
-				ib_string_assign_size(newstr, str->ptr + start, 
+				ib_string_assign_size(newstr, str->ptr + start,
 						str->size - start);
 				ib_array_push(array, newstr);
 				break;
@@ -1772,7 +1834,7 @@ ib_string* ib_string_strip(ib_string *str, const char *seps)
 	return str;
 }
 
-ib_string* ib_string_replace_size(ib_string *str, int pos, int size, 
+ib_string* ib_string_replace_size(ib_string *str, int pos, int size,
 		const char *src, int len)
 {
 	ib_string_erase(str, pos, size);
@@ -1780,13 +1842,39 @@ ib_string* ib_string_replace_size(ib_string *str, int pos, int size,
 	return str;
 }
 
+ib_string* ib_string_replace(const ib_string *str, const char *src,
+		int srcsize, const char *dst, int dstsize)
+{
+	ib_string *newstr = ib_string_new();
+	int pos = 0;
+	ib_string_reserve(newstr, str->capacity);
+	if (srcsize < 0) srcsize = (int)strlen(src);
+	if (dstsize < 0) dstsize = (int)strlen(dst);
+	if (srcsize == 0) {
+		ib_string_append_size(newstr, str->ptr, str->size);
+		return newstr;
+	}
+	while (1) {
+		int p = ib_string_find(str, src, srcsize, pos);
+		if (p < 0) {
+			ib_string_append_size(newstr, str->ptr + pos, str->size - pos);
+			break;
+		}
+		ib_string_append_size(newstr, str->ptr + pos, p - pos);
+		ib_string_append_size(newstr, dst, dstsize);
+		pos = p + srcsize;
+	}
+	return newstr;
+}
+
+
 
 /*--------------------------------------------------------------------*/
 /* static hash table (closed hash table with avlnode)                 */
 /*--------------------------------------------------------------------*/
 
 
-void ib_hash_init(struct ib_hash_table *ht, 
+void ib_hash_init(struct ib_hash_table *ht,
 		size_t (*hash)(const void *key),
 		int (*compare)(const void *key1, const void *key2))
 {
@@ -1808,7 +1896,7 @@ struct ib_hash_node* ib_hash_node_first(struct ib_hash_table *ht)
 {
 	struct ILISTHEAD *head = ht->head.next;
 	if (head != &ht->head) {
-		struct ib_hash_index *index = 
+		struct ib_hash_index *index =
 			ilist_entry(head, struct ib_hash_index, node);
 		struct ib_node *avlnode = ib_node_first(&index->avlroot);
 		if (avlnode == NULL) return NULL;
@@ -1821,7 +1909,7 @@ struct ib_hash_node* ib_hash_node_last(struct ib_hash_table *ht)
 {
 	struct ILISTHEAD *head = ht->head.prev;
 	if (head != &ht->head) {
-		struct ib_hash_index *index = 
+		struct ib_hash_index *index =
 			ilist_entry(head, struct ib_hash_index, node);
 		struct ib_node *avlnode = ib_node_last(&index->avlroot);
 		if (avlnode == NULL) return NULL;
@@ -1830,7 +1918,7 @@ struct ib_hash_node* ib_hash_node_last(struct ib_hash_table *ht)
 	return NULL;
 }
 
-struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht, 
+struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht,
 		struct ib_hash_node *node)
 {
 	struct ib_node *avlnode;
@@ -1852,7 +1940,7 @@ struct ib_hash_node* ib_hash_node_next(struct ib_hash_table *ht,
 	return IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
 }
 
-struct ib_hash_node* ib_hash_node_prev(struct ib_hash_table *ht, 
+struct ib_hash_node* ib_hash_node_prev(struct ib_hash_table *ht,
 		struct ib_hash_node *node)
 {
 	struct ib_node *avlnode;
@@ -1883,7 +1971,7 @@ struct ib_hash_node* ib_hash_find(struct ib_hash_table *ht,
 	struct ib_node *avlnode = index->avlroot.node;
 	int (*compare)(const void *, const void *) = ht->compare;
 	while (avlnode) {
-		struct ib_hash_node *snode = 
+		struct ib_hash_node *snode =
 			IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
 		size_t shash = snode->hash;
 		if (hash == shash) {
@@ -1977,7 +2065,7 @@ struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 }
 
 
-void ib_hash_replace(struct ib_hash_table *ht, 
+void ib_hash_replace(struct ib_hash_table *ht,
 		struct ib_hash_node *victim, struct ib_hash_node *newnode)
 {
 	struct ib_hash_index *index = &ht->index[victim->hash & ht->index_mask];
@@ -1988,14 +2076,14 @@ void ib_hash_clear(struct ib_hash_table *ht,
 		void (*destroy)(struct ib_hash_node *node))
 {
 	while (!ilist_is_empty(&ht->head)) {
-		struct ib_hash_index *index = ilist_entry(ht->head.next, 
+		struct ib_hash_index *index = ilist_entry(ht->head.next,
 				struct ib_hash_index, node);
 		struct ib_node *next = NULL;
 		while (index->avlroot.node != NULL) {
 			struct ib_node *avlnode = ib_node_tear(&index->avlroot, &next);
 			ASSERTION(avlnode);
 			if (destroy) {
-				struct ib_hash_node *node = 
+				struct ib_hash_node *node =
 					IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
 				destroy(node);
 			}
@@ -2049,7 +2137,7 @@ void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
 	ilist_replace(&ht->head, &head);
 	ilist_init(&ht->head);
 	while (!ilist_is_empty(&head)) {
-		struct ib_hash_index *index = ilist_entry(head.next, 
+		struct ib_hash_index *index = ilist_entry(head.next,
 				struct ib_hash_index, node);
 	#if 1
 		struct ib_node *next = NULL;
@@ -2101,7 +2189,7 @@ struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm)
 }
 
 
-struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm, 
+struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm,
 		struct ib_hash_entry *n)
 {
 	struct ib_hash_node *node = ib_hash_node_next(&hm->ht, &n->node);
@@ -2110,7 +2198,7 @@ struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm,
 }
 
 
-struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm, 
+struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm,
 		struct ib_hash_entry *n)
 {
 	struct ib_hash_node *node = ib_hash_node_prev(&hm->ht, &n->node);
@@ -2162,7 +2250,7 @@ void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval)
 	return ib_hash_value(entry);
 }
 
-static inline struct ib_hash_entry* 
+static inline struct ib_hash_entry*
 ib_hash_entry_allocate(struct ib_hash_map *hm, void *key, void *value)
 {
 	struct ib_hash_entry *entry;
@@ -2234,36 +2322,65 @@ ib_hash_update(struct ib_hash_map *hm, void *key, void *value, int update)
 	return entry;
 }
 
-static inline void ib_map_rehash(struct ib_hash_map *hm, size_t capacity)
+static inline void ib_map_rehash(struct ib_hash_map *hm,
+	size_t capacity, int shrink)
 {
 	size_t isize = hm->ht.index_size;
-	size_t limit = (capacity * 6) >> 2;    /* capacity * 6 / 4 */
-	if (isize < limit && hm->fixed == 0) {
+	if (hm->fixed) return;
+	if (shrink == 0) {
+		size_t upper = (capacity * 6) >> 2;    /* capacity * 6 / 4 */
+		if (isize < upper) {
+			size_t need = isize;
+			size_t size;
+			void *ptr;
+			while (need < upper) need <<= 1;
+			size = need * sizeof(struct ib_hash_index);
+			ptr = ikmem_malloc(size);
+			ASSERTION(ptr);
+			ptr = ib_hash_swap(&hm->ht, ptr, size);
+			if (ptr) {
+				ikmem_free(ptr);
+			}
+		}
+	}
+	else {
+		size_t lower = isize >> 2;
 		size_t need = isize;
-		size_t size;
-		void *ptr;
-		while (need < limit) need <<= 1;
-		size = need * sizeof(struct ib_hash_index);
-		ptr = ikmem_malloc(size);
-		ASSERTION(ptr);
-		ptr = ib_hash_swap(&hm->ht, ptr, size);
-		if (ptr) {
-			ikmem_free(ptr);
+		if (isize <= IB_HASH_INIT_SIZE) return;
+		if (capacity >= lower) return;
+		while (need > IB_HASH_INIT_SIZE && capacity <= (need >> 2)) {
+			need = need >> 1;
+		}
+		if (need == isize) return;
+		if (need <= IB_HASH_INIT_SIZE) {
+			void *oldptr = ib_hash_swap(&hm->ht, NULL, 0);
+			if (oldptr) {
+				ikmem_free(oldptr);
+			}
+		}
+		else {
+			size_t size = need * sizeof(struct ib_hash_index);
+			void *ptr = ikmem_malloc(size);
+			ASSERTION(ptr);
+			ptr = ib_hash_swap(&hm->ht, ptr, size);
+			if (ptr) {
+				ikmem_free(ptr);
+			}
 		}
 	}
 }
 
 void ib_map_reserve(struct ib_hash_map *hm, size_t capacity)
 {
-	ib_map_rehash(hm, capacity);
+	ib_map_rehash(hm, capacity, 0);
 }
 
-struct ib_hash_entry* 
+struct ib_hash_entry*
 ib_map_add(struct ib_hash_map *hm, void *key, void *value, int *success)
 {
 	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 0);
 	if (success) success[0] = hm->insert;
-	ib_map_rehash(hm, hm->ht.count);
+	ib_map_rehash(hm, hm->ht.count, 0);
 	return entry;
 }
 
@@ -2271,7 +2388,7 @@ struct ib_hash_entry*
 ib_map_set(struct ib_hash_map *hm, void *key, void *value)
 {
 	struct ib_hash_entry *entry = ib_hash_update(hm, key, value, 1);
-	ib_map_rehash(hm, hm->ht.count);
+	ib_map_rehash(hm, hm->ht.count, 0);
 	return entry;
 }
 
@@ -2291,6 +2408,7 @@ void ib_map_erase(struct ib_hash_map *hm, struct ib_hash_entry *entry)
 	entry->node.key = NULL;
 	entry->value = NULL;
 	ib_fastbin_del(&hm->fb, entry);
+	ib_map_rehash(hm, hm->ht.count, 1);
 }
 
 int ib_map_remove(struct ib_hash_map *hm, const void *key)
@@ -2312,6 +2430,7 @@ void ib_map_clear(struct ib_hash_map *hm)
 		ib_map_erase(hm, entry);
 	}
 	ASSERTION(hm->ht.count == 0);
+	ib_map_rehash(hm, hm->ht.count, 1);
 }
 
 
@@ -2561,7 +2680,7 @@ static void ib_stack_free(struct IALLOCATOR *allocator, void *ptr)
 }
 
 /* allocator: realloc */
-static void* ib_stack_realloc(struct IALLOCATOR *allocator, 
+static void* ib_stack_realloc(struct IALLOCATOR *allocator,
 		void *ptr, size_t size)
 {
 	void *obj;

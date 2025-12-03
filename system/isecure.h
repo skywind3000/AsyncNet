@@ -24,7 +24,13 @@
 //=====================================================================
 #ifndef __INTEGER_32_BITS__
 #define __INTEGER_32_BITS__
-#if defined(_WIN64) || defined(WIN64) || defined(__amd64__) || \
+#if defined(__UINT32_TYPE__) && defined(__INT32_TYPE__)
+	typedef __UINT32_TYPE__ ISTDUINT32;
+	typedef __INT32_TYPE__ ISTDINT32;
+#elif defined(__UINT_FAST32_TYPE__) && defined(__INT_FAST32_TYPE__)
+	typedef __UINT_FAST32_TYPE__ ISTDUINT32;
+	typedef __INT_FAST32_TYPE__ ISTDINT32;
+#elif defined(_WIN64) || defined(WIN64) || defined(__amd64__) || \
 	defined(__x86_64) || defined(__x86_64__) || defined(_M_IA64) || \
 	defined(_M_AMD64)
 	typedef unsigned int ISTDUINT32;
@@ -47,13 +53,19 @@
 #elif (defined(_MSC_VER) || defined(__BORLANDC__)) && (!defined(__MSDOS__))
 	typedef unsigned __int32 ISTDUINT32;
 	typedef __int32 ISTDINT32;
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) && (__GNUC__ > 3)
 	#include <stdint.h>
 	typedef uint32_t ISTDUINT32;
 	typedef int32_t ISTDINT32;
 #else 
+#include <limits.h>
+#if ULONG_MAX == 0xFFFFU
 	typedef unsigned long ISTDUINT32; 
 	typedef long ISTDINT32;
+#else
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#endif
 #endif
 #endif
 
@@ -63,7 +75,7 @@
 //=====================================================================
 #ifndef __IINT8_DEFINED
 #define __IINT8_DEFINED
-typedef char IINT8;
+typedef signed char IINT8;
 #endif
 
 #ifndef __IUINT8_DEFINED
