@@ -845,6 +845,7 @@ struct ib_hash_node* ib_hash_find(struct ib_hash_table *ht,
 struct ib_node** ib_hash_track(struct ib_hash_table *ht,
 		const struct ib_hash_node *node, struct ib_node **parent);
 
+/* returns NULL for success, otherwise returns conflict node */
 struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 		struct ib_hash_node *node);
 

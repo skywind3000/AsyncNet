@@ -2038,6 +2038,7 @@ struct ib_node** ib_hash_track(struct ib_hash_table *ht,
 }
 
 
+/* returns NULL for success, otherwise returns conflict node */
 struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 		struct ib_hash_node *node)
 {
@@ -2054,7 +2055,6 @@ struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 		struct ib_node **link, *parent;
 		link = ib_hash_track(ht, node, &parent);
 		if (link == NULL) {
-			ASSERTION(parent);
 			return IB_ENTRY(parent, struct ib_hash_node, avlnode);
 		}
 		ib_node_link(&node->avlnode, parent, link);
