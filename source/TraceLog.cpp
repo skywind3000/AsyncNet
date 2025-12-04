@@ -239,8 +239,8 @@ void TraceLog::Log(int level, const char *fmt, ...)
 //---------------------------------------------------------------------
 void TraceLog::StreamAppend(const std::string &text)
 {
-	ssize_t length = (ssize_t)text.size();
-	ssize_t start = 0, pos;
+	ilong length = (ilong)text.size();
+	ilong start = 0, pos;
 	const char *src = text.c_str();
 	if (length == 0) return;
 	std::string prefix = GetPrefix(_stream_level);

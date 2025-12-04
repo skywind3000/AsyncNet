@@ -25,7 +25,7 @@ NAMESPACE_BEGIN(System);
 //---------------------------------------------------------------------
 // Predefined
 //---------------------------------------------------------------------
-class TraceHandler;
+struct TraceHandler;
 enum TRACE_LEVEL: int;
 
 

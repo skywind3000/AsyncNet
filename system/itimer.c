@@ -81,7 +81,7 @@ void itimer_core_destroy(itimer_core *core)
 void itimer_core_foreach(itimer_core *core, 
 		void (*fn)(itimer_node*, void*), void *args)
 {
-	ilist_head *it, *next = NULL;
+	ilist_head *it, *next;
 	int i, j;
 	for (i = 0; i < 5; i++) {
 		int count = (i == 0)? ITVR_SIZE : ITVN_SIZE;
@@ -203,7 +203,7 @@ static void itimer_internal_add(itimer_core *core, itimer_node *node)
 {
 	IUINT32 expires = node->expires;
 	IUINT32 idx = (IUINT32)(expires - core->timer_jiffies);
-	ilist_head *vec = NULL;
+	ilist_head *vec;
 
 	if (((IINT32)idx) < 0) {
 		vec = core->tv1.vec + (core->timer_jiffies & ITVR_MASK);
@@ -302,7 +302,7 @@ static void itimer_internal_update(itimer_core *core, IUINT32 jiffies)
 IUINT32 itimer_core_nearest(const itimer_core *core, IUINT32 limit)
 {
 	IUINT32 avail = ITVR_SIZE - (core->timer_jiffies & ITVR_MASK);
-	IUINT32 index = 0;
+	IUINT32 index;
 	for (index = 0; index < ITVR_SIZE; index++) {
 		IUINT32 pos = (core->timer_jiffies + index) & ITVR_MASK;
 		if (index >= limit && limit > 0) break;
@@ -336,7 +336,7 @@ void itimer_mgr_init(itimer_mgr *mgr, IUINT32 interval)
 static void itimer_core_clear_node(itimer_node *node, void *args)
 {
 	itimer_evt *evt = (itimer_evt*)node->data;
-	evt->mgr = NULL;
+	evt->mgr = (itimer_mgr*)args;
 }
 
 // destroy timer manager
@@ -410,7 +410,7 @@ static void itimer_evt_cb(void *p)
 	// reschedule or stop ?
 	if (stop == 0) {
 		IUINT32 interval = mgr->interval;
-		IUINT32 expires = 0;
+		IUINT32 expires;
 		if (interval > 1) {
 			expires = (evt->slap - current + interval - 1) / interval;
 		}	else {

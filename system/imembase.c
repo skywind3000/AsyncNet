@@ -1775,20 +1775,21 @@ ib_string* ib_string_join(const ib_array *array, const char *sep, int len)
 	}
 	else {
 		ib_string *str = ib_string_new();
-		int i, size = 0;
-		len = (len >= 0)? len : ((int)strlen(sep));
+		size_t i, size = 0;
+		char *ptr;
+		len = (len >= 0)? len : strlen(sep);
 		for (i = 0; i < array->size; i++) {
 			ib_string *item = (ib_string*)array->items[i];
 			size += item->size;
 			if (i > 0) size += len;
 		}
 		ib_string_resize(str, size);
-		char *ptr = str->ptr;
+		ptr = str->ptr;
 		for (i = 0; i < array->size; i++) {
 			ib_string *item = (ib_string*)array->items[i];
 			memcpy(ptr, item->ptr, item->size);
 			ptr += item->size;
-			if (i < array->size - 1) {
+			if (i + 1 < array->size) {
 				memcpy(ptr, sep, len);
 				ptr += len;
 			}
@@ -2464,10 +2465,11 @@ size_t ib_hash_bytes_stl(const void *ptr, size_t size, size_t seed)
 	const unsigned char *buf = (const unsigned char*)ptr;
 	const size_t m = 0x5bd1e995;
 	size_t hash = size ^ seed;
+	size_t k;
 	IUINT32 z = 0;
 	for (; size >= 4; buf += 4, size -= 4) {
 		memcpy(&z, buf, sizeof(IUINT32));
-		size_t k = z;
+		k = z;
 		k *= m;
 		k ^= k >> 24;
 		k *= m;
@@ -2591,6 +2593,38 @@ struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key)
 size_t ib_map_count(const struct ib_hash_map *hm)
 {
 	return hm->ht.count;
+}
+
+
+void* ib_hash_str_copy(void *str)
+{
+	ib_string *src = (ib_string*)str;
+	ib_string *dst = ib_string_new();
+	ib_string_append_size(dst, src->ptr, src->size);
+	return dst;
+}
+
+void ib_hash_str_destroy(void *str)
+{
+	ib_string *s = (ib_string*)str;
+	ib_string_delete(s);
+}
+
+void* ib_hash_cstr_copy(void *cstr)
+{
+	const char *src = (const char*)cstr;
+	size_t size = strlen(src);
+	char *dst = (char*)ikmem_malloc(size + 1);
+	ASSERTION(dst != NULL);
+	memcpy(dst, src, size);
+	dst[size] = '\0';
+	return dst;
+}
+
+void ib_hash_cstr_destroy(void *cstr)
+{
+	char *s = (char*)cstr;
+	ikmem_free(s);
 }
 
 

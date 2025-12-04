@@ -836,7 +836,7 @@ static inline void _ibit_set(void *data, ilong index, int value)
 {
 	unsigned char *ptr = (unsigned char*)data + (index >> 3);
 	unsigned char val = (unsigned char)(value & 1);
-	unsigned char mask = 0;
+	unsigned char mask;
 	int offset = (int)(index & 7);
 	mask = ~((unsigned char)1 << offset);
 	ptr[0] = (ptr[0] & mask) | (val << offset);
@@ -983,7 +983,7 @@ static inline void it_sresize(ivalue_t *v, iulong s)
 {
 	iulong newsize = s;
 	iulong need = newsize + 1;
-	iulong block = 0;
+	iulong block;
 	if (it_ptr(v) == &(v->param)) { 
 		if (need > sizeof(v->param)) {
 			for (block = 8; block < need; block <<= 1);

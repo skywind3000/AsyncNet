@@ -995,6 +995,10 @@ int ib_hash_compare_str(const void *key1, const void *key2);
 size_t ib_hash_func_cstr(const void *key);
 int ib_hash_compare_cstr(const void *key1, const void *key2);
 
+void* ib_hash_str_copy(void *str);
+void ib_hash_str_destroy(void *str);
+void* ib_hash_cstr_copy(void *cstr);
+void ib_hash_cstr_destroy(void *cstr);
 
 struct ib_hash_entry *ib_map_find_uint(struct ib_hash_map *hm, iulong key);
 struct ib_hash_entry *ib_map_find_int(struct ib_hash_map *hm, ilong key);
