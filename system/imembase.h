@@ -435,56 +435,6 @@ typedef struct ILISTHEAD ilist_head;
 #endif
 
 
-/*====================================================================*/
-/* IMUTEX - mutex interfaces                                          */
-/*====================================================================*/
-#ifndef IMUTEX_TYPE
-
-#ifndef IMUTEX_DISABLE
-#if (defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64))
-#if ((!defined(_M_PPC)) && (!defined(_M_PPC_BE)) && (!defined(_XBOX)))
-#ifndef _WIN32_WINNT
-#define _WIN32_WINNT 0x0500
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#ifndef _XBOX
-#define _XBOX
-#endif
-#include <xtl.h>
-#endif
-
-#define IMUTEX_TYPE         CRITICAL_SECTION
-#define IMUTEX_INIT(m)      InitializeCriticalSection((CRITICAL_SECTION*)(m))
-#define IMUTEX_DESTROY(m)   DeleteCriticalSection((CRITICAL_SECTION*)(m))
-#define IMUTEX_LOCK(m)      EnterCriticalSection((CRITICAL_SECTION*)(m))
-#define IMUTEX_UNLOCK(m)    LeaveCriticalSection((CRITICAL_SECTION*)(m))
-
-#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
-#include <unistd.h>
-#include <pthread.h>
-#define IMUTEX_TYPE         pthread_mutex_t
-#define IMUTEX_INIT(m)      pthread_mutex_init((pthread_mutex_t*)(m), 0)
-#define IMUTEX_DESTROY(m)   pthread_mutex_destroy((pthread_mutex_t*)(m))
-#define IMUTEX_LOCK(m)      pthread_mutex_lock((pthread_mutex_t*)(m))
-#define IMUTEX_UNLOCK(m)    pthread_mutex_unlock((pthread_mutex_t*)(m))
-#endif
-#endif
-
-#ifndef IMUTEX_TYPE
-#define IMUTEX_TYPE         int
-#define IMUTEX_INIT(m)      { (*(m)) = (*(m)); }
-#define IMUTEX_DESTROY(m)   { (*(m)) = (*(m)); }
-#define IMUTEX_LOCK(m)      { (*(m)) = (*(m)); }
-#define IMUTEX_UNLOCK(m)    { (*(m)) = (*(m)); }
-#endif
-
-#endif
-
-
 
 /*====================================================================*/
 /* IVECTOR / IMEMNODE MANAGEMENT                                      */
