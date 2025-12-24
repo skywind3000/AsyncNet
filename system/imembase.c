@@ -134,7 +134,7 @@ void iv_destroy(struct IVECTOR *v)
 	v->capacity = 0;
 }
 
-/* set capacity of vector */
+/* set capacity of vector: capacity will expand/shrink according to newcap */
 int iv_capacity(struct IVECTOR *v, size_t newcap)
 {
 	if (newcap == v->capacity)
@@ -169,7 +169,7 @@ int iv_capacity(struct IVECTOR *v, size_t newcap)
 	return 0;
 }
 
-/* resize a vector */
+/* resize a vector: when newsize is smaller, capacity won't shrink */
 int iv_resize(struct IVECTOR *v, size_t newsize)
 {
 	if (newsize > v->capacity) {
@@ -611,6 +611,7 @@ void ib_array_reserve(ib_array *array, size_t new_size)
 	int hr = iv_obj_reserve(&array->vec, char*, new_size);
 	if (hr != 0) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 	ib_array_update(array);
 }
@@ -642,6 +643,7 @@ void ib_array_push(ib_array *array, void *item)
 	int hr = iv_obj_push(&array->vec, void*, &item);
 	if (hr) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 	ib_array_update(array);
 	array->size++;
@@ -652,6 +654,7 @@ void ib_array_push_left(ib_array *array, void *item)
 	int hr = iv_obj_insert(&array->vec, void*, 0, &item);
 	if (hr) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 	ib_array_update(array);
 	array->size++;
@@ -670,7 +673,10 @@ void* ib_array_pop(ib_array *array)
 {
 	void *item;
 	int hr;
-	ASSERTION(array->size > 0);
+	if (array->size == 0) {
+		ASSERTION(array->size > 0);
+		return NULL;
+	}
 	array->size--;
 	item = array->items[array->size];
 	hr = iv_obj_resize(&array->vec, void*, array->size);
@@ -685,7 +691,10 @@ void* ib_array_pop_left(ib_array *array)
 {
 	void *item;
 	int hr;
-	ASSERTION(array->size > 0);
+	if (array->size == 0) {
+		ASSERTION(array->size > 0);
+		return NULL;
+	}
 	array->size--;
 	item = array->items[0];
 	hr = iv_obj_erase(&array->vec, void*, 0, 1);
@@ -721,6 +730,7 @@ void ib_array_clear(ib_array *array)
 	ib_array_update(array);
 	if (hr) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 }
 
@@ -729,6 +739,7 @@ void ib_array_insert_before(ib_array *array, size_t index, void *item)
 	int hr = iv_obj_insert(&array->vec, void*, index, &item);
 	if (hr) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 	ib_array_update(array);
 	array->size++;
@@ -749,6 +760,7 @@ void* ib_array_pop_at(ib_array *array, size_t index)
 	array->size--;
 	if (hr) {
 		ASSERTION(hr == 0);
+		abort();
 	}
 	return item;
 }
@@ -2629,97 +2641,156 @@ void ib_hash_cstr_destroy(void *cstr)
 
 
 /*--------------------------------------------------------------------*/
-/* stack allocator                                                    */
+/* zone allocator: allocator for short time living objects            */
 /*--------------------------------------------------------------------*/
 
-/* initialize a stack allocator */
-void ib_stack_init(struct ib_stack *stack, void *initmem, size_t size,
+/* finalizer structure */
+typedef struct _ib_finalizer {
+	void (*func)(void *user);
+	void *user;
+	struct _ib_finalizer *next;
+}	ib_finalizer;
+
+/* initialize a zone allocator */
+void ib_zone_init(struct ib_zone *zone, void *initmem, size_t size,
 		struct IALLOCATOR *allocator)
 {
-	stack->ptr = NULL;
-	stack->avail = 0;
-	stack->pages = NULL;
-	stack->used = 0;
-	stack->allocated = 0;
-	stack->minimum = 8192;
-	stack->maximum = 4 * 1024 * 1024;
-	stack->allocator = allocator;
+	zone->ptr = NULL;
+	zone->avail = 0;
+	zone->pages = NULL;
+	zone->used = 0;
+	zone->allocated = 0;
+	zone->minimum = 2048;
+	zone->maximum = 4 * 1024 * 1024;
+	zone->allocator = allocator;
+	zone->finalizer = NULL;
+	zone->initmem = initmem;
+	zone->initsize = size;
 	if (initmem != NULL && size > 0) {
-		stack->ptr = (char*)initmem;
-		stack->avail = size;
+		zone->ptr = (char*)initmem;
+		zone->avail = size;
 	}
 }
 
-/* destroy a stack allocator */
-void ib_stack_destroy(struct ib_stack *stack)
+/* destroy a zone allocator, finalizers will be called here */
+void ib_zone_destroy(struct ib_zone *zone)
 {
-	while (stack->pages != NULL) {
-		char *page = (char*)stack->pages;
-		char *next = (char*)ib_read_ptr(page);
-		stack->pages = next;
-		if (page != NULL) {
-			internal_free(stack->allocator, page);
+	while (zone->finalizer) {
+		ib_finalizer *finalizer = (ib_finalizer*)zone->finalizer;
+		zone->finalizer = finalizer->next;
+		if (finalizer->func) {
+			finalizer->func(finalizer->user);
 		}
 	}
-	stack->ptr = NULL;
-	stack->avail = 0;
-	stack->used = 0;
-	stack->allocated = 0;
+	while (zone->pages != NULL) {
+		char *page = (char*)zone->pages;
+		char *next = (char*)ib_read_ptr(page);
+		zone->pages = next;
+		if (page != NULL) {
+			internal_free(zone->allocator, page);
+		}
+	}
+	zone->ptr = NULL;
+	zone->avail = 0;
+	zone->used = 0;
+	zone->allocated = 0;
+	zone->initmem = NULL;
+	zone->initsize = 0;
 }
 
-/* allocate a new obj */
-void* ib_stack_next(struct ib_stack *stack, size_t size)
+/* allocate a new obj: the new obj will be be free until zone destroy */
+void* ib_zone_next(struct ib_zone *zone, size_t size)
 {
 	void *obj;
 	size = IROUND_UP(size, sizeof(char*));
-	if (stack->ptr == NULL || stack->avail < size) {
+	if (zone->ptr == NULL || zone->avail < size) {
 		size_t minsize = size + sizeof(void*);
-		size_t relsize = stack->allocated * 2;
+		size_t relsize = zone->allocated;
 		size_t required = 0;
 		char *page;
-		relsize = (relsize > stack->maximum)? stack->maximum : relsize;
-		relsize = (relsize < stack->minimum)? stack->minimum : relsize;
+		relsize = (relsize > zone->maximum)? zone->maximum : relsize;
+		relsize = (relsize < zone->minimum)? zone->minimum : relsize;
 		required = (minsize < relsize)? relsize : minsize;
 		required = IROUND_UP(required, sizeof(char*));
-		page = (char*)internal_malloc(stack->allocator, required);
-		ASSERTION(page != NULL);
-		ib_write_ptr(page, stack->pages);
-		stack->pages = page;
-		stack->ptr = page + sizeof(void*);
-		stack->avail = required - sizeof(void*);
-		stack->allocated += required;
+		page = (char*)internal_malloc(zone->allocator, required);
+		if (page == NULL) {
+			ASSERTION(page != NULL);
+			return NULL;
+		}
+		ib_write_ptr(page, zone->pages);
+		zone->pages = page;
+		zone->ptr = page + sizeof(void*);
+		zone->avail = required - sizeof(void*);
+		zone->allocated += required;
 	}
-	ASSERTION(stack->ptr != NULL);
-	ASSERTION(stack->avail >= size);
-	obj = stack->ptr;
-	stack->ptr += size;
-	stack->avail -= size;
-	stack->used += size;
+	ASSERTION(zone->ptr != NULL);
+	ASSERTION(zone->avail >= size);
+	obj = zone->ptr;
+	zone->ptr += size;
+	zone->avail -= size;
+	zone->used += size;
 	return obj;
 }
 
-/* allocator: new */
-static void* ib_stack_alloc(struct IALLOCATOR *allocator, size_t size)
+/* install a finalizer (called when zone is destroyed) */
+void ib_zone_finalizer(struct ib_zone *zone, void (*fn)(void*), void *user)
 {
-	struct ib_stack *stack = (struct ib_stack*)allocator->udata;
-	char *obj = (char*)ib_stack_next(stack, size + sizeof(size_t));
+	ib_finalizer *fz = (ib_finalizer*)ib_zone_next(zone, sizeof(ib_finalizer));
+	if (fz == NULL) {
+		ASSERTION(fz);
+		return;
+	}
+	fz->func = fn;
+	fz->user = user;
+	fz->next = (ib_finalizer*)zone->finalizer;
+	zone->finalizer = fz;
+}
+
+/* clear a zone allocator, call the finalizers */
+void ib_zone_clear(struct ib_zone *zone)
+{
+	struct IALLOCATOR *allocator = zone->allocator;
+	size_t minimal = zone->minimum;
+	size_t maximal = zone->maximum;
+	size_t initsize = zone->initsize;
+	void *initmem = zone->initmem;
+	ib_zone_destroy(zone);
+	ib_zone_init(zone, initmem, initsize, allocator);
+	zone->minimum = minimal;
+	zone->maximum = maximal;
+}
+
+/* allocator: new */
+static void* ib_zone_alloc(struct IALLOCATOR *allocator, size_t size)
+{
+	struct ib_zone *zone = (struct ib_zone*)allocator->udata;
+	char *obj = (char*)ib_zone_next(zone, size + sizeof(size_t));
 	ASSERTION(obj != NULL);
 	memcpy(obj, &size, sizeof(size_t));
 	return obj + sizeof(size_t);
 }
 
 /* allocator: free */
-static void ib_stack_free(struct IALLOCATOR *allocator, void *ptr)
+static void ib_zone_free(struct IALLOCATOR *allocator, void *ptr)
 {
 }
 
 /* allocator: realloc */
-static void* ib_stack_realloc(struct IALLOCATOR *allocator,
+static void* ib_zone_realloc(struct IALLOCATOR *allocator,
 		void *ptr, size_t size)
 {
 	void *obj;
-	obj = ib_stack_alloc(allocator, size);
-	ASSERTION(obj != NULL);
+	if (size == 0) {
+		if (ptr) {
+			ib_zone_free(allocator, ptr);
+		}
+		return NULL;
+	}
+	obj = ib_zone_alloc(allocator, size);
+	if (obj == NULL) {
+		ASSERTION(obj != NULL);
+		return NULL;
+	}
 	if (ptr != NULL) {
 		size_t oldsize = 0;
 		memcpy(&oldsize, ((char*)ptr) - sizeof(size_t), sizeof(size_t));
@@ -2727,18 +2798,18 @@ static void* ib_stack_realloc(struct IALLOCATOR *allocator,
 			size_t minsize = (oldsize < size)? oldsize : size;
 			memcpy(obj, ptr, minsize);
 		}
-		ib_stack_free(allocator, ptr);
+		ib_zone_free(allocator, ptr);
 	}
 	return obj;
 }
 
-/* setup an allocator */
-void ib_stack_setup(struct ib_stack *stack, struct IALLOCATOR *allocator)
+/* setup an allocator: allocator->free will do nothing */
+void ib_zone_setup(struct ib_zone *zone, struct IALLOCATOR *allocator)
 {
-	allocator->udata = stack;
-	allocator->alloc = ib_stack_alloc;
-	allocator->free = ib_stack_free;
-	allocator->realloc = ib_stack_realloc;
+	allocator->udata = zone;
+	allocator->alloc = ib_zone_alloc;
+	allocator->free = ib_zone_free;
+	allocator->realloc = ib_zone_realloc;
 }
 
 

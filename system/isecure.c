@@ -40,50 +40,45 @@
 
 
 /* encode 8 bits unsigned int */
-static inline char *is_encode8u(char *p, unsigned char c)
-{
+static inline char *is_encode8u(char *p, IUINT8 c) {
 	*(unsigned char*)p++ = c;
 	return p;
 }
 
 /* decode 8 bits unsigned int */
-static inline const char *is_decode8u(const char *p, unsigned char *c)
-{
+static inline const char *is_decode8u(const char *p, IUINT8 *c) {
 	*c = *(unsigned char*)p++;
 	return p;
 }
 
 /* encode 16 bits unsigned int (lsb) */
-static inline char *is_encode16u_lsb(char *p, unsigned short w)
-{
+static inline char *is_encode16u_lsb(char *p, IUINT16 w) {
 #if IWORDS_BIG_ENDIAN
 	*(unsigned char*)(p + 0) = (w & 255);
 	*(unsigned char*)(p + 1) = (w >> 8);
 #else
-	*(unsigned short*)(p) = w;
+	memcpy(p, &w, 2);
 #endif
 	p += 2;
 	return p;
 }
 
 /* decode 16 bits unsigned int (lsb) */
-static inline const char *is_decode16u_lsb(const char *p, unsigned short *w)
-{
+static inline const char *is_decode16u_lsb(const char *p, IUINT16 *w) {
 #if IWORDS_BIG_ENDIAN
 	*w = *(const unsigned char*)(p + 1);
 	*w = *(const unsigned char*)(p + 0) + (*w << 8);
 #else
-	*w = *(const unsigned short*)p;
+	memcpy(w, p, 2);
 #endif
 	p += 2;
 	return p;
 }
 
 /* encode 16 bits unsigned int (msb) */
-static inline char *is_encode16u_msb(char *p, unsigned short w)
-{
+static inline char *is_encode16u_msb(char *p, IUINT16 w) {
 #if IWORDS_BIG_ENDIAN
-	*(unsigned short*)(p) = w;
+	memcpy(p, &w, 2);
 #else
 	*(unsigned char*)(p + 0) = (w >> 8);
 	*(unsigned char*)(p + 1) = (w & 255);
@@ -93,10 +88,9 @@ static inline char *is_encode16u_msb(char *p, unsigned short w)
 }
 
 /* decode 16 bits unsigned int (msb) */
-static inline const char *is_decode16u_msb(const char *p, unsigned short *w)
-{
+static inline const char *is_decode16u_msb(const char *p, IUINT16 *w) {
 #if IWORDS_BIG_ENDIAN
-	*w = *(const unsigned short*)p;
+	memcpy(w, p, 2);
 #else
 	*w = *(const unsigned char*)(p + 0);
 	*w = *(const unsigned char*)(p + 1) + (*w << 8);
@@ -106,30 +100,35 @@ static inline const char *is_decode16u_msb(const char *p, unsigned short *w)
 }
 
 /* encode 32 bits unsigned int (lsb) */
-static inline char *is_encode32u_lsb(char *p, unsigned long l)
-{
+static inline char *is_encode32u_lsb(char *p, IUINT32 l) {
+#if IWORDS_BIG_ENDIAN
 	*(unsigned char*)(p + 0) = (unsigned char)((l >>  0) & 0xff);
 	*(unsigned char*)(p + 1) = (unsigned char)((l >>  8) & 0xff);
 	*(unsigned char*)(p + 2) = (unsigned char)((l >> 16) & 0xff);
 	*(unsigned char*)(p + 3) = (unsigned char)((l >> 24) & 0xff);
+#else
+	memcpy(p, &l, 4);
+#endif
 	p += 4;
 	return p;
 }
 
 /* decode 32 bits unsigned int (lsb) */
-static inline const char *is_decode32u_lsb(const char *p, unsigned long *l)
-{
+static inline const char *is_decode32u_lsb(const char *p, IUINT32 *l) {
+#if IWORDS_BIG_ENDIAN
 	*l = *(const unsigned char*)(p + 3);
 	*l = *(const unsigned char*)(p + 2) + (*l << 8);
 	*l = *(const unsigned char*)(p + 1) + (*l << 8);
 	*l = *(const unsigned char*)(p + 0) + (*l << 8);
+#else
+	memcpy(l, p, 4);
+#endif
 	p += 4;
 	return p;
 }
 
 /* encode 32 bits unsigned int (msb) */
-static inline char *is_encode32u_msb(char *p, unsigned long l)
-{
+static inline char *is_encode32u_msb(char *p, IUINT32 l) {
 	*(unsigned char*)(p + 0) = (unsigned char)((l >> 24) & 0xff);
 	*(unsigned char*)(p + 1) = (unsigned char)((l >> 16) & 0xff);
 	*(unsigned char*)(p + 2) = (unsigned char)((l >>  8) & 0xff);
@@ -139,8 +138,7 @@ static inline char *is_encode32u_msb(char *p, unsigned long l)
 }
 
 /* decode 32 bits unsigned int (msb) */
-static inline const char *is_decode32u_msb(const char *p, unsigned long *l)
-{
+static inline const char *is_decode32u_msb(const char *p, IUINT32 *l) {
 	*l = *(const unsigned char*)(p + 0);
 	*l = *(const unsigned char*)(p + 1) + (*l << 8);
 	*l = *(const unsigned char*)(p + 2) + (*l << 8);
@@ -150,14 +148,12 @@ static inline const char *is_decode32u_msb(const char *p, unsigned long *l)
 }
 
 /* bits rotation */
-static inline IUINT32 is_rotl32(IUINT32 x, int n) 
-{
+static inline IUINT32 is_rotl32(IUINT32 x, int n) {
 	return (x << n) | (x >> (32 - n));
 }
 
 /* pack bytes into uint32_t */
-static inline IUINT32 is_pack4(const unsigned char *a)
-{
+static inline IUINT32 is_pack4(const unsigned char *a) {
 	IUINT32 res = 0;
 	res |= (IUINT32)a[0] << 0 * 8;
 	res |= (IUINT32)a[1] << 1 * 8;
@@ -553,10 +549,12 @@ void HASH_SHA1_Final(HASH_SHA1_CTX* ctx, unsigned char digest[20])
 //=====================================================================
 // UTILITIES
 //=====================================================================
-char* hash_digest_to_string(const unsigned char *in, int size, char *out)
+char* hash_digest_to_string(char *out, const unsigned char *in, int size)
 {
 	static const char hex[17] = "0123456789abcdef";
+	static char buffer[96];
 	char *ptr = out;
+	if (out == NULL) out = buffer;
 	for (; 0 < size; size--) {
 		unsigned char ch = *in++;
 		*ptr++ = hex[ch >> 4];
@@ -567,7 +565,7 @@ char* hash_digest_to_string(const unsigned char *in, int size, char *out)
 }
 
 // calculate md5sum and convert digests to string
-char* hash_md5sum(const void *in, unsigned int len, char *out)
+char* hash_md5sum(char *out, const void *in, unsigned int len)
 {
 	static char text[48];
 	unsigned char digest[16];
@@ -576,11 +574,11 @@ char* hash_md5sum(const void *in, unsigned int len, char *out)
 	HASH_MD5_Update(&ctx, in, (unsigned int)len);
 	HASH_MD5_Final(&ctx, digest);
 	if (out == NULL) out = text;
-	return hash_digest_to_string(digest, 16, out);
+	return hash_digest_to_string(out, digest, 16);
 }
 
 // calculate sha1sum and convert digests to string
-char* hash_sha1sum(const void *in, unsigned int len, char *out)
+char* hash_sha1sum(char *out, const void *in, unsigned int len)
 {
 	static char text[48];
 	unsigned char digest[20];
@@ -589,7 +587,7 @@ char* hash_sha1sum(const void *in, unsigned int len, char *out)
 	HASH_SHA1_Update(&ctx, in, len);
 	HASH_SHA1_Final(&ctx, digest);
 	if (out == NULL) out = text;
-	return hash_digest_to_string(digest, 20, out);
+	return hash_digest_to_string(out, digest, 20);
 }
 
 // crc32
@@ -753,7 +751,7 @@ void DH_STR_TO_U64(const char *str, IUINT64 *x)
 		else if (c >= 'A' && c <= 'F') b = c - 'A' + 10;
 		else if (c >= 'a' && c <= 'f') b = c - 'a' + 10;
 		else b = 0;
-		a = (a << 16) | b;
+		a = (a << 4) | b;
 	}
 	x[0] = a;
 }
@@ -775,6 +773,7 @@ void DH_U64_TO_STR(IUINT64 x, char *str)
 // CRYPTO RC4
 //=====================================================================
 
+// Initialize RC4 context with key
 void CRYPTO_RC4_Init(CRYPTO_RC4_CTX *ctx, const void *key, int keylen)
 {
 	int X, Y, i, j, k, a;
@@ -799,8 +798,8 @@ void CRYPTO_RC4_Init(CRYPTO_RC4_CTX *ctx, const void *key, int keylen)
 	ctx->y = Y;
 }
 
-void CRYPTO_RC4_Apply(CRYPTO_RC4_CTX *ctx, const void *in, void *out, 
-	size_t size)
+// Apply RC4 to data
+void CRYPTO_RC4_Update(CRYPTO_RC4_CTX *ctx, void *out, const void *in, size_t size)
 {
 	const unsigned char *src = (const unsigned char*)in;
 	unsigned char *dst = (unsigned char*)out;
@@ -826,15 +825,15 @@ void CRYPTO_RC4_Apply(CRYPTO_RC4_CTX *ctx, const void *in, void *out,
 	}
 }
 
-
-void CRYPTO_RC4_Direct(const void *key, int keylen, const void *in,
-	void *out, size_t size, int ntimes)
+// Apply RC4 to data (in-place)
+void CRYPTO_RC4_Direct(const void *key, int keylen, void *out,
+		const void *in, size_t size, int ntimes)
 {
 	const void *src = in;
 	CRYPTO_RC4_CTX ctx;
 	CRYPTO_RC4_Init(&ctx, key, keylen);
 	for (; ntimes > 0; ntimes--) {
-		CRYPTO_RC4_Apply(&ctx, src, out, size);
+		CRYPTO_RC4_Update(&ctx, out, src, size);
 		src = out;
 	}
 }
@@ -913,8 +912,8 @@ void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx,
 	ctx->position = 64;
 }
 
-void CRYPTO_CHACHA20_Apply(CRYPTO_CHACHA20_CTX *ctx, 
-		const void *in, void *out, size_t size)
+void CRYPTO_CHACHA20_Update(CRYPTO_CHACHA20_CTX *ctx, void *out, 
+		const void *in, size_t size)
 {
 	const IUINT8 *src = (const IUINT8*)in;
 	IUINT8 *dst = (IUINT8*)out;
@@ -958,7 +957,659 @@ void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2])
 
 
 //=====================================================================
-// CRYPTO XOR: byte mask or string mask
+// AES: Advanced Encryption Standard (block-wise encrypt/decrypt)
+//=====================================================================
+
+// AES S-box: substitution box
+static const IUINT8 aes_sbox[] = {
+	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5,
+	0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+	0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0,
+	0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+	0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc,
+	0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+	0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a,
+	0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+	0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0,
+	0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+	0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b,
+	0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+	0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85,
+	0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+	0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5,
+	0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+	0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17,
+	0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+	0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88,
+	0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+	0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c,
+	0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+	0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9,
+	0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+	0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6,
+	0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+	0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e,
+	0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+	0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94,
+	0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+	0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68,
+	0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+};
+
+// AES Inverse S-box: substitution box
+static const IUINT8 aes_inv_sbox[] = {
+	0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38,
+	0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
+	0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87,
+	0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
+	0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d,
+	0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
+	0x08, 0x2e, 0xa1, 0x66, 0x28, 0xd9, 0x24, 0xb2,
+	0x76, 0x5b, 0xa2, 0x49, 0x6d, 0x8b, 0xd1, 0x25,
+	0x72, 0xf8, 0xf6, 0x64, 0x86, 0x68, 0x98, 0x16,
+	0xd4, 0xa4, 0x5c, 0xcc, 0x5d, 0x65, 0xb6, 0x92,
+	0x6c, 0x70, 0x48, 0x50, 0xfd, 0xed, 0xb9, 0xda,
+	0x5e, 0x15, 0x46, 0x57, 0xa7, 0x8d, 0x9d, 0x84,
+	0x90, 0xd8, 0xab, 0x00, 0x8c, 0xbc, 0xd3, 0x0a,
+	0xf7, 0xe4, 0x58, 0x05, 0xb8, 0xb3, 0x45, 0x06,
+	0xd0, 0x2c, 0x1e, 0x8f, 0xca, 0x3f, 0x0f, 0x02,
+	0xc1, 0xaf, 0xbd, 0x03, 0x01, 0x13, 0x8a, 0x6b,
+	0x3a, 0x91, 0x11, 0x41, 0x4f, 0x67, 0xdc, 0xea,
+	0x97, 0xf2, 0xcf, 0xce, 0xf0, 0xb4, 0xe6, 0x73,
+	0x96, 0xac, 0x74, 0x22, 0xe7, 0xad, 0x35, 0x85,
+	0xe2, 0xf9, 0x37, 0xe8, 0x1c, 0x75, 0xdf, 0x6e,
+	0x47, 0xf1, 0x1a, 0x71, 0x1d, 0x29, 0xc5, 0x89,
+	0x6f, 0xb7, 0x62, 0x0e, 0xaa, 0x18, 0xbe, 0x1b,
+	0xfc, 0x56, 0x3e, 0x4b, 0xc6, 0xd2, 0x79, 0x20,
+	0x9a, 0xdb, 0xc0, 0xfe, 0x78, 0xcd, 0x5a, 0xf4,
+	0x1f, 0xdd, 0xa8, 0x33, 0x88, 0x07, 0xc7, 0x31,
+	0xb1, 0x12, 0x10, 0x59, 0x27, 0x80, 0xec, 0x5f,
+	0x60, 0x51, 0x7f, 0xa9, 0x19, 0xb5, 0x4a, 0x0d,
+	0x2d, 0xe5, 0x7a, 0x9f, 0x93, 0xc9, 0x9c, 0xef,
+	0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0,
+	0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
+	0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26,
+	0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d,
+};
+
+#define AES_KEYSIZE_128		16
+#define AES_KEYSIZE_192		24
+#define AES_KEYSIZE_256		32
+
+// Rotate right 32-bit word
+static inline IUINT32 crypto_mul_by_x(IUINT32 w) {
+	IUINT32 x = w & 0x7f7f7f7f;
+	IUINT32 y = w & 0x80808080;
+	// multiply by polynomial 'x' (0b10) in GF(2^8)
+	return (x << 1) ^ (y >> 7) * 0x1b;
+}
+
+// Multiply by x^2 in GF(2^8)
+static inline IUINT32 crypto_mul_by_x2(IUINT32 w) {
+	IUINT32 x = w & 0x3f3f3f3f;
+	IUINT32 y = w & 0x80808080;
+	IUINT32 z = w & 0x40404040;
+	// multiply by polynomial 'x^2' (0b100) in GF(2^8)
+	return (x << 2) ^ (y >> 7) * 0x36 ^ (z >> 6) * 0x1b;
+}
+
+// Rotate right 32-bit word
+static inline IUINT32 crypto_ror32(IUINT32 word, unsigned int shift) {
+	return (word >> (shift & 31)) | (word << ((-shift) & 31));
+}
+
+// MixColumns transformation
+static inline IUINT32 crypto_mix_columns(IUINT32 x) {
+	IUINT32 y = crypto_mul_by_x(x) ^ crypto_ror32(x, 16);
+	return y ^ crypto_ror32(x ^ y, 8);
+}
+
+// Inverse MixColumns transformation
+static IUINT32 crypto_inv_mix_columns(IUINT32 x) {
+	IUINT32 y = crypto_mul_by_x2(x);
+	return crypto_mix_columns(x ^ y ^ crypto_ror32(y, 16));
+}
+
+// SubBytes and ShiftRows transformation
+static inline IUINT32 crypto_subshift(IUINT32 *in, int pos) {
+	return (aes_sbox[in[pos] & 0xff]) ^
+	       (aes_sbox[(in[(pos + 1) % 4] >>  8) & 0xff] <<  8) ^
+	       (aes_sbox[(in[(pos + 2) % 4] >> 16) & 0xff] << 16) ^
+	       (aes_sbox[(in[(pos + 3) % 4] >> 24) & 0xff] << 24);
+}
+
+// Inverse SubBytes and ShiftRows transformation
+static inline IUINT32 crypto_inv_subshift(IUINT32 in[], int pos) {
+	return (aes_inv_sbox[in[pos] & 0xff]) ^
+	       (aes_inv_sbox[(in[(pos + 3) % 4] >>  8) & 0xff] <<  8) ^
+	       (aes_inv_sbox[(in[(pos + 2) % 4] >> 16) & 0xff] << 16) ^
+	       (aes_inv_sbox[(in[(pos + 1) % 4] >> 24) & 0xff] << 24);
+}
+
+// SubWord transformation
+static inline IUINT32 crypto_subw(IUINT32 in) {
+	return (aes_sbox[in & 0xff]) ^
+	       (aes_sbox[(in >>  8) & 0xff] <<  8) ^
+	       (aes_sbox[(in >> 16) & 0xff] << 16) ^
+	       (aes_sbox[(in >> 24) & 0xff] << 24);
+}
+
+// get unaligned little-endian uint32
+static inline IUINT32 crypto_get_le32(const void *p) {
+	IUINT32 x;
+	is_decode32u_lsb(p, &x);
+	return x;
+}
+
+// put unaligned little-endian uint32
+static inline void crypto_put_le32(IUINT32 x, void *p) {
+	is_encode32u_lsb(p, x);
+}
+
+// keylen: 16, 24, 32 bytes
+void CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen)
+{
+	IUINT32 kwords, rc, i, j;
+	IUINT8 keycache[32];
+
+	if (keylen != 16 && keylen != 24 && keylen != 32) {
+		if (keylen > 0 && key != NULL) {
+			int pos = 0;
+			for (; pos < 32; ) {
+				int canwrite = 32 - pos;
+				int canread = keylen;
+				int n = (canwrite < canread) ? canwrite : canread;
+				memcpy(keycache + pos, key, n);
+				pos += n;
+			}
+			key = keycache;
+			if (keylen <= 16) keylen = 16;
+			else if (keylen <= 24) keylen = 24;
+			else keylen = 32;
+		} else {
+			memset(keycache, 0, 32);
+			key = keycache;
+			keylen = 16;
+		}
+	}
+
+	memset(ctx, 0, sizeof(CRYPTO_AES_CTX));
+
+	ctx->key_length = keylen;
+	kwords = keylen / sizeof(IUINT32);
+
+	for (i = 0; i < kwords; i++)
+		ctx->key_enc[i] = crypto_get_le32(key + i * sizeof(IUINT32));
+
+	for (i = 0, rc = 1; i < 10; i++, rc = crypto_mul_by_x(rc)) {
+		IUINT32 *rki = ctx->key_enc + (i * kwords);
+		IUINT32 *rko = rki + kwords;
+
+		rko[0] = crypto_ror32(crypto_subw(rki[kwords - 1]), 8) ^ rc ^ rki[0];
+		rko[1] = rko[0] ^ rki[1];
+		rko[2] = rko[1] ^ rki[2];
+		rko[3] = rko[2] ^ rki[3];
+
+		if (keylen == AES_KEYSIZE_192) {
+			if (i >= 7)
+				break;
+			rko[4] = rko[3] ^ rki[4];
+			rko[5] = rko[4] ^ rki[5];
+		} else if (keylen == AES_KEYSIZE_256) {
+			if (i >= 6)
+				break;
+			rko[4] = crypto_subw(rko[3]) ^ rki[4];
+			rko[5] = rko[4] ^ rki[5];
+			rko[6] = rko[5] ^ rki[6];
+			rko[7] = rko[6] ^ rki[7];
+		}
+	}
+
+	// generate decryption keys
+	ctx->key_dec[0] = ctx->key_enc[keylen + 24];
+	ctx->key_dec[1] = ctx->key_enc[keylen + 25];
+	ctx->key_dec[2] = ctx->key_enc[keylen + 26];
+	ctx->key_dec[3] = ctx->key_enc[keylen + 27];
+
+	for (i = 4, j = keylen + 20; j > 0; i += 4, j -= 4) {
+		ctx->key_dec[i]     = crypto_inv_mix_columns(ctx->key_enc[j]);
+		ctx->key_dec[i + 1] = crypto_inv_mix_columns(ctx->key_enc[j + 1]);
+		ctx->key_dec[i + 2] = crypto_inv_mix_columns(ctx->key_enc[j + 2]);
+		ctx->key_dec[i + 3] = crypto_inv_mix_columns(ctx->key_enc[j + 3]);
+	}
+
+	ctx->key_dec[i]     = ctx->key_enc[0];
+	ctx->key_dec[i + 1] = ctx->key_enc[1];
+	ctx->key_dec[i + 2] = ctx->key_enc[2];
+	ctx->key_dec[i + 3] = ctx->key_enc[3];
+}
+
+// encrypt a single AES block (16 bytes)
+void CRYPTO_AES_Encrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in)
+{
+	const IUINT32 *rkp = ctx->key_enc + 4;
+	int rounds = 6 + ctx->key_length / 4;
+	IUINT32 st0[4], st1[4];
+	int round;
+
+	// initial AddRoundKey
+	st0[0] = ctx->key_enc[0] ^ crypto_get_le32(in);
+	st0[1] = ctx->key_enc[1] ^ crypto_get_le32(in + 4);
+	st0[2] = ctx->key_enc[2] ^ crypto_get_le32(in + 8);
+	st0[3] = ctx->key_enc[3] ^ crypto_get_le32(in + 12);
+
+	// Force the compiler to emit data independent Sbox references
+	st0[0] ^= aes_sbox[ 0] ^ aes_sbox[ 64] ^ aes_sbox[134] ^ aes_sbox[195];
+	st0[1] ^= aes_sbox[16] ^ aes_sbox[ 82] ^ aes_sbox[158] ^ aes_sbox[221];
+	st0[2] ^= aes_sbox[32] ^ aes_sbox[ 96] ^ aes_sbox[160] ^ aes_sbox[234];
+	st0[3] ^= aes_sbox[48] ^ aes_sbox[112] ^ aes_sbox[186] ^ aes_sbox[241];
+
+	// Main rounds: SubBytes, ShiftRows, MixColumns, AddRoundKey
+	for (round = 0;; round += 2, rkp += 8) {
+		st1[0] = crypto_mix_columns(crypto_subshift(st0, 0)) ^ rkp[0];
+		st1[1] = crypto_mix_columns(crypto_subshift(st0, 1)) ^ rkp[1];
+		st1[2] = crypto_mix_columns(crypto_subshift(st0, 2)) ^ rkp[2];
+		st1[3] = crypto_mix_columns(crypto_subshift(st0, 3)) ^ rkp[3];
+
+		if (round == rounds - 2)
+			break;
+
+		st0[0] = crypto_mix_columns(crypto_subshift(st1, 0)) ^ rkp[4];
+		st0[1] = crypto_mix_columns(crypto_subshift(st1, 1)) ^ rkp[5];
+		st0[2] = crypto_mix_columns(crypto_subshift(st1, 2)) ^ rkp[6];
+		st0[3] = crypto_mix_columns(crypto_subshift(st1, 3)) ^ rkp[7];
+	}
+
+	crypto_put_le32(crypto_subshift(st1, 0) ^ rkp[4], out);
+	crypto_put_le32(crypto_subshift(st1, 1) ^ rkp[5], out + 4);
+	crypto_put_le32(crypto_subshift(st1, 2) ^ rkp[6], out + 8);
+	crypto_put_le32(crypto_subshift(st1, 3) ^ rkp[7], out + 12);
+}
+
+// decrypt a single AES block (16 bytes)
+void CRYPTO_AES_Decrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in)
+{
+	const IUINT32 *rkp = ctx->key_dec + 4;
+	int rounds = 6 + ctx->key_length / 4;
+	IUINT32 st0[4], st1[4];
+	int round;
+
+	// initial AddRoundKey
+	st0[0] = ctx->key_dec[0] ^ crypto_get_le32(in);
+	st0[1] = ctx->key_dec[1] ^ crypto_get_le32(in + 4);
+	st0[2] = ctx->key_dec[2] ^ crypto_get_le32(in + 8);
+	st0[3] = ctx->key_dec[3] ^ crypto_get_le32(in + 12);
+
+	// Force the compiler to emit data independent Sbox references
+	st0[0] ^= aes_inv_sbox[ 0] ^ aes_inv_sbox[ 64] ^ aes_inv_sbox[129] ^ aes_inv_sbox[200];
+	st0[1] ^= aes_inv_sbox[16] ^ aes_inv_sbox[ 83] ^ aes_inv_sbox[150] ^ aes_inv_sbox[212];
+	st0[2] ^= aes_inv_sbox[32] ^ aes_inv_sbox[ 96] ^ aes_inv_sbox[160] ^ aes_inv_sbox[236];
+	st0[3] ^= aes_inv_sbox[48] ^ aes_inv_sbox[112] ^ aes_inv_sbox[187] ^ aes_inv_sbox[247];
+
+	// Main rounds: InvSubBytes, InvShiftRows, InvMixColumns, AddRoundKey
+	for (round = 0;; round += 2, rkp += 8) {
+		st1[0] = crypto_inv_mix_columns(crypto_inv_subshift(st0, 0)) ^ rkp[0];
+		st1[1] = crypto_inv_mix_columns(crypto_inv_subshift(st0, 1)) ^ rkp[1];
+		st1[2] = crypto_inv_mix_columns(crypto_inv_subshift(st0, 2)) ^ rkp[2];
+		st1[3] = crypto_inv_mix_columns(crypto_inv_subshift(st0, 3)) ^ rkp[3];
+
+		if (round == rounds - 2)
+			break;
+
+		st0[0] = crypto_inv_mix_columns(crypto_inv_subshift(st1, 0)) ^ rkp[4];
+		st0[1] = crypto_inv_mix_columns(crypto_inv_subshift(st1, 1)) ^ rkp[5];
+		st0[2] = crypto_inv_mix_columns(crypto_inv_subshift(st1, 2)) ^ rkp[6];
+		st0[3] = crypto_inv_mix_columns(crypto_inv_subshift(st1, 3)) ^ rkp[7];
+	}
+
+	crypto_put_le32(crypto_inv_subshift(st1, 0) ^ rkp[4], out);
+	crypto_put_le32(crypto_inv_subshift(st1, 1) ^ rkp[5], out + 4);
+	crypto_put_le32(crypto_inv_subshift(st1, 2) ^ rkp[6], out + 8);
+	crypto_put_le32(crypto_inv_subshift(st1, 3) ^ rkp[7], out + 12);
+}
+
+
+
+//=====================================================================
+// AES-GCM: stream-based authenticated encryption
+//=====================================================================
+#define GCM_BLOCK_SIZE 16
+
+// store big-endian uint64
+static inline void crypto_store_be64(IUINT64 value, IUINT8 *out) {
+	int i;
+	for (i = 0; i < 8; ++i) {
+		out[i] = (IUINT8)(value >> (56 - i * 8));
+	}
+}
+
+// XOR two blocks of GCM_BLOCK_SIZE bytes
+static inline void crypto_gcm_block_xor(IUINT8 *dst, const IUINT8 *src) {
+	int i;
+	for (i = 0; i < GCM_BLOCK_SIZE; ++i) {
+		dst[i] ^= src[i];
+	}
+}
+
+// Galois field multiplication: X = X * Y
+static void crypto_gcm_mul(IUINT8 *X, const IUINT8 *Y) {
+	IUINT8 Z[GCM_BLOCK_SIZE];
+	IUINT8 V[GCM_BLOCK_SIZE];
+	int i;
+	memset(Z, 0, sizeof(Z));
+	memcpy(V, Y, sizeof(V));
+	for (i = 0; i < GCM_BLOCK_SIZE; ++i) {
+		int bit;
+		IUINT8 x = X[i];
+		for (bit = 7; bit >= 0; --bit) {
+			if ((x >> bit) & 1) {
+				int j;
+				for (j = 0; j < GCM_BLOCK_SIZE; ++j) {
+					Z[j] ^= V[j];
+				}
+			}
+			{
+				IUINT8 lsb = V[GCM_BLOCK_SIZE - 1] & 1u;
+				int j;
+				for (j = GCM_BLOCK_SIZE - 1; j > 0; --j) {
+					V[j] = (IUINT8)((V[j] >> 1) | ((V[j - 1] & 1u) << 7));
+				}
+				V[0] >>= 1;
+				if (lsb) {
+					V[0] ^= 0xe1u;
+				}
+			}
+		}
+	}
+	memcpy(X, Z, sizeof(Z));
+}
+
+// Increment the rightmost 32 bits of the counter
+static inline void crypto_gcm_inc32(IUINT8 *counter) {
+	int i;
+	for (i = GCM_BLOCK_SIZE - 1; i >= GCM_BLOCK_SIZE - 4; --i) {
+		counter[i] += 1u;
+		if (counter[i] != 0) {
+			break;
+		}
+	}
+}
+
+// Generate next keystream block
+static void crypto_gcm_gen_keystream(CRYPTO_GCM_CTX *ctx) {
+	crypto_gcm_inc32(ctx->counter);
+	CRYPTO_AES_Encrypt(&ctx->aes, ctx->keystream, ctx->counter);
+	ctx->keystream_used = 0;
+}
+
+// Feed data into GCM authentication
+static void crypto_gcm_feed_bytes(CRYPTO_GCM_CTX *ctx, const IUINT8 *data,
+		size_t len, IUINT8 *buffer, IUINT32 *buffer_len)
+{
+	while (len > 0) {
+		size_t space = (size_t)GCM_BLOCK_SIZE - (size_t)(*buffer_len);
+		size_t step = (len < space) ? len : space;
+		memcpy(buffer + *buffer_len, data, step);
+		*buffer_len += (IUINT32)step;
+		data += step;
+		len -= step;
+		if (*buffer_len == GCM_BLOCK_SIZE) {
+			crypto_gcm_block_xor(ctx->auth, buffer);
+			crypto_gcm_mul(ctx->auth, ctx->H);
+			memset(buffer, 0, GCM_BLOCK_SIZE);
+			*buffer_len = 0;
+		}
+	}
+}
+
+// Pad the buffer to a full block and process it
+static void crypto_gcm_pad_buffer(CRYPTO_GCM_CTX *ctx, IUINT8 *buffer,
+		IUINT32 *buffer_len)
+{
+	if (*buffer_len == 0) {
+		return;
+	}
+	{
+		IUINT8 block[GCM_BLOCK_SIZE];
+		memcpy(block, buffer, *buffer_len);
+		memset(block + *buffer_len, 0, GCM_BLOCK_SIZE - *buffer_len);
+		crypto_gcm_block_xor(ctx->auth, block);
+		crypto_gcm_mul(ctx->auth, ctx->H);
+	}
+	memset(buffer, 0, GCM_BLOCK_SIZE);
+	*buffer_len = 0;
+}
+
+// Finalize AAD processing
+static void crypto_gcm_finalize_aad(CRYPTO_GCM_CTX *ctx) {
+	if (ctx->aad_finalized) {
+		return;
+	}
+	crypto_gcm_pad_buffer(ctx, ctx->aad_buf, &ctx->aad_buf_len);
+	ctx->aad_finalized = 1;
+}
+
+// Setup initial counter J0 from IV
+static void crypto_gcm_setup_j0(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
+		size_t iv_len)
+{
+	if (iv_len == 12) {
+		memcpy(ctx->J0, iv, 12);
+		ctx->J0[12] = 0;
+		ctx->J0[13] = 0;
+		ctx->J0[14] = 0;
+		ctx->J0[15] = 1;
+		return;
+	}
+	{
+		IUINT8 acc[GCM_BLOCK_SIZE];
+		IUINT8 block[GCM_BLOCK_SIZE];
+		size_t remaining = iv_len;
+		size_t copied = 0;
+		memset(acc, 0, sizeof(acc));
+		while (remaining >= GCM_BLOCK_SIZE) {
+			memcpy(block, iv + copied, GCM_BLOCK_SIZE);
+			crypto_gcm_block_xor(acc, block);
+			crypto_gcm_mul(acc, ctx->H);
+			remaining -= GCM_BLOCK_SIZE;
+			copied += GCM_BLOCK_SIZE;
+		}
+		if (remaining > 0) {
+			memset(block, 0, GCM_BLOCK_SIZE);
+			memcpy(block, iv + copied, remaining);
+			crypto_gcm_block_xor(acc, block);
+			crypto_gcm_mul(acc, ctx->H);
+		}
+		memset(block, 0, GCM_BLOCK_SIZE);
+		crypto_store_be64(((IUINT64)iv_len) << 3, block + 8);
+		crypto_gcm_block_xor(acc, block);
+		crypto_gcm_mul(acc, ctx->H);
+		memcpy(ctx->J0, acc, GCM_BLOCK_SIZE);
+	}
+}
+
+// Build length block for final authentication
+static void crypto_gcm_build_length(CRYPTO_GCM_CTX *ctx, IUINT8 block[16]) {
+	IUINT64 aad_bits = ctx->aad_len << 3;
+	IUINT64 data_bits = ctx->data_len << 3;
+	memset(block, 0, GCM_BLOCK_SIZE);
+	crypto_store_be64(aad_bits, block);
+	crypto_store_be64(data_bits, block + 8);
+}
+
+// Reset GCM state
+static void crypto_gcm_reset_state(CRYPTO_GCM_CTX *ctx) {
+	memset(ctx->auth, 0, GCM_BLOCK_SIZE);
+	memset(ctx->aad_buf, 0, GCM_BLOCK_SIZE);
+	memset(ctx->data_buf, 0, GCM_BLOCK_SIZE);
+	memset(ctx->keystream, 0, GCM_BLOCK_SIZE);
+	ctx->keystream_used = GCM_BLOCK_SIZE;
+	ctx->aad_buf_len = 0;
+	ctx->data_buf_len = 0;
+	ctx->aad_len = 0;
+	ctx->data_len = 0;
+	ctx->aad_finalized = 0;
+	ctx->data_started = 0;
+}
+
+// initialize AES-GCM context with key
+void CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
+		IUINT32 keylen)
+{
+	IUINT8 zero[GCM_BLOCK_SIZE];
+	IASSERT(ctx != NULL);
+	IASSERT(key != NULL);
+	memset(ctx, 0, sizeof(*ctx));
+	CRYPTO_AES_Init(&ctx->aes, key, keylen);
+	memset(zero, 0, sizeof(zero));
+	CRYPTO_AES_Encrypt(&ctx->aes, ctx->H, zero);
+	ctx->active = 0;
+}
+
+// reset AES-GCM context with iv
+void CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
+		size_t iv_len)
+{
+	IASSERT(ctx != NULL);
+	IASSERT(iv != NULL);
+	IASSERT(iv_len > 0);
+	crypto_gcm_reset_state(ctx);
+	crypto_gcm_setup_j0(ctx, iv, iv_len);
+	memcpy(ctx->counter, ctx->J0, GCM_BLOCK_SIZE);
+	ctx->active = 1;
+}
+
+// update additional authenticated data (AAD)
+void CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
+		size_t aad_len)
+{
+	IASSERT(ctx != NULL);
+	IASSERT(aad_len == 0 || aad != NULL);
+	IASSERT(ctx->active != 0);
+	IASSERT(ctx->data_started == 0);
+	if (aad_len == 0) {
+		return;
+	}
+	crypto_gcm_feed_bytes(ctx, (const IUINT8*)aad, aad_len, ctx->aad_buf,
+		&ctx->aad_buf_len);
+	ctx->aad_len += (IUINT64)aad_len;
+}
+
+// encrypt/decrypt bytes
+static void crypto_gcm_encrypt_bytes(CRYPTO_GCM_CTX *ctx, IUINT8 *out,
+		const IUINT8 *in, size_t len)
+{
+	size_t offset = 0;
+	while (offset < len) {
+		if (ctx->keystream_used == GCM_BLOCK_SIZE) {
+			crypto_gcm_gen_keystream(ctx);
+		}
+		{
+			size_t space = (size_t)GCM_BLOCK_SIZE - ctx->keystream_used;
+			size_t step = (len - offset < space) ? (len - offset) : space;
+			size_t i;
+			for (i = 0; i < step; ++i) {
+				out[offset + i] = in[offset + i] ^
+					ctx->keystream[ctx->keystream_used + i];
+			}
+			ctx->keystream_used += (IUINT32)step;
+			offset += step;
+		}
+	}
+}
+
+// encrypt data
+void CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
+		const void *in, size_t len)
+{
+	IASSERT(ctx != NULL);
+	IASSERT(in != NULL || len == 0);
+	IASSERT(out != NULL || len == 0);
+	IASSERT(ctx->active != 0);
+	if (len == 0) {
+		return;
+	}
+	crypto_gcm_finalize_aad(ctx);
+	ctx->data_started = 1;
+	crypto_gcm_encrypt_bytes(ctx, (IUINT8*)out, (const IUINT8*)in, len);
+	crypto_gcm_feed_bytes(ctx, (const IUINT8*)out, len, ctx->data_buf,
+		&ctx->data_buf_len);
+	ctx->data_len += (IUINT64)len;
+}
+
+// decrypt data
+void CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
+		const void *in, size_t len)
+{
+	IASSERT(ctx != NULL);
+	IASSERT(in != NULL || len == 0);
+	IASSERT(out != NULL || len == 0);
+	IASSERT(ctx->active != 0);
+	if (len == 0) {
+		return;
+	}
+	crypto_gcm_finalize_aad(ctx);
+	ctx->data_started = 1;
+	crypto_gcm_feed_bytes(ctx, (const IUINT8*)in, len, ctx->data_buf,
+		&ctx->data_buf_len);
+	crypto_gcm_encrypt_bytes(ctx, (IUINT8*)out, (const IUINT8*)in, len);
+	ctx->data_len += (IUINT64)len;
+}
+
+// finalize and get authentication tag
+void CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
+		size_t tag_len)
+{
+	IUINT8 block[GCM_BLOCK_SIZE];
+	IUINT8 S[GCM_BLOCK_SIZE];
+	size_t copy_len;
+	IASSERT(ctx != NULL);
+	IASSERT(tag_len == 0 || tag != NULL);
+	IASSERT(ctx->active != 0);
+	crypto_gcm_finalize_aad(ctx);
+	crypto_gcm_pad_buffer(ctx, ctx->data_buf, &ctx->data_buf_len);
+	crypto_gcm_build_length(ctx, block);
+	crypto_gcm_block_xor(ctx->auth, block);
+	crypto_gcm_mul(ctx->auth, ctx->H);
+	CRYPTO_AES_Encrypt(&ctx->aes, S, ctx->J0);
+	crypto_gcm_block_xor(S, ctx->auth);
+	copy_len = (tag_len > CRYPTO_GCM_TAG_SIZE) ?
+		CRYPTO_GCM_TAG_SIZE : tag_len;
+	if (tag != NULL && copy_len > 0) {
+		memcpy(tag, S, copy_len);
+	}
+	ctx->active = 0;
+}
+
+// check authentication tag, return 0 if tag matches
+int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
+		size_t tag_len)
+{
+	IUINT8 expected[CRYPTO_GCM_TAG_SIZE];
+	unsigned int diff = 0;
+	size_t i;
+	IASSERT(ctx != NULL);
+	IASSERT(tag != NULL || tag_len == 0);
+	CRYPTO_GCM_Final(ctx, expected, CRYPTO_GCM_TAG_SIZE);
+	if (tag_len == 0 || tag_len > CRYPTO_GCM_TAG_SIZE) {
+		return -1;
+	}
+	for (i = 0; i < CRYPTO_GCM_TAG_SIZE; ++i) {
+		IUINT8 provided = 0;
+		IUINT8 mask = 0;
+		if (i < tag_len) {
+			provided = tag[i];
+			mask = 0xffu;
+		}
+		diff |= (unsigned int)((expected[i] ^ provided) & mask);
+	}
+	return (diff == 0) ? 0 : -1;
+}
+
+
+
+//=====================================================================
+// CRYPTO Misc Functions
 //=====================================================================
 
 // xor mask with each byte
@@ -1044,6 +1695,59 @@ void CRYPTO_XOR_String(void *in, const void *out, int size,
 			}
 		}
 	}
+}
+
+// xor two buffers: out[i] = in1[i] ^ in2[i]
+void CRYPTO_XOR_Combine(void *out, const void *in1, const void *in2, int size)
+{
+	const unsigned char *src1 = (const unsigned char*)in1;
+	const unsigned char *src2 = (const unsigned char*)in2;
+	unsigned char *dst = (unsigned char*)out;
+	for (; size > 0; src1++, src2++, dst++, size--) {
+		dst[0] = src1[0] ^ src2[0];
+	}
+}
+
+// chain modes (seed acts as the "previous" byte for index 0):
+// 0: xor chain forward, out[0] = in[0] ^ out[-1]
+// 1: xor chain backward, out[0] = in[0] ^ in[-1]
+// 2: add chain forward, out[0] = in[0] + out[-1]
+// 3: add chain backward, out[0] = in[0] - in[-1]
+void CRYPTO_XOR_Chain(void *out, const void *in, int size, IUINT8 *seed, int mode)
+{
+	const IUINT8 *src = (const IUINT8*)in;
+	IUINT8 *dst = (IUINT8*)out;
+	IUINT8 mask = (seed)? seed[0] : 0xaa;
+	switch (mode) {
+	case 0:   // xor chain forward
+		for (; size > 0; src++, dst++, size--) {
+			dst[0] = src[0] ^ mask;
+			mask = dst[0];
+		}
+		break;
+	case 1:   // xor chain backward
+		for (; size > 0; src++, dst++, size--) {
+			IUINT8 current = src[0];
+			dst[0] = current ^ mask;
+			mask = current;
+		}
+		break;
+	case 2:   // add chain forward
+		for (; size > 0; src++, dst++, size--) {
+			dst[0] = src[0] + mask;
+			mask = dst[0];
+		}
+		break;
+	case 3:   // add chain backward
+		for (; size > 0; src++, dst++, size--) {
+			IUINT8 current = src[0];
+			dst[0] = current - mask;
+			mask = current;
+		}
+		break;
+
+	}
+	if (seed) seed[0] = mask;
 }
 
 

@@ -335,14 +335,14 @@ private:
 // 计算 MD5
 static inline std::string hash_md5sum(const void *in, int size) {
 	char out[60];
-	std::string tmp = ::hash_md5sum(in, size, out);
+	std::string tmp = ::hash_md5sum(out, in, size);
 	return tmp;
 }
 
 // 计算 SHA1
 static inline std::string hash_sha1sum(const void *in, int size) {
 	char out[60];
-	std::string tmp = ::hash_sha1sum(in, size, out);
+	std::string tmp = ::hash_sha1sum(out, in, size);
 	return tmp;
 }
 

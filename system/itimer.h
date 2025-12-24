@@ -131,7 +131,7 @@ typedef struct ILISTHEAD ilist_head;
 
 
 /*--------------------------------------------------------------------*/
-/* list operation                                                    */
+/* list operation                                                     */
 /*--------------------------------------------------------------------*/
 #define ILIST_ADD(node, head) ( \
 	(node)->prev = (head), (node)->next = (head)->next, \

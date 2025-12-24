@@ -115,7 +115,7 @@ typedef int socklen_t;
 #endif
 
 #ifndef _WIN32
-#define _WIN32
+#define _WIN32  1
 #endif
 
 typedef int socklen_t;

@@ -178,11 +178,10 @@ extern "C" {
 //=====================================================================
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
 //=====================================================================
-typedef struct
-{
-	IUINT32 i[2];                   /* Number of _bits_ handled mod 2^64 */
-	IUINT32 buf[4];                                    /* Scratch buffer */
-	unsigned char in[64];                              /* Input buffer */
+typedef struct {
+	IUINT32 i[2];             // Number of _bits_ handled mod 2^64
+	IUINT32 buf[4];           // Scratch buffer
+	unsigned char in[64];     // Input buffer
 }	HASH_MD5_CTX;
 
 void HASH_MD5_Init(HASH_MD5_CTX *ctx, unsigned long RandomNumber);
@@ -210,19 +209,56 @@ void HASH_SHA1_Final(HASH_SHA1_CTX *ctx, unsigned char digest[20]);
 //=====================================================================
 
 // convert digests to string
-char* hash_digest_to_string(const unsigned char *in, int size, char *out);
+char* hash_digest_to_string(char *out, const unsigned char *in, int size);
 
 // calculate md5sum and convert digests to string
-char* hash_md5sum(const void *in, unsigned int len, char *out);
+char* hash_md5sum(char *out, const void *in, unsigned int len);
 
 // calculate sha1sum and convert digests to string
-char* hash_sha1sum(const void *in, unsigned int len, char *out);
+char* hash_sha1sum(char *out, const void *in, unsigned int len);
 
 // calculate crc32 and return result
 IUINT32 hash_crc32(const void *in, unsigned int len);
 
 // sum all bytes together
 IUINT32 hash_checksum(const void *in, unsigned int len);
+
+
+//=====================================================================
+// Incremental hash update functions
+//=====================================================================
+
+// 32 bits fnv1a hash update
+static inline IUINT32 hash_update_fnv1a(IUINT32 h, IUINT32 x) {
+	const IUINT32 FNV1A_32_PRIME = 0x01000193;
+	h = (h ^ x) * FNV1A_32_PRIME;
+	return h;
+}
+
+// 32 bits boost hash update
+static inline IUINT32 hash_update_boost(IUINT32 h, IUINT32 x) {
+	h ^= x + 0x9e3779b9 + (h << 6) + (h >> 2);
+	return h;
+}
+
+// 32 bits xxhash update
+static inline IUINT32 hash_update_xxhash(IUINT32 h, IUINT32 x) {
+	const IUINT32 PRIME32_2 = 0x85ebca77;
+	const IUINT32 PRIME32_3 = 0xc2b2ae3d;
+	h = h + x * PRIME32_2;
+	h = ((h << 13) | (h >> 19)) * PRIME32_3;
+	return h;
+}
+
+// 32 bits murmur hash update
+static inline IUINT32 hash_update_murmur(IUINT32 h, IUINT32 x) {
+	x = x * 0xcc9e2d51;
+	x = ((x << 15) | (x >> 17));
+	h = (h * 0x1b873593) ^ x;
+	h = (h << 13) | (h >> 19);
+	h = h * 5 + 0xe6546b64;
+	return h;
+}
 
 
 //=====================================================================
@@ -260,13 +296,16 @@ typedef struct {
 }	CRYPTO_RC4_CTX;
 
 
+// Initialize RC4 context with key
 void CRYPTO_RC4_Init(CRYPTO_RC4_CTX *ctx, const void *key, int keylen);
 
-void CRYPTO_RC4_Apply(CRYPTO_RC4_CTX *ctx, const void *in, void *out, 
-	size_t size);
+// Apply RC4 to data
+void CRYPTO_RC4_Update(CRYPTO_RC4_CTX *ctx, void *out, const void *in, 
+		size_t size);
 
-void CRYPTO_RC4_Direct(const void *key, int keylen, const void *in,
-	void *out, size_t size, int ntimes);
+// Apply RC4 to data (in-place)
+void CRYPTO_RC4_Direct(const void *key, int keylen, void *out, const void *in,
+		size_t size, int ntimes);
 
 
 
@@ -285,8 +324,8 @@ void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx,
 		const IUINT8 *key, const IUINT8 *nonce, IUINT32 counter);
 
 // applay cipher
-void CRYPTO_CHACHA20_Apply(CRYPTO_CHACHA20_CTX *ctx, 
-		const void *in, void *out, size_t size);
+void CRYPTO_CHACHA20_Update(CRYPTO_CHACHA20_CTX *ctx, void *out,
+		const void *in, size_t size);
 
 
 
@@ -299,8 +338,81 @@ void CRYPTO_XTEA_Encipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
 void CRYPTO_XTEA_Decipher(int nrounds, const IUINT32 key[4], IUINT32 v[2]);
 
 
+
 //=====================================================================
-// CRYPTO XOR: byte mask or string mask
+// AES: Advanced Encryption Standard (block-wise encrypt/decrypt)
+//=====================================================================
+typedef struct {
+	IUINT32 key_enc[60];
+	IUINT32 key_dec[60];
+	IUINT32 key_length;
+}   CRYPTO_AES_CTX;
+
+// keylen: 16, 24, 32 bytes
+void CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen);
+
+// encrypt a single AES block (16 bytes)
+void CRYPTO_AES_Encrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in);
+
+// decrypt a single AES block (16 bytes)
+void CRYPTO_AES_Decrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in);
+
+
+//=====================================================================
+// AES-GCM: stream-based authenticated encryption
+//=====================================================================
+typedef struct {
+	CRYPTO_AES_CTX aes;
+	IUINT8 H[16];
+	IUINT8 J0[16];
+	IUINT8 counter[16];
+	IUINT8 auth[16];
+	IUINT8 aad_buf[16];
+	IUINT8 data_buf[16];
+	IUINT8 keystream[16];
+	IUINT32 keystream_used;
+	IUINT32 aad_buf_len;
+	IUINT32 data_buf_len;
+	IUINT64 aad_len;
+	IUINT64 data_len;
+	int aad_finalized;
+	int data_started;
+	int active;
+}   CRYPTO_GCM_CTX;
+
+#define CRYPTO_GCM_TAG_SIZE 16
+
+// initialize AES-GCM context with key
+void CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
+		IUINT32 keylen);
+
+// reset AES-GCM context with iv
+void CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
+		size_t iv_len);
+
+// update additional authenticated data (AAD)
+void CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
+		size_t aad_len);
+
+// encrypt data
+void CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
+		const void *in, size_t len);
+
+// decrypt data
+void CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
+		const void *in, size_t len);
+
+// finalize and get authentication tag
+void CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
+		size_t tag_len);
+
+// check authentication tag, return 0 if tag matches
+int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
+		size_t tag_len);
+
+
+//=====================================================================
+// CRYPTO Misc Functions
 //=====================================================================
 
 // xor mask with each byte
@@ -313,6 +425,15 @@ void CRYPTO_XOR_DWord(void *in, const void *out, int size, IUINT32 mask);
 void CRYPTO_XOR_String(void *in, const void *out, int size, 
 		const unsigned char *mask, int msize, IUINT32 nonce);
 
+// xor two buffers: out[i] = in1[i] ^ in2[i]
+void CRYPTO_XOR_Combine(void *out, const void *in1, const void *in2, int size);
+
+// chain modes (seed acts as the "previous" byte for index 0):
+// 0: xor chain forward, out[0] = in[0] ^ out[-1]
+// 1: xor chain backward, out[0] = in[0] ^ in[-1]
+// 2: add chain forward, out[0] = in[0] + out[-1]
+// 3: add chain backward, out[0] = in[0] - in[-1]
+void CRYPTO_XOR_Chain(void *out, const void *in, int size, IUINT8 *seed, int mode);
 
 
 //=====================================================================
@@ -332,8 +453,7 @@ IUINT32 random_std_cpp(IUINT32 *seed);
 //=====================================================================
 // Statistically perfect random generator
 //=====================================================================
-typedef struct
-{
+typedef struct {
 	IUINT32 seed;      // random seed
 	IUINT32 size;      // array size
 	IUINT32 avail;     // available numbers
@@ -354,8 +474,7 @@ IUINT32 RANDOM_BOX_Next(RANDOM_BOX *box);
 //=====================================================================
 // PCG: PCG is a family of simple fast statistically good algorithms
 //=====================================================================
-typedef struct
-{
+typedef struct {
 	IUINT64 state;    // RNG state.  All values are possible.
 	IUINT64 inc;      // Must *always* be odd.
 }	RANDOM_PCG;

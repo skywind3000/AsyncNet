@@ -1479,6 +1479,40 @@ void async_listener_delete(CAsyncListener *listener)
 
 
 //---------------------------------------------------------------------
+// assigned an listening socket
+//---------------------------------------------------------------------
+int async_listener_assign(CAsyncListener *listener, int fd)
+{
+	isockaddr_union addr;
+	int addrlen = sizeof(addr);
+
+	if (listener->fd >= 0) {
+		async_listener_stop(listener);
+	}
+	if (fd < 0) {
+		listener->error = -1;
+		return -1;
+	}
+
+	if (isockname(fd, &addr.address, &addrlen) != 0) {
+		listener->error = -2;
+		return -2;
+	}
+
+	isocket_enable(fd, ISOCK_NOBLOCK);
+
+	listener->fd = fd;
+
+	async_event_set(&listener->evt_read, fd, ASYNC_EVENT_READ);
+	listener->evt_read.user = listener;
+
+	async_event_start(listener->loop, &listener->evt_read);
+
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
 // start listening on the socket
 //---------------------------------------------------------------------
 int async_listener_start(CAsyncListener *listener, int backlog, 

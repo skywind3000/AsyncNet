@@ -210,8 +210,11 @@ void iv_init(struct IVECTOR *v, struct IALLOCATOR *allocator);
 /* destroy a vector */
 void iv_destroy(struct IVECTOR *v);
 
-/* resize a vector */
+/* resize a vector: when newsize is smaller, capacity won't shrink */
 int iv_resize(struct IVECTOR *v, size_t newsize);
+
+/* set capacity of vector: capacity will expand/shrink according to newcap */
+int iv_capacity(struct IVECTOR *v, size_t newcap);
 
 /* change capacity without affecting size */
 int iv_reserve(struct IVECTOR *v, size_t newsize);
@@ -957,9 +960,9 @@ struct ib_hash_entry *ib_map_find_cstr(struct ib_hash_map *hm, const char *key);
 
 
 /*--------------------------------------------------------------------*/
-/* stack allocator                                                    */
+/* zone allocator: allocator for short time living objects            */
 /*--------------------------------------------------------------------*/
-struct ib_stack
+struct ib_zone
 {
 	char *ptr;
 	size_t avail;
@@ -967,23 +970,59 @@ struct ib_stack
 	size_t allocated;
 	size_t minimum;
 	size_t maximum;
+	size_t initsize;
 	void *pages;
+	void *finalizer;
+	void *initmem;
 	struct IALLOCATOR *allocator;
 };
 
 
-/* initialize a stack allocator */
-void ib_stack_init(struct ib_stack *stack, void *initmem, size_t size,
+/* initialize a zone allocator */
+void ib_zone_init(struct ib_zone *zone, void *initmem, size_t size,
 		struct IALLOCATOR *allocator);
 
-/* destroy a stack allocator */
-void ib_stack_destroy(struct ib_stack *stack);
+/* destroy a zone allocator, finalizers will be called here */
+void ib_zone_destroy(struct ib_zone *zone);
 
-/* allocate a new obj */
-void* ib_stack_next(struct ib_stack *stack, size_t size);
+/* allocate a new obj: the new obj will be be free until zone destroy */
+void* ib_zone_next(struct ib_zone *zone, size_t size);
 
-/* setup an allocator */
-void ib_stack_setup(struct ib_stack *stack, struct IALLOCATOR *allocator);
+/* setup an allocator: allocator->free will do nothing */
+void ib_zone_setup(struct ib_zone *zone, struct IALLOCATOR *allocator);
+
+/* install a finalizer (called when zone is destroyed) */
+void ib_zone_finalizer(struct ib_zone *zone, void (*fn)(void*), void *user);
+
+/* clear a zone allocator, call the finalizers */
+void ib_zone_clear(struct ib_zone *zone);
+
+/* fast allocate */
+static inline void* ib_zone_malloc(struct ib_zone *zone, size_t size) {
+	size = IROUND_UP(size, sizeof(char*));
+	if (zone->ptr != NULL && zone->avail >= size) {
+		void *ptr = zone->ptr;
+		zone->ptr += size;
+		zone->avail -= size;
+		zone->used += size;
+		return ptr;
+	} else {
+		return ib_zone_next(zone, size);
+	}
+}
+
+/* fast allocate aligned memory */
+static inline void*
+ib_zone_malloc_aligned(struct ib_zone *zone, size_t size, size_t align) {
+	size_t offset = ((size_t)(zone->ptr)) & (align - 1);
+	if (offset != 0) {
+		size_t adjust = align - offset;
+		char *ptr = (char*)ib_zone_malloc(zone, size + adjust);
+		return ptr + adjust;
+	} else {
+		return ib_zone_malloc(zone, size);
+	}
+}
 
 
 #ifdef __cplusplus

@@ -64,6 +64,7 @@ public:
 
 	AsyncLoop(const AsyncLoop &) = delete;
 	AsyncLoop& operator=(const AsyncLoop &) = delete;
+	AsyncLoop& operator=(AsyncLoop &&src) = delete;
 
 public:
 
@@ -199,6 +200,7 @@ public:
 	AsyncEvent(AsyncEvent &&src) = delete;
 	AsyncEvent(const AsyncEvent &) = delete;
 	AsyncEvent& operator=(const AsyncEvent &) = delete;
+	AsyncEvent& operator=(AsyncEvent &&) = delete;
 
 public:
 
@@ -253,6 +255,7 @@ public:
 	AsyncTimer(AsyncTimer &&src) = delete;
 	AsyncTimer(const AsyncTimer &) = delete;
 	AsyncTimer& operator=(const AsyncTimer &) = delete;
+	AsyncTimer& operator=(AsyncTimer &&) = delete;
 
 public:
 
@@ -296,6 +299,7 @@ public:
 	AsyncSemaphore(AsyncSemaphore &&src) = delete;
 	AsyncSemaphore(const AsyncSemaphore &) = delete;
 	AsyncSemaphore& operator=(const AsyncSemaphore &) = delete;
+	AsyncSemaphore& operator=(AsyncSemaphore &&) = delete;
 
 public:
 
@@ -348,7 +352,8 @@ public:
 
 	AsyncPostpone(AsyncPostpone &&src) = delete;
 	AsyncPostpone(const AsyncPostpone &) = delete;
-	AsyncPostpone& operator=(AsyncPostpone &src) = delete;
+	AsyncPostpone& operator=(const AsyncPostpone &src) = delete;
+	AsyncPostpone& operator=(AsyncPostpone &&src) = delete;
 
 public:
 
@@ -397,7 +402,8 @@ public:
 
 	AsyncIdle(AsyncIdle &&src) = delete;
 	AsyncIdle(const AsyncIdle &) = delete;
-	AsyncIdle& operator=(AsyncIdle &src) = delete;
+	AsyncIdle& operator=(const AsyncIdle &src) = delete;
+	AsyncIdle& operator=(AsyncIdle &&src) = delete;
 
 public:
 
@@ -439,7 +445,8 @@ public:
 
 	AsyncOnce(AsyncOnce &&src) = delete;
 	AsyncOnce(const AsyncOnce &) = delete;
-	AsyncOnce& operator=(AsyncOnce &src) = delete;
+	AsyncOnce& operator=(const AsyncOnce &src) = delete;
+	AsyncOnce& operator=(AsyncOnce &&src) = delete;
 
 public:
 

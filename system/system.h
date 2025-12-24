@@ -73,29 +73,34 @@
 #error This file must be compiled in C++ mode !!
 #endif
 
+// C++ Standard Detection Macro
+// Values: 0 (pre-C++11), 11, 14, 17, 20, 23, 26
+#ifndef _CPP_STANDARD
 #ifndef _MSC_VER
-#if __cplusplus >= 202002
-#define _CPP_STANDARD  20
-#elif __cplusplus >= 201703
-#define _CPP_STANDARD  17
-#elif __cpluplus >= 201402
-#define _CPP_STANDARD  14
-#elif __cplusplus >= 201103
-#define _CPP_STANDARD  11
+    #define _CPP_VERSION_NUMBER __cplusplus
+#elif defined(_MSVC_LANG)
+    #define _CPP_VERSION_NUMBER _MSVC_LANG
+#elif _MSC_VER >= 1900  // VS 2015
+    #define _CPP_VERSION_NUMBER 201103L
 #else
-#define _CPP_STANDARD  0
+    #define _CPP_VERSION_NUMBER 0L
 #endif
+#if _CPP_VERSION_NUMBER >= 202600L
+    #define _CPP_STANDARD 26
+#elif _CPP_VERSION_NUMBER >= 202302L
+    #define _CPP_STANDARD 23
+#elif _CPP_VERSION_NUMBER >= 202002L
+    #define _CPP_STANDARD 20
+#elif _CPP_VERSION_NUMBER >= 201703L
+    #define _CPP_STANDARD 17
+#elif _CPP_VERSION_NUMBER >= 201402L
+    #define _CPP_STANDARD 14
+#elif _CPP_VERSION_NUMBER >= 201103L
+    #define _CPP_STANDARD 11
 #else
-#if _MSC_VER >= 1929
-#define _CPP_STANDARD  20
-#elif _MSC_VER >= 1916
-#define _CPP_STANDARD  17
-#elif _MSC_VER >= 1900
-#define _CPP_STANDARD  11
-#else 
-#define _CPP_STANDARD  0
+    #define _CPP_STANDARD 0
 #endif
-#endif
+#endif // _CPP_STANDARD
 
 #if _CPP_STANDARD >= 11
 #include <functional>
@@ -1566,44 +1571,131 @@ class Path {
 
 public:
 
-	// 取得绝对路径
-	static inline bool Absolute(const char *path, std::string &output) {
+	// Get absolute path
+	static inline std::string Absolute(const std::string &path) {
 		char buffer[IPOSIX_MAXBUFF];
-		if (iposix_path_abspath(path, buffer, IPOSIX_MAXPATH) == NULL) {
-			output.assign("");
-			return false;
+		std::string output;
+		if (iposix_path_abspath(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
 		}
-		output.assign(buffer);
-		return true;
+		return output;
 	}
 
-	// 归一化路径
-	static inline bool Normalize(const char *path, std::string &output) {
-		char buffer[IPOSIX_MAXBUFF];
-		if (iposix_path_normal(path, buffer, IPOSIX_MAXPATH) == NULL) {
-			output.assign("");
-			return false;
+	// Get absolute path (wide char)
+	static inline std::wstring Absolute(const std::wstring &path) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wabspath(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
 		}
-		output.assign(buffer);
-		return true;
+		return output;
 	}
 
-	// 连接路径
-	static inline bool Join(const char *p1, const char *p2, std::string &output) {
+	// normalize path: remove "..", "." and redundant separators
+	static inline std::string Normalize(const std::string &path) {
 		char buffer[IPOSIX_MAXBUFF];
-		if (iposix_path_join(p1, p2, buffer, IPOSIX_MAXPATH) == NULL) {
-			output.assign("");
-			return false;
+		std::string output;
+		if (iposix_path_normal(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
 		}
-		output.assign(buffer);
-		return true;
+		return output;
 	}
 
-	// 切分路径为：路径 + 文件名
-	static inline bool Split(const char *path, std::string &dir, std::string &file) {
+	// normalize path: remove "..", "." and redundant separators
+	static inline std::wstring Normalize(const std::wstring &path) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wnormal(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// concatenate two paths
+	static inline std::string Join(const std::string &p1, const std::string &p2) {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_join(p1.c_str(), p2.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// concatenate two paths
+	static inline std::wstring Join(const std::wstring &p1, const std::wstring &p2) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wjoin(p1.c_str(), p2.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// dirname
+	static inline std::string DirName(const std::string &path) {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_dirname(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// dirname
+	static inline std::wstring DirName(const std::wstring &path) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wdirname(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// basename
+	static inline std::string BaseName(const std::string &path) {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_basename(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// basename
+	static inline std::wstring BaseName(const std::wstring &path) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wbasename(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// extname
+	static inline std::string ExtName(const std::string &path) {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_extname(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// extname
+	static inline std::wstring ExtName(const std::wstring &path) {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wextname(path.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	// split directory and file name
+	static inline bool Split(const std::string &path, std::string &dir, std::string &file) {
 		char buf1[IPOSIX_MAXBUFF];
 		char buf2[IPOSIX_MAXBUFF];
-		if (iposix_path_split(path, buf1, IPOSIX_MAXPATH, buf2, IPOSIX_MAXPATH) != 0) {
+		if (iposix_path_split(path.c_str(), buf1, IPOSIX_MAXPATH, buf2, IPOSIX_MAXPATH) != 0) {
 			dir.assign("");
 			file.assign("");
 			return false;
@@ -1611,6 +1703,48 @@ public:
 		dir.assign(buf1);
 		file.assign(buf2);
 		return true;
+	}
+
+	// split directory and file name (wide char)
+	static inline bool Split(const std::wstring &path, std::wstring &dir, std::wstring &file) {
+		wchar_t buf1[IPOSIX_MAXBUFF];
+		wchar_t buf2[IPOSIX_MAXBUFF];
+		if (iposix_path_wsplit(path.c_str(), buf1, IPOSIX_MAXPATH, buf2, IPOSIX_MAXPATH) != 0) {
+			dir.assign(L"");
+			file.assign(L"");
+			return false;
+		}
+		dir.assign(buf1);
+		file.assign(buf2);
+		return true;
+	}
+
+	// longest common path
+	static inline std::string CommonPath(const std::string &p1, const std::string &p2) {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_common(p1.c_str(), p2.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	static inline std::string GetExecutableA() {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_executable(buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
+	static inline std::wstring GetExecutableW() {
+		wchar_t buffer[IPOSIX_MAXBUFF];
+		std::wstring output;
+		if (iposix_path_wexecutable(buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
 	}
 
 	// 分割扩展名
@@ -1629,13 +1763,9 @@ public:
 
 	// 取得可执行文件路径
 	static inline const char *GetProcPath() {
-		return iposix_get_exepath();
+		return iposix_path_exepath();
 	}
 
-	// 取得可执行文件目录
-	static inline const char *GetProcDir() {
-		return iposix_get_execwd();
-	}
 };
 
 #endif
@@ -1718,6 +1848,10 @@ static inline void StringStrip(std::string &str, const char *seps = NULL) {
 		}
 		if (skip == 0) 
 			break;
+	}
+	if (p1 >= str.size()) {
+		str.assign("");
+		return;
 	}
 	for (p2 = str.size() - 1; p2 >= p1; p2--) {
 		char ch = str[p2];
@@ -1891,7 +2025,7 @@ static inline void StringLower(std::string &s) {
 
 static inline bool LoadContent(const char *filename, std::string &content) {
 	long size = 0;
-	void *text = iposix_file_load_content(filename, &size);
+	void *text = iposix_path_load(filename, &size);
 	if (text == NULL) return false;
 	content.assign((const char*)text, size);
 	free(text);
@@ -2126,6 +2260,18 @@ static inline std::string StringFrom(const std::wstring &value) {
 	return s;
 }
 
+static inline bool StringIsInteger(const std::string &str) {
+	if (str.empty()) return false;
+	size_t i = 0;
+	if (str[i] == '-' || str[i] == '+') {
+		if (str.size() == 1) return false;
+		i++;
+	}
+	for (; i < str.size(); i++) {
+		if (str[i] < '0' || str[i] > '9') return false;
+	}
+	return true;
+}
 
 NAMESPACE_END(System)
 

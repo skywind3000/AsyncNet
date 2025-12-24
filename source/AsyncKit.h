@@ -33,6 +33,7 @@ public:
 
 	AsyncStream(const AsyncStream &) = delete;
 	AsyncStream &operator=(const AsyncStream &) = delete;
+	AsyncStream &operator=(AsyncStream &&) = delete;
 
 public:
 
@@ -131,6 +132,7 @@ public:
 
 	AsyncListener(const AsyncListener &) = delete;
 	AsyncListener &operator=(const AsyncListener &) = delete;
+	AsyncListener &operator=(AsyncListener &&) = delete;
 
 public:
 
@@ -311,6 +313,7 @@ public:
 
 	AsyncMessage(const AsyncMessage &) = delete;
 	AsyncMessage &operator=(const AsyncMessage &) = delete;
+	AsyncMessage &operator=(AsyncMessage &&) = delete;
 
 public:
 

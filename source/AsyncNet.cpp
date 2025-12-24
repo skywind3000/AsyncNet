@@ -29,12 +29,13 @@ AsyncNet::~AsyncNet()
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-AsyncNet::AsyncNet(CAsyncLoop *loop):
-	_scheduler(), _invoker(&_scheduler)
+AsyncNet::AsyncNet(CAsyncLoop *loop)
 {
 	_core = async_core_new(loop, 0);
+	_loop = async_core_loop(_core);
 	this->OnSocketInit = NULL;
 	async_core_install(_core, SocketInitHook, this);
+	_defer.reset(new DeferExecutor(_loop));
 	_current = iclock();
 }
 
@@ -42,8 +43,7 @@ AsyncNet::AsyncNet(CAsyncLoop *loop):
 //---------------------------------------------------------------------
 // ctor
 //---------------------------------------------------------------------
-AsyncNet::AsyncNet(System::AsyncLoop &loop):
-	_scheduler(), _invoker(&_scheduler)
+AsyncNet::AsyncNet(System::AsyncLoop &loop)
 {
 	if (loop.IsDummy()) {
 		_core = async_core_new(NULL, 0);
@@ -51,7 +51,9 @@ AsyncNet::AsyncNet(System::AsyncLoop &loop):
 	else {
 		_core = async_core_new(loop.GetLoop(), 0);
 	}
+	_loop = async_core_loop(_core);
 	this->OnSocketInit = NULL;
+	_defer.reset(new DeferExecutor(_loop));
 	async_core_install(_core, SocketInitHook, this);
 	_current = iclock();
 }
@@ -61,10 +63,10 @@ AsyncNet::AsyncNet(System::AsyncLoop &loop):
 // move ctor
 //---------------------------------------------------------------------
 AsyncNet::AsyncNet(AsyncNet &&other):
-	_scheduler(std::move(other._scheduler)),
-	_invoker(std::move(other._invoker))
+	_defer(std::move(other._defer))
 {
 	_core = other._core;
+	_loop = async_core_loop(_core);
 	other._core = NULL;
 	OnSocketInit = NULL;
 }
@@ -78,7 +80,6 @@ void AsyncNet::Wait(uint32_t millisec)
 	assert(_core);
 	async_core_wait(_core, millisec);
 	_current = iclock();
-	_scheduler.Update(_current);
 }
 
 
@@ -529,11 +530,10 @@ int AsyncNet::SetTos(unsigned int tos)
 //---------------------------------------------------------------------
 int AsyncNet::SetTimeout(int delay, int tag)
 {
-	int hr = _invoker.SetTimeout([this, tag]() {
-				int id = _invoker.GetRunning();
+	int hr = _defer->DelayCall(delay, [this, tag]() {
+				int id = _defer->GetRunning();
 				Push(ASYNC_CORE_EVT_TIMER, id, tag, NULL, 0);
-			},
-			delay);
+			});
 	return hr;
 }
 
@@ -543,11 +543,10 @@ int AsyncNet::SetTimeout(int delay, int tag)
 //---------------------------------------------------------------------
 int AsyncNet::SetInterval(int delay, int tag)
 {
-	int hr = _invoker.SetInterval([this, tag]() {
-				int id = _invoker.GetRunning();
+	int hr = _defer->RepeatCall(delay, [this, tag]() {
+				int id = _defer->GetRunning();
 				Push(ASYNC_CORE_EVT_TIMER, id, tag, NULL, 0);
-			},
-			delay);
+			});
 	return hr;
 }
 
@@ -557,7 +556,7 @@ int AsyncNet::SetInterval(int delay, int tag)
 //---------------------------------------------------------------------
 void AsyncNet::ClearTimer(int id)
 {
-	_invoker.Clear(id);
+	_defer->Cancel(id);
 }
 
 

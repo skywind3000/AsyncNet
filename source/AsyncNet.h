@@ -14,8 +14,7 @@
 
 #include "ByteArray.h"
 #include "AsyncEvt.h"
-#include "QuickTimer.h"
-#include "QuickInvoker.h"
+#include "ExecutorLib.h"
 
 
 NAMESPACE_BEGIN(System);
@@ -194,9 +193,10 @@ private: // non-copyable
 
 private:
 	CAsyncCore *_core;
+	CAsyncLoop *_loop;
+	std::unique_ptr<DeferExecutor> _defer;
 	uint32_t _current;
-	System::QuickTimerScheduler _scheduler;
-	System::QuickInvoker _invoker;
+
 };
 
 

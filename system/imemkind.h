@@ -42,6 +42,59 @@ extern "C" {
 #endif
 
 //---------------------------------------------------------------------
+// ib_object - generic object structure
+//---------------------------------------------------------------------
+typedef struct ib_object {
+	int type;                      // IB_OBJECT_*
+	int count;                     // IB_OBJECT_ARRAY/MAP
+	IINT64 integer;                // IB_OBJECT_INT/BOOL
+	double dval;                   // IB_OBJECT_DOUBLE
+	unsigned char *str;            // IB_OBJECT_STR/BIN
+	int size;                      // IB_OBJECT_STR/BIN
+	int capcity;                   // IB_OBJECT_STR/BIN/ARRAY/MAP
+	struct ib_object **element;    // IB_OBJECT_ARRAY/MAP
+}   ib_object;
+
+#define IB_OBJECT_NIL     0
+#define IB_OBJECT_BOOL    1
+#define IB_OBJECT_INT     2
+#define IB_OBJECT_DOUBLE  3
+#define IB_OBJECT_STR     4
+#define IB_OBJECT_BIN     5
+#define IB_OBJECT_ARRAY   6
+#define IB_OBJECT_MAP     7
+
+
+// initialize ib_object to nil type
+void ib_object_init_nil(ib_object *obj);
+
+// initialize ib_object to bool type
+void ib_object_init_bool(ib_object *obj, int val);
+
+// initialize ib_object to int type
+void ib_object_init_int(ib_object *obj, IINT64 val);
+
+// initialize ib_object to double type
+void ib_object_init_double(ib_object *obj, double val);
+
+// initialize ib_object to string type, won't involve any memory
+// memory allocation, just set obj->str to str pointer.
+void ib_object_init_str(ib_object *obj, const char *str, size_t size);
+
+// initialize ib_object to binary type, won't involve any memory
+// allocation, just set obj->str to bin pointer.
+void ib_object_init_bin(ib_object *obj, const void *bin, size_t size);
+
+// initialize ib_object to array type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_array(ib_object *obj, ib_object **element, int count);
+
+// initialize ib_object to map type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_map(ib_object *obj, ib_object **element, int count);
+
+
+//---------------------------------------------------------------------
 // common utilities
 //---------------------------------------------------------------------
 

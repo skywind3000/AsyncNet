@@ -27,6 +27,7 @@ AsyncLoop::~AsyncLoop()
 	if (_loop != NULL) {
 		_loop->self = NULL;
 		_loop->writelog = NULL;
+		_loop->logger = NULL;
 	}
 	if (_borrow == false) {
 		if (_loop != NULL) {
@@ -56,6 +57,8 @@ AsyncLoop::AsyncLoop(CAsyncLoop *loop)
 {
 	_loop = loop;
 	_loop->self = this;
+	_loop->writelog = OnLog;
+	_loop->logger = this;
 	_ptr = NULL;
 	_borrow = true;
 }
@@ -68,7 +71,11 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 {
 	this->_loop = src._loop;
 	this->_borrow = src._borrow;
-	this->_loop->self = this;
+	if (this->_loop) {
+		this->_loop->self = this;
+		this->_loop->writelog = OnLog;
+		this->_loop->logger = this;
+	}
 	this->_cb_log = src._cb_log;
 	this->_cb_once = src._cb_once;
 	this->_cb_idle = src._cb_idle;
@@ -243,10 +250,12 @@ void AsyncLoop::OnIdle(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 void AsyncLoop::SetLogHandler(std::function<void(const char *msg)> handler)
 {
-	if (handler == NULL) {
-		_loop->writelog = NULL;
-		_loop->logger = NULL;
-		_cb_log = NULL;
+	if (handler == nullptr) {
+		if (_loop) {
+			_loop->writelog = NULL;
+			_loop->logger = NULL;
+			_cb_log = nullptr;
+		}
 	}
 	else {
 		_loop->writelog = OnLog;
@@ -295,7 +304,7 @@ void AsyncLoop::SetLogMask(int mask)
 void AsyncLoop::SetOnceHandler(std::function<void()> handler)
 {
 	_cb_once = handler;
-	_loop->on_once = (handler == NULL)? NULL : OnOnce;
+	_loop->on_once = (handler == nullptr)? nullptr : OnOnce;
 }
 
 
@@ -305,7 +314,7 @@ void AsyncLoop::SetOnceHandler(std::function<void()> handler)
 void AsyncLoop::SetIdleHandler(std::function<void()> handler)
 {
 	_cb_idle = handler;
-	_loop->on_idle = (handler == NULL)? NULL : OnIdle;
+	_loop->on_idle = (handler == nullptr)? nullptr : OnIdle;
 }
 
 
@@ -315,7 +324,7 @@ void AsyncLoop::SetIdleHandler(std::function<void()> handler)
 void AsyncLoop::SetTimerHandler(std::function<void()> handler)
 {
 	_cb_timer = handler;
-	_loop->on_timer = (handler == NULL)? NULL : OnTimer;
+	_loop->on_timer = (handler == nullptr)? nullptr : OnTimer;
 }
 
 
@@ -380,7 +389,7 @@ void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
 //---------------------------------------------------------------------
 void AsyncEvent::SetCallback(std::function<void(int)> callback)
 {
-	(*_cb_ptr) = callback;
+	(*_cb_ptr) = std::move(callback);
 }
 
 
@@ -436,7 +445,7 @@ int AsyncEvent::Stop()
 //---------------------------------------------------------------------
 AsyncTimer::~AsyncTimer()
 {
-	if (async_timer_active(&_timer)) {
+	if (async_timer_is_active(&_timer)) {
 		async_timer_stop(_loop, &_timer);
 	}
 	_loop = NULL;
@@ -504,7 +513,7 @@ int AsyncTimer::Stop()
 //---------------------------------------------------------------------
 void AsyncTimer::SetCallback(std::function<void()> callback)
 {
-	*_cb_ptr = callback;
+	*_cb_ptr = std::move(callback);
 }
 
 
@@ -519,6 +528,9 @@ void AsyncTimer::SetCallback(std::function<void()> callback)
 //---------------------------------------------------------------------
 AsyncSemaphore::~AsyncSemaphore()
 {
+	if (async_sem_is_active(&_sem)) {
+		async_sem_stop(_loop, &_sem);
+	}
 	async_sem_destroy(&_sem);
 }
 
@@ -565,7 +577,7 @@ void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
 //---------------------------------------------------------------------
 void AsyncSemaphore::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = callback;
+	(*_cb_ptr) = std::move(callback);
 }
 
 
@@ -659,7 +671,7 @@ void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
 //---------------------------------------------------------------------
 void AsyncPostpone::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = callback;
+	(*_cb_ptr) = std::move(callback);
 }
 
 
@@ -742,7 +754,7 @@ void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
 //---------------------------------------------------------------------
 void AsyncIdle::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = callback;
+	(*_cb_ptr) = std::move(callback);
 }
 
 
@@ -813,7 +825,7 @@ AsyncOnce::AsyncOnce(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 void AsyncOnce::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = callback;
+	(*_cb_ptr) = std::move(callback);
 }
 
 

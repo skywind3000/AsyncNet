@@ -250,6 +250,9 @@ int async_listener_start(CAsyncListener *listener, int backlog,
 // stop listening
 void async_listener_stop(CAsyncListener *listener);
 
+// assigned an listening socket
+int async_listener_assign(CAsyncListener *listener, int fd);
+
 // pause/resume accepting new connections when argument pause is 1/0
 void async_listener_pause(CAsyncListener *listener, int pause);
 

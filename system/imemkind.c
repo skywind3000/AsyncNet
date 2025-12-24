@@ -14,6 +14,77 @@
 #include "imembase.h"
 
 
+//=====================================================================
+// ib_object - generic object structure
+//=====================================================================
+
+// initialize ib_object to nil type
+void ib_object_init_nil(ib_object *obj)
+{
+	obj->type = IB_OBJECT_NIL;
+}
+
+// initialize ib_object to bool type
+void ib_object_init_bool(ib_object *obj, int val)
+{
+	obj->type = IB_OBJECT_BOOL;
+	obj->integer = (val) ? 1 : 0;
+}
+
+// initialize ib_object to int type
+void ib_object_init_int(ib_object *obj, IINT64 val)
+{
+	obj->type = IB_OBJECT_INT;
+	obj->integer = val;
+}
+
+// initialize ib_object to double type
+void ib_object_init_double(ib_object *obj, double val)
+{
+	obj->type = IB_OBJECT_DOUBLE;
+	obj->dval = val;
+}
+
+// initialize ib_object to string type, won't involve any memory
+// memory allocation, just set obj->str to str pointer.
+void ib_object_init_str(ib_object *obj, const char *str, size_t size)
+{
+	obj->type = IB_OBJECT_STR;
+	obj->str = (unsigned char*)str;
+	obj->size = (int)size;
+	obj->capcity = 0;
+}
+
+// initialize ib_object to binary type, won't involve any memory
+// allocation, just set obj->str to bin pointer.
+void ib_object_init_bin(ib_object *obj, const void *bin, size_t size)
+{
+	obj->type = IB_OBJECT_BIN;
+	obj->str = (unsigned char*)bin;
+	obj->size = (int)size;
+	obj->capcity = 0;
+}
+
+// initialize ib_object to array type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_array(ib_object *obj, ib_object **element, int count)
+{
+	obj->type = IB_OBJECT_ARRAY;
+	obj->element = element;
+	obj->count = count;
+	obj->capcity = 0;
+}
+
+// initialize ib_object to map type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_map(ib_object *obj, ib_object **element, int count)
+{
+	obj->type = IB_OBJECT_MAP;
+	obj->element = element;
+	obj->count = count;
+	obj->capcity = 0;
+}
+
 
 //=====================================================================
 // common utilities
