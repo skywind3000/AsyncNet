@@ -38,6 +38,9 @@
 #define ISYSNAME 'u'
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(disable: 4996)
+#endif
 
 
 //---------------------------------------------------------------------
@@ -883,17 +886,17 @@ char *iposix_path_join(const char *p1, const char *p2, char *path, int maxsize)
 }
 
 
-// 绝对路径
+// absolute path for posix systems
 char *iposix_path_abspath_unix(const char *srcpath, char *path, int maxsize)
 {
+	char buf[IPOSIX_MAXBUFF * 2];
 	char *base, *temp;
-	base = (char*)malloc(IPOSIX_MAXBUFF * 2);
+	base = buf;
 	temp = base + IPOSIX_MAXBUFF;
 	if (base == NULL) return NULL;
 	iposix_getcwd(base, IPOSIX_MAXPATH);
-	iposix_path_join(base, srcpath, temp, IPOSIX_MAXBUFF);
+	iposix_path_join(base, srcpath, temp, IPOSIX_MAXPATH);
 	iposix_path_normal(temp, path, maxsize);
-	free(base);
 	return path;
 }
 
@@ -920,7 +923,11 @@ wchar_t *iposix_path_abspath_wwin(const wchar_t *srcpath, wchar_t *path, int max
 char *iposix_path_abspath(const char *srcpath, char *path, int maxsize)
 {
 #ifdef _WIN32
-	return iposix_path_abspath_win(srcpath, path, maxsize);
+	char buf[IPOSIX_MAXBUFF];
+	if (iposix_path_abspath_win(srcpath, buf, IPOSIX_MAXPATH) == NULL) {
+		return NULL;
+	}
+	return iposix_path_normal(buf, path, maxsize);
 #else
 	return iposix_path_abspath_unix(srcpath, path, maxsize);
 #endif
@@ -930,7 +937,11 @@ char *iposix_path_abspath(const char *srcpath, char *path, int maxsize)
 wchar_t *iposix_path_wabspath(const wchar_t *srcpath, wchar_t *path, int maxsize)
 {
 #ifdef _WIN32
-	return iposix_path_abspath_wwin(srcpath, path, maxsize);
+	wchar_t buf[IPOSIX_MAXBUFF];
+	if (iposix_path_abspath_wwin(srcpath, buf, IPOSIX_MAXPATH) == NULL) {
+		return NULL;
+	}
+	return iposix_path_wnormal(buf, path, maxsize);
 #else
 	char temp[IPOSIX_MAXBUFF];
 	char *ret;
@@ -1378,7 +1389,7 @@ wchar_t *iposix_path_wnormcase(const wchar_t *srcpath, wchar_t *path, int maxsiz
 //---------------------------------------------------------------------
 // common path, aka. longest common prefix, from two paths
 //---------------------------------------------------------------------
-char *iposix_path_common(const char *p1, const char *p2, char *path, int maxsize)
+int iposix_path_common(const char *p1, const char *p2, char *path, int maxsize)
 {
 	int size1, size2, length, i, k = 0;
 	size1 = (int)strlen(p1);
@@ -1419,10 +1430,14 @@ char *iposix_path_common(const char *p1, const char *p2, char *path, int maxsize
 	if (i == length) {
 		if (size1 == size2) k = length;
 		else if (size1 < size2) {
-			if (p2[length] == '/' || p2[length] == '\\') k = length;
+			if (p2[length] == '/' || p2[length] == '\\') {
+				k = length;
+			}
 		}
 		else if (size1 > size2) {
-			if (p1[length] == '/' || p1[length] == '\\') k = length;
+			if (p1[length] == '/' || p1[length] == '\\') {
+				k = length;
+			}
 		}
 	}
 
@@ -1435,7 +1450,7 @@ char *iposix_path_common(const char *p1, const char *p2, char *path, int maxsize
 			}
 		}
 #ifdef _WIN32
-		if (k == 2 && length > 3) {
+		if (k == 2 && length >= 3) {
 			if (p1[1] == ':' && p2[1] == ':') {
 				if (p1[2] == '/' || p1[2] == '\\') {
 					if (p2[2] == '/' || p2[2] == '\\') {
@@ -1447,22 +1462,25 @@ char *iposix_path_common(const char *p1, const char *p2, char *path, int maxsize
 #endif
 	}
 
-	if (k > 0) {
-		if (k >= maxsize) k = maxsize - 1;
-		memcpy(path, p1, k);
-		path[k] = 0;
-	}	else {
-		if (maxsize > 0) path[0] = 0;
+	if (path != NULL) {
+		if (k > 0) {
+			int n = k;
+			if (n >= maxsize) n = maxsize - 1;
+			memcpy(path, p1, n);
+			path[n] = 0;
+		}	else {
+			if (maxsize > 0) path[0] = 0;
+		}
 	}
 
-	return path;
+	return k;
 }
 
 
 //---------------------------------------------------------------------
 // wide-char: common path, aka. longest common prefix, from two paths
 //---------------------------------------------------------------------
-wchar_t *iposix_path_wcommon(const wchar_t *p1, const wchar_t *p2, wchar_t *path, int maxsize)
+int iposix_path_wcommon(const wchar_t *p1, const wchar_t *p2, wchar_t *path, int maxsize)
 {
 	char buf[IPOSIX_MAXBUFF * 3 + 12];
 	char *tmp = buf + IPOSIX_MAXBUFF + 4;
@@ -1471,6 +1489,122 @@ wchar_t *iposix_path_wcommon(const wchar_t *p1, const wchar_t *p2, wchar_t *path
 	iposix_wcstoutf8(tmp, p2, IPOSIX_MAXBUFF);
 	iposix_path_common(buf, tmp, out, IPOSIX_MAXBUFF);
 	iposix_utf8towc(path, out, maxsize);
+	if (path == NULL) return 0;
+	return (int)wcslen(path);
+}
+
+
+//---------------------------------------------------------------------
+// get relative path from start to src, both must be absolute paths
+//---------------------------------------------------------------------
+int iposix_path_relative(const char *src, const char *start, char *path, int maxsize)
+{
+	int size1, size2, size3, length, i, k = 0;
+	iposix_str_t output;
+	if (!iposix_path_isabs(src)) return -1;
+	if (!iposix_path_isabs(start)) return -2;
+	size1 = (int)strlen(start);
+	size2 = (int)strlen(src);
+	length = (size1 < size2) ? size1 : size2;
+	if (length >= 2) {
+#ifdef _WIN32
+		char d1 = (src[1] == ':') ? src[0] : 0;
+		char d2 = (start[1] == ':') ? start[0] : 0;
+		d1 = (d1 >= 'A' && d1 <= 'Z') ? (char)(d1 - 'A' + 'a') : d1;
+		d2 = (d2 >= 'A' && d2 <= 'Z') ? (char)(d2 - 'A' + 'a') : d2;
+		if (d1 != d2) {
+			// different drive letters
+			if (maxsize > 0) path[0] = 0;
+			return -3;
+		}
+#endif
+	}
+	size3 = iposix_path_common(start, src, NULL, IPOSIX_MAXPATH * 4);
+	iposix_str_init(&output, path, maxsize);
+	// count how many ".." needed
+	k = 0;
+	for (i = size3; i < size1; i++) {
+		char ch = start[i];
+		if (ch == '/' || ch == '\\') {
+			k++;
+		}
+	}
+	if (size1 > size3) {
+		k++;
+	}
+	for (i = 0; i < k; i++) {
+		if (output.l > 0) {
+			iposix_str_catc(&output, IPATHSEP);
+		}
+		iposix_str_cat(&output, "..");
+	}
+	// append the rest part from src
+	if (size2 > size3) {
+		int padding = 0;
+		if (output.l > 0) {
+			iposix_str_catc(&output, IPATHSEP);
+		}
+		if (src[size3] == '/') {
+			padding = 1;
+		} else {
+#ifdef _WIN32
+			if (src[size3] == '\\') {
+				padding = 1;
+			}
+			else if (src[size3] == ':') {
+				padding = 1;
+			}
+#endif
+		}
+		iposix_str_cat(&output, src + size3 + padding);
+	}
+	iposix_str_cstr(&output);
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// get relative path from start to srcpath
+//---------------------------------------------------------------------
+char *iposix_path_relpath(const char *srcpath, const char *start, char *path, int maxsize)
+{
+	int position;
+	char buf1[IPOSIX_MAXBUFF];
+	char buf2[IPOSIX_MAXBUFF];
+	iposix_path_abspath(srcpath, buf1, IPOSIX_MAXBUFF);
+	srcpath = buf1;
+	if (start == NULL || (start && start[0] == 0)) {
+		iposix_getcwd(buf2, IPOSIX_MAXPATH);
+	} else {
+		iposix_path_abspath(start, buf2, IPOSIX_MAXPATH);
+	}
+	start = buf2;
+	position = iposix_path_relative(srcpath, start, path, maxsize);
+	if (position < 0) {
+		if (maxsize > 0) path[0] = 0;
+		return NULL;
+	}
+	return path;
+}
+
+
+//---------------------------------------------------------------------
+// wide-char: get relative path from start to srcpath
+//---------------------------------------------------------------------
+wchar_t *iposix_path_wrelpath(const wchar_t *srcpath, const wchar_t *start, wchar_t *path, int maxsize)
+{
+	char *ret;
+	char buf1[IPOSIX_MAXBUFF];
+	char buf2[IPOSIX_MAXBUFF];
+	char buf3[IPOSIX_MAXBUFF];
+	iposix_wcstoutf8(buf1, srcpath, IPOSIX_MAXPATH);
+	iposix_wcstoutf8(buf2, start, IPOSIX_MAXPATH);
+	ret = iposix_path_relpath(buf1, buf2, buf3, IPOSIX_MAXPATH);
+	if (ret == NULL) {
+		if (maxsize > 0) path[0] = 0;
+		return NULL;
+	}
+	iposix_utf8towc(path, buf3, maxsize);
 	return path;
 }
 
@@ -1568,7 +1702,7 @@ const wchar_t *iposix_path_wexepath(void)
 	return exepath;
 }
 
-// 递归创建路径：直接从 ilog移植过来
+// make directory recursively
 int iposix_path_mkdir(const char *path, int mode)
 {
 	int i, len;

@@ -410,11 +410,16 @@ char *iposix_path_normcase(const char *srcpath, char *path, int maxsize);
 wchar_t *iposix_path_wnormcase(const wchar_t *srcpath, wchar_t *path, int maxsize);
 
 // common path, aka. longest common prefix, from two paths
-char *iposix_path_common(const char *p1, const char *p2, char *path, int maxsize);
+int iposix_path_common(const char *p1, const char *p2, char *path, int maxsize);
 
 // wide-char: common path, aka. longest common prefix, from two paths
-wchar_t *iposix_path_wcommon(const wchar_t *p1, const wchar_t *p2, wchar_t *path, int maxsize);
+int iposix_path_wcommon(const wchar_t *p1, const wchar_t *p2, wchar_t *path, int maxsize);
 
+// get relative path from start to srcpath
+char *iposix_path_relpath(const char *srcpath, const char *start, char *path, int maxsize);
+
+// wide-char: get relative path from start to srcpath
+wchar_t *iposix_path_wrelpath(const wchar_t *srcpath, const wchar_t *start, wchar_t *path, int maxsize);
 
 
 //---------------------------------------------------------------------
@@ -433,7 +438,7 @@ const char *iposix_path_exepath(void);
 // wide-char: retrive executable path directly
 const wchar_t *iposix_path_wexepath(void);
 
-// 递归创建路径
+// make directory recursive
 int iposix_path_mkdir(const char *path, int mode);
 
 

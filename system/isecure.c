@@ -1055,7 +1055,7 @@ static inline IUINT32 crypto_mul_by_x2(IUINT32 w) {
 
 // Rotate right 32-bit word
 static inline IUINT32 crypto_ror32(IUINT32 word, unsigned int shift) {
-	return (word >> (shift & 31)) | (word << ((-shift) & 31));
+	return (word >> (shift & 31)) | (word << (32 - (shift & 31)));
 }
 
 // MixColumns transformation

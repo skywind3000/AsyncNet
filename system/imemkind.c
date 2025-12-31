@@ -91,66 +91,90 @@ void ib_object_init_map(ib_object *obj, ib_object **element, int count)
 //=====================================================================
 
 //---------------------------------------------------------------------
-// get sprintf size
-//---------------------------------------------------------------------
-ilong iposix_fmt_length(const char *fmt, va_list ap)
-{
-	ilong size = -1;
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-	size = (ilong)vsnprintf(NULL, 0, fmt, ap); 
-#elif defined(_MSC_VER)
-	size = (ilong)_vscprintf(fmt, ap);
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-	size = (ilong)_vsnprintf(NULL, 0, fmt, ap); 
-#else
-	size = (ilong)vsnprintf(NULL, 0, fmt, ap); 
-#endif
-	return size;
-}
-
-
-//---------------------------------------------------------------------
-// printf: size must >= strlen + 1, which includes trailing zero
-//---------------------------------------------------------------------
-ilong iposix_fmt_printf(char *buf, ilong size, const char *fmt, va_list ap)
-{
-	ilong hr = 0;
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-	hr = (ilong)vsnprintf(buf, size, fmt, ap); 
-#elif defined(_MSC_VER)
-	hr = (ilong)vsprintf(buf, fmt, ap);
-	assert(hr + 1 == size);
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-	hr = (ilong)_vsnprintf(buf, size, fmt, ap); 
-#else
-	hr = (ilong)vsnprintf(buf, size, fmt, ap); 
-#endif
-	return hr;
-}
-
-
-//---------------------------------------------------------------------
 // format string with va_list into ib_string
 //---------------------------------------------------------------------
 ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
 {
-	ilong size = -1, require, hr;
-	va_list copy_ap;
+#if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)) || \
+	(defined(_MSC_VER) && (_MSC_VER >= 1500))
+	// can retrive required size directly
+	va_list ap_copy;
+	ilong size, hr = -1;
 	char *buffer;
-	va_copy(copy_ap, ap);
-	size = iposix_fmt_length(fmt, copy_ap);
-	va_end(copy_ap);
-	if (size <= 0) {
+	va_copy(ap_copy, ap);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	size = (ilong)vsnprintf(NULL, 0, fmt, ap_copy); 
+#else // _MSC_VER >= 1500
+	size = (ilong)_vscprintf(fmt, ap_copy);
+#endif
+	va_end(ap_copy);
+	if (size < 0) {
+		ib_string_resize(out, 0);
+		return -1;
+	}
+	else if (size == 0) {
 		ib_string_resize(out, 0);
 		return 0;
 	}
-	size++;
-	require = size + 10;
-	ib_string_resize(out, (int)require);
-	buffer = ib_string_ptr(out);
-	hr = iposix_fmt_printf(buffer, require, fmt, ap);
-	assert(hr + 1 == size);
+	ib_string_resize(out, (int)size + 10);
+	buffer = (char*)ib_string_ptr(out);
+	va_copy(ap_copy, ap);
+#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
+	hr = (ilong)vsnprintf(buffer, size + 5, fmt, ap_copy);
+#elif defined(_MSC_VER)
+	hr = (ilong)_vsnprintf(buffer, size + 5, fmt, ap_copy);
+#endif
+	va_end(ap_copy);
+	if (hr < 0) {
+		ib_string_resize(out, 0);
+		return -1;
+	}
 	ib_string_resize(out, (int)hr);
+#else
+	// other compilers: can't retrive required size directly, use loop
+	// to increase buffer until success.
+	ilong size = 128;
+	ilong hr = -1;
+	va_list ap_copy;
+	char *buffer;
+	char _buffer[1024];
+	buffer = _buffer;
+	va_copy(ap_copy, ap);
+#ifdef _MSC_VER
+	hr = (ilong)_vsnprintf(buffer, 1000, fmt, ap_copy);
+#else
+	hr = (ilong)vsnprintf(buffer, 1000, fmt, ap_copy);
+#endif
+	va_end(ap_copy);
+	if (hr >= 0 && hr < 900) {
+		// fits in stack buffer
+		ib_string_assign_size(out, buffer, (int)hr);
+		return hr;
+	}
+	size = 1024;
+	while (1) {
+		ib_string_resize(out, (int)size + 10);
+		buffer = (char*)ib_string_ptr(out);
+		va_copy(ap_copy, ap);
+#ifdef _MSC_VER
+		hr = (ilong)_vsnprintf(buffer, size, fmt, ap_copy);
+#else
+		hr = (ilong)vsnprintf(buffer, size, fmt, ap_copy);
+#endif
+		va_end(ap_copy);
+		if (hr >= 0 && hr < size) {
+			ib_string_resize(out, (int)hr);
+			break;
+		}
+		else {
+			size *= 2;
+		}
+		if (size > 1024 * 1024 * 32) {
+			ib_string_resize(out, 0);
+			return -1;
+		}
+	}
+#endif
 	return hr;
 }
 
@@ -160,45 +184,11 @@ ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
 //---------------------------------------------------------------------
 ilong iposix_str_format(ib_string *out, const char *fmt, ...)
 {
-	ilong size = -1;
-	va_list argptr;
-	va_start(argptr, fmt);
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-	size = (ilong)vsnprintf(NULL, 0, fmt, argptr); 
-#elif defined(_MSC_VER)
-	size = (ilong)_vscprintf(fmt, argptr);
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-	size = (ilong)_vsnprintf(NULL, 0, fmt, argptr); 
-#else
-	size = (ilong)vsnprintf(NULL, 0, fmt, argptr); 
-#endif
-	va_end(argptr);
-	if (size < 0) {
-		ib_string_resize(out, 0);
-		return -1;
-	}
-	else {
-		char *buffer;
-		ilong hr = 0;
-		ib_string_resize(out, (int)size + 10);
-		buffer = ib_string_ptr(out);
-		size++;
-		va_start(argptr, fmt);
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-		size = (ilong)vsnprintf(buffer, size, fmt, argptr); 
-#elif defined(_MSC_VER)
-		hr = (ilong)vsprintf(buffer, fmt, argptr);
-		assert(hr + 1 == size);
-		size = hr;
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-		size = (ilong)_vsnprintf(buffer, size, fmt, argptr); 
-#else
-		size = (ilong)vsnprintf(buffer, size, fmt, argptr); 
-#endif
-		va_end(argptr);
-		hr = size;
-		ib_string_resize(out, (int)hr);
-	}
+	va_list ap;
+	ilong size;
+	va_start(ap, fmt);
+	size = iposix_str_vformat(out, fmt, ap);
+	va_end(ap);
 	return size;
 }
 

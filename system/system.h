@@ -1729,6 +1729,15 @@ public:
 		return output;
 	}
 
+	static inline std::string RelativePath(const std::string &src, const std::string &start = "") {
+		char buffer[IPOSIX_MAXBUFF];
+		std::string output;
+		if (iposix_path_relpath(src.c_str(), start.c_str(), buffer, IPOSIX_MAXPATH)) {
+			output.assign(buffer);
+		}
+		return output;
+	}
+
 	static inline std::string GetExecutableA() {
 		char buffer[IPOSIX_MAXBUFF];
 		std::string output;
@@ -1853,8 +1862,8 @@ static inline void StringStrip(std::string &str, const char *seps = NULL) {
 		str.assign("");
 		return;
 	}
-	for (p2 = str.size() - 1; p2 >= p1; p2--) {
-		char ch = str[p2];
+	for (p2 = str.size(); p2 > p1; p2--) {
+		char ch = str[p2 - 1];
 		int skip = 0;
 		for (i = 0; seps[i]; i++) {
 			if (ch == seps[i]) {
@@ -1865,7 +1874,7 @@ static inline void StringStrip(std::string &str, const char *seps = NULL) {
 		if (skip == 0) 
 			break;
 	}
-	str = str.substr(p1, p2 - p1 + 1);
+	str = str.substr(p1, p2 - p1);
 }
 
 // 分割字符串到 StringList，比如：StringSplit(text, slist, "\n");
@@ -2054,90 +2063,96 @@ static inline bool Base64Decode(const char *b64, int len, std::string &data) {
 // format with va_list
 static inline std::string StringVAFmt(const char *fmt, va_list ap)
 {
+#if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)) || \
+	(defined(_MSC_VER) && (_MSC_VER >= 1500))
+	// compilers that can retrive required size directly
 	int size = -1;
 	va_list ap_copy;
 	va_copy(ap_copy, ap);
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-	size = (int)vsnprintf(NULL, 0, fmt, ap_copy); 
+#if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901))
+	size = (int)vsnprintf(NULL, 0, fmt, ap_copy);
 #elif defined(_MSC_VER)
 	size = (int)_vscprintf(fmt, ap_copy);
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-	size = (int)_vsnprintf(NULL, 0, fmt, ap_copy); 
-#else
-	size = (int)vsnprintf(NULL, 0, fmt, ap_copy); 
 #endif
 	va_end(ap_copy);
 	if (size < 0) {
 		throw std::runtime_error("string format error");
 	}
-	else if (size == 0) {
+	if (size == 0) {
 		return std::string();
 	}
-	else {
-		std::string out;
-		size++;
-		out.resize(size + 10);
-		char *buffer = &out[0];
-		int hr = -1;
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-		hr = (int)vsnprintf(buffer, size, fmt, ap); 
+	std::string out;
+	size++;
+	out.resize(size + 10);
+	char *buffer = &out[0];
+	int hr = -1;
+	va_copy(ap_copy, ap);
+#if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901))
+	hr = (int)vsnprintf(buffer, size, fmt, ap_copy);
 #elif defined(_MSC_VER)
-		hr = (int)vsprintf(buffer, fmt, ap);
+	hr = (int)_vsnprintf(buffer, size, fmt, ap_copy);
 #elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-		hr = (int)_vsnprintf(buffer, size, fmt, ap); 
+	hr = (int)_vsnprintf(buffer, size, fmt, ap_copy);
 #else
-		hr = (int)vsnprintf(buffer, size, fmt, ap); 
+	hr = (int)vsnprintf(buffer, size, fmt, ap_copy);
 #endif
-		assert(hr + 1 == size);
-		out.resize(hr);
-		return out;
+	va_end(ap_copy);
+	if (hr < 0) {
+		throw std::runtime_error("string format error");
 	}
+	assert(hr + 1 == size);
+	out.resize(hr);
+	return out;
+#else
+	// other compilers: can't retrive required size directly, use loop
+	// to increase buffer until success.
+	char buffer[1024];
+	va_list ap_copy;
+	va_copy(ap_copy, ap);
+#ifdef _MSC_VER
+	int hr = (int)_vsnprintf(buffer, 1000, fmt, ap_copy);
+#else
+	int hr = (int)vsnprintf(buffer, 1000, fmt, ap_copy);
+#endif
+	va_end(ap_copy);
+	// fit in stack buffer
+	if (hr >= 0 && hr < 900) {
+		return std::string(buffer, (size_t)hr);
+	}
+	// need larger buffer, use loop to detect required size
+	std::string out;
+	int size = 1024;
+	while (true) {
+		out.resize(size + 10);
+		va_list ap_copy;
+		va_copy(ap_copy, ap);
+#ifdef _MSC_VER
+		int n = (int)_vsnprintf(&out[0], (size_t)size, fmt, ap_copy);
+#else
+		int n = (int)vsnprintf(&out[0], (size_t)size, fmt, ap_copy);
+#endif
+		va_end(ap_copy);
+		if (n >= 0 && n < size) {
+			out.resize(n);
+			return out;
+		}
+		else {
+			size *= 2;
+		}
+		if (size > 1024 * 1024 * 32) {
+			throw std::runtime_error("string format error");
+		}
+	}
+#endif
 }
 
 static inline std::string StringFormat(const char *fmt, ...)
 {
-	int size = -1;
 	va_list argptr;
 	va_start(argptr, fmt);
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-	size = (int)vsnprintf(NULL, 0, fmt, argptr); 
-#elif defined(_MSC_VER)
-	size = (int)_vscprintf(fmt, argptr);
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-	size = (int)_vsnprintf(NULL, 0, fmt, argptr); 
-#else
-	size = (int)vsnprintf(NULL, 0, fmt, argptr); 
-#endif
+	std::string out = StringVAFmt(fmt, argptr);
 	va_end(argptr);
-	if (size < 0) {
-		throw std::runtime_error("string format error");
-	}
-	else {
-		char _buffer[1024];
-		char *buffer = _buffer;
-		size++;
-		if (size >= 1024) {
-			buffer = new char[size + 2];
-		}
-		va_start(argptr, fmt);
-#if (__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)
-		size = (int)vsnprintf(buffer, size, fmt, argptr); 
-#elif defined(_MSC_VER)
-		int hr = (int)vsprintf(buffer, fmt, argptr);
-		assert(hr + 1 == size);
-		size = hr;
-#elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
-		size = (int)_vsnprintf(buffer, size, fmt, argptr); 
-#else
-		size = (int)vsnprintf(buffer, size, fmt, argptr); 
-#endif
-		va_end(argptr);
-		std::string str(buffer, size);
-		if (buffer != _buffer) {
-			delete []buffer;
-		}
-		return str;
-	}
+	return out;
 }
 
 static inline void StringConvert(const std::u16string &src, std::string &dst) {
@@ -2271,6 +2286,40 @@ static inline bool StringIsInteger(const std::string &str) {
 		if (str[i] < '0' || str[i] > '9') return false;
 	}
 	return true;
+}
+
+static inline std::string StringReplace(const std::string &str, 
+		const std::string &oldsub, const std::string &newsub) {
+	std::string result;
+	if (oldsub.empty()) {
+		result.reserve(str.size() + str.size() * newsub.size());
+		result.append(newsub);
+		for (size_t i = 0; i < str.size(); i++) {
+			result.push_back(str[i]);
+			result.append(newsub);
+		}
+		return result;
+	}
+	size_t pos = 0;
+	for (;;) {
+		size_t p = str.find(oldsub, pos);
+		if (p == std::string::npos) {
+			result.append(str, pos, str.size() - pos);
+			break;
+		}
+		result.append(str, pos, p - pos);
+		result.append(newsub);
+		pos = p + oldsub.size();
+	}
+	return result;
+}
+
+static inline bool StringContains(const std::string &str, const std::string &sub) {
+	return (str.find(sub) != std::string::npos);
+}
+
+static inline bool StringContains(const std::string &str, char ch) {
+	return (str.find(ch) != std::string::npos);
 }
 
 NAMESPACE_END(System)

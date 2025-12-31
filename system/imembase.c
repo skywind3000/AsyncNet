@@ -1860,13 +1860,18 @@ ib_string* ib_string_replace(const ib_string *str, const char *src,
 {
 	ib_string *newstr = ib_string_new();
 	int pos = 0;
-	ib_string_reserve(newstr, str->capacity);
 	if (srcsize < 0) srcsize = (int)strlen(src);
 	if (dstsize < 0) dstsize = (int)strlen(dst);
 	if (srcsize == 0) {
-		ib_string_append_size(newstr, str->ptr, str->size);
+		ib_string_reserve(newstr, str->size + (str->size + 1) * dstsize);
+		ib_string_append_size(newstr, dst, dstsize);
+		for (pos = 0; pos < str->size; pos++) {
+			ib_string_append_c(newstr, str->ptr[pos]);
+			ib_string_append_size(newstr, dst, dstsize);
+		}
 		return newstr;
 	}
+	ib_string_reserve(newstr, str->capacity);
 	while (1) {
 		int p = ib_string_find(str, src, srcsize, pos);
 		if (p < 0) {

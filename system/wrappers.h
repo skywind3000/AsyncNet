@@ -71,6 +71,7 @@ public:
 	int GetIp(void *ip) const { return iposix_addr_get_ip(&_address, ip); }
 
 	void SetIpText(const char *text) { iposix_addr_set_ip_text(&_address, text); }
+	void SetIpText(const std::string &text) { SetIpText(text.c_str()); }
 	char* GetIpText(char *text) const { return iposix_addr_get_ip_text(&_address, text); }
 
 	std::string GetIpString() const { 
@@ -89,12 +90,26 @@ public:
 		return text;
 	}
 
+	// parse 192.168.1.11:8080 or [fe80::1]:8080 like text
+	bool FromString(const char *text) {
+		return iposix_addr_from(&_address, text) == 0;
+	}
+
+	// parse 192.168.1.11:8080 or [fe80::1]:8080 like text
+	bool FromString(const std::string &text) {
+		return FromString(text.c_str());
+	}
+
 	IUINT32 GetHash() const {
 		return iposix_addr_hash(&_address);
 	}
 
 	IINT64 uuid() const {
 		return iposix_addr_uuid(&_address);
+	}
+
+	bool IPEquals(const PosixAddress& src) const {
+		return (iposix_addr_ip_equals(&_address, &(src._address)) != 0);
 	}
 
 public:
@@ -106,51 +121,51 @@ public:
 	PosixAddress& operator = (const sockaddr_in6 &in6) { _address.sin6 = in6; return *this; }
 	#endif
 
-	bool operator == (const PosixAddress &src) const {
+	inline bool operator == (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) == 0;
 	}
 
-	bool operator == (const iPosixAddress &src) const {
+	inline bool operator == (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) == 0;
 	}
 
-	bool operator != (const iPosixAddress &src) const {
+	inline bool operator != (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) != 0;
 	}
 
-	bool operator != (const PosixAddress &src) const {
+	inline bool operator != (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) != 0;
 	}
 
-	bool operator < (const iPosixAddress &src) const {
+	inline bool operator < (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) < 0;
 	}
 
-	bool operator < (const PosixAddress &src) const {
+	inline bool operator < (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) < 0;
 	}
 
-	bool operator > (const iPosixAddress &src) const {
+	inline bool operator > (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) > 0;
 	}
 
-	bool operator > (const PosixAddress &src) const {
+	inline bool operator > (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) > 0;
 	}
 
-	bool operator <= (const iPosixAddress &src) const {
+	inline bool operator <= (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) <= 0;
 	}
 
-	bool operator <= (const PosixAddress &src) const {
+	inline bool operator <= (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) <= 0;
 	}
 
-	bool operator >= (const iPosixAddress &src) const {
+	inline bool operator >= (const iPosixAddress &src) const {
 		return iposix_addr_compare(&_address, &src) >= 0;
 	}
 
-	bool operator >= (const PosixAddress &src) const {
+	inline bool operator >= (const PosixAddress &src) const {
 		return iposix_addr_compare(&_address, &(src._address)) >= 0;
 	}
 

@@ -323,6 +323,62 @@ IINT64 iposix_addr_uuid(const iPosixAddress *addr)
 	return h;
 }
 
+// parse 192.168.1.11:8080 or [fe80::1]:8080 like text to posix address
+int iposix_addr_from(iPosixAddress *addr, const char *text)
+{
+	char iptext[256];
+	const char *portptr = NULL;
+	int port = 0;
+	int len = (int)strlen(text);
+	if (len < 1) {
+		return -1;
+	}
+	iposix_addr_init(addr);
+	if (text[0] == '[') {
+		// ipv6 format: [fe80::1]:8080
+		const char *endptr = strchr(text, ']');
+		if (endptr == NULL) {
+			return -1;
+		}
+		int iplen = (int)(endptr - text - 1);
+		if (iplen < 1 || iplen >= 256) {
+			return -1;
+		}
+		memcpy(iptext, text + 1, iplen);
+		iptext[iplen] = 0;
+		portptr = endptr + 1;
+		if (*portptr == ':') {
+			portptr++;
+		}
+		port = atoi(portptr);
+		iposix_addr_set_ip_text(addr, iptext);
+		iposix_addr_set_family(addr, AF_INET6);
+		iposix_addr_set_port(addr, port);
+	}
+	else {
+		// ipv4 format:
+		const char *colonptr = strchr(text, ':');
+		if (colonptr) {
+			int iplen = (int)(colonptr - text);
+			if (iplen < 1 || iplen >= 256) {
+				return -1;
+			}
+			memcpy(iptext, text, iplen);
+			iptext[iplen] = 0;
+			portptr = colonptr + 1;
+			port = atoi(portptr);
+		}
+		else {
+			strncpy(iptext, text, 256);
+			iptext[255] = 0;
+		}
+		iposix_addr_set_ip_text(addr, iptext);
+		iposix_addr_set_family(addr, AF_INET);
+		iposix_addr_set_port(addr, port);
+	}
+	return 0;
+}
+
 
 //=====================================================================
 // DNS Resolve
@@ -492,6 +548,28 @@ iPosixRes *iposix_res_get(const char *hostname, int ipv)
 	}
 	freeaddrinfo(r);
 	return res;
+}
+
+
+// returns 1 if a1 equals to a2, returns 0 if not equal
+int iposix_addr_ip_equals(const iPosixAddress *a1, const iPosixAddress *a2)
+{
+	int f1 = iposix_addr_family(a1);
+	int f2 = iposix_addr_family(a2);
+	if (f1 != f2) return 0;
+	if (f1 == AF_INET) {
+		int hr = memcmp(&(a1->sin4.sin_addr), &(a2->sin4.sin_addr), 
+				sizeof(a1->sin4.sin_addr));
+		if (hr != 0) return 0;
+	}
+#ifdef AF_INET6
+	else if (f1 == AF_INET6) {
+		int hr = memcmp(&(a1->sin6.sin6_addr), &(a2->sin6.sin6_addr),
+				sizeof(a1->sin6.sin6_addr));
+		if (hr != 0) return 0;
+	}
+#endif
+	return 1;
 }
 
 
@@ -835,7 +913,7 @@ char* hash_signature_md5(
 	HASH_MD5_Update(&md5, secret, (unsigned int)secret_size);
 	HASH_MD5_Update(&md5, buffer, 4);
 	HASH_MD5_Final(&md5, buffer + 4);
-	hash_digest_to_string(buffer, 20, out);
+	hash_digest_to_string(out, buffer, 20);
 	return out;
 }
 
