@@ -30,6 +30,14 @@
         #define va_copy(d, s) __va_copy(d, s)
     #endif
     #define IHAVE_VA_COPY 1
+#elif defined(__WATCOMC__)
+	#if (!defined(va_copy)) && (!defined(NO_EXT_KEYS)) 
+		#if defined(__PPC__) || defined(__AXP__)
+			#define va_copy(dest,src) ((dest)=(src),(void)0)
+		#else
+			#define va_copy(dest,src) ((dest)[0]=(src)[0],(void)0)
+		#endif
+	#endif
 #else
     #if !defined(va_copy)
         #define va_copy(dest, src) ((dest) = (src))
@@ -99,10 +107,16 @@ void ib_object_init_map(ib_object *obj, ib_object **element, int count);
 //---------------------------------------------------------------------
 
 // format string into ib_string
-ilong iposix_str_format(ib_string *out, const char *fmt, ...);
+ilong ib_string_format(ib_string *out, const char *fmt, ...);
 
 // format string with va_list into ib_string
-ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap);
+ilong ib_string_vformat(ib_string *out, const char *fmt, va_list ap);
+
+// format and append to ib_string
+ilong ib_string_printf(ib_string *out, const char *fmt, ...);
+
+// format and append to ib_string
+ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap);
 
 
 //---------------------------------------------------------------------

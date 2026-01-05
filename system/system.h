@@ -124,6 +124,14 @@
         #define va_copy(d, s) __va_copy(d, s)
     #endif
     #define IHAVE_VA_COPY 1
+#elif defined(__WATCOMC__)
+	#if (!defined(va_copy)) && (!defined(NO_EXT_KEYS)) 
+		#if defined(__PPC__) || defined(__AXP__)
+			#define va_copy(dest,src) ((dest)=(src),(void)0)
+		#else
+			#define va_copy(dest,src) ((dest)[0]=(src)[0],(void)0)
+		#endif
+	#endif
 #else
     #if !defined(va_copy)
         #define va_copy(dest, src) ((dest) = (src))

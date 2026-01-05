@@ -351,8 +351,8 @@ int iposix_addr_from(iPosixAddress *addr, const char *text)
 			portptr++;
 		}
 		port = atoi(portptr);
-		iposix_addr_set_ip_text(addr, iptext);
 		iposix_addr_set_family(addr, AF_INET6);
+		iposix_addr_set_ip_text(addr, iptext);
 		iposix_addr_set_port(addr, port);
 	}
 	else {
@@ -360,7 +360,7 @@ int iposix_addr_from(iPosixAddress *addr, const char *text)
 		const char *colonptr = strchr(text, ':');
 		if (colonptr) {
 			int iplen = (int)(colonptr - text);
-			if (iplen < 1 || iplen >= 256) {
+			if (iplen < 1 || iplen >= 200) {
 				return -1;
 			}
 			memcpy(iptext, text, iplen);
@@ -372,8 +372,8 @@ int iposix_addr_from(iPosixAddress *addr, const char *text)
 			strncpy(iptext, text, 256);
 			iptext[255] = 0;
 		}
-		iposix_addr_set_ip_text(addr, iptext);
 		iposix_addr_set_family(addr, AF_INET);
+		iposix_addr_set_ip_text(addr, iptext);
 		iposix_addr_set_port(addr, port);
 	}
 	return 0;

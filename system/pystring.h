@@ -41,6 +41,14 @@
         #define va_copy(d, s) __va_copy(d, s)
     #endif
     #define IHAVE_VA_COPY 1
+#elif defined(__WATCOMC__)
+	#if (!defined(va_copy)) && (!defined(NO_EXT_KEYS)) 
+		#if defined(__PPC__) || defined(__AXP__)
+			#define va_copy(dest,src) ((dest)=(src),(void)0)
+		#else
+			#define va_copy(dest,src) ((dest)[0]=(src)[0],(void)0)
+		#endif
+	#endif
 #else
     #if !defined(va_copy)
         #define va_copy(dest, src) ((dest) = (src))
@@ -867,7 +875,7 @@ static inline std::string vformat(
 	va_copy(ap_copy, ap);
 #if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901))
 	hr = (int)vsnprintf(buffer, size, fmt, ap_copy);
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) || defined(__WATCOMC__)
 	hr = (int)_vsnprintf(buffer, size, fmt, ap_copy);
 #elif defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
 	hr = (int)_vsnprintf(buffer, size, fmt, ap_copy);
@@ -887,7 +895,7 @@ static inline std::string vformat(
 	char buffer[1024];
 	va_list ap_copy;
 	va_copy(ap_copy, ap);
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__WATCOMC__)
 	int hr = (int)_vsnprintf(buffer, 1000, fmt, ap_copy);
 #else
 	int hr = (int)vsnprintf(buffer, 1000, fmt, ap_copy);
@@ -904,7 +912,7 @@ static inline std::string vformat(
 		out.resize(size + 10);
 		va_list ap_copy;
 		va_copy(ap_copy, ap);
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__WATCOMC__)
 		int n = (int)_vsnprintf(&out[0], (size_t)size, fmt, ap_copy);
 #else
 		int n = (int)vsnprintf(&out[0], (size_t)size, fmt, ap_copy);

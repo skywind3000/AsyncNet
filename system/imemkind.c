@@ -93,7 +93,7 @@ void ib_object_init_map(ib_object *obj, ib_object **element, int count)
 //---------------------------------------------------------------------
 // format string with va_list into ib_string
 //---------------------------------------------------------------------
-ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
+ilong ib_string_vformat(ib_string *out, const char *fmt, va_list ap)
 {
 #if ((__cplusplus >= 201103) || (__STDC_VERSION__ >= 199901)) || \
 	(defined(_MSC_VER) && (_MSC_VER >= 1500))
@@ -140,7 +140,7 @@ ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
 	char _buffer[1024];
 	buffer = _buffer;
 	va_copy(ap_copy, ap);
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__WATCOMC__)
 	hr = (ilong)_vsnprintf(buffer, 1000, fmt, ap_copy);
 #else
 	hr = (ilong)vsnprintf(buffer, 1000, fmt, ap_copy);
@@ -156,7 +156,7 @@ ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
 		ib_string_resize(out, (int)size + 10);
 		buffer = (char*)ib_string_ptr(out);
 		va_copy(ap_copy, ap);
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__WATCOMC__)
 		hr = (ilong)_vsnprintf(buffer, size, fmt, ap_copy);
 #else
 		hr = (ilong)vsnprintf(buffer, size, fmt, ap_copy);
@@ -182,15 +182,47 @@ ilong iposix_str_vformat(ib_string *out, const char *fmt, va_list ap)
 //---------------------------------------------------------------------
 // format string into ib_string
 //---------------------------------------------------------------------
-ilong iposix_str_format(ib_string *out, const char *fmt, ...)
+ilong ib_string_format(ib_string *out, const char *fmt, ...)
 {
 	va_list ap;
 	ilong size;
 	va_start(ap, fmt);
-	size = iposix_str_vformat(out, fmt, ap);
+	size = ib_string_vformat(out, fmt, ap);
 	va_end(ap);
 	return size;
 }
+
+
+//---------------------------------------------------------------------
+// format and append to ib_string
+//---------------------------------------------------------------------
+ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap)
+{
+	ib_string *str;
+	ilong size;
+	str = ib_string_new();
+	size = ib_string_vformat(str, fmt, ap);
+	if (size > 0) {
+		ib_string_append_size(out, ib_string_ptr(str), ib_string_size(str));
+	}
+	ib_string_delete(str);
+	return size;
+}
+
+
+//---------------------------------------------------------------------
+// format and append to ib_string
+//---------------------------------------------------------------------
+ilong ib_string_printf(ib_string *out, const char *fmt, ...)
+{
+	va_list ap;
+	ilong size;
+	va_start(ap, fmt);
+	size = ib_string_vprintf(out, fmt, ap);
+	va_end(ap);
+	return size;
+}
+
 
 
 //=====================================================================
