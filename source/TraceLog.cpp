@@ -532,7 +532,7 @@ void BasicTraceHandler::Output(const char *text)
 		}
 		return;
 	}
-	
+
 	if (now.datetime != _saved_date.datetime) {
 		_saved_date.datetime = now.datetime;
 		int nowday = now.mday() + now.month() * 32;
@@ -543,6 +543,10 @@ void BasicTraceHandler::Output(const char *text)
 				_filename = "";
 			}
 		}
+	}
+
+	if (_timestamp.empty()) {
+		_timestamp = TraceLog_Timestamp(now);
 	}
 
 	if (_enable_stdout) {
