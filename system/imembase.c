@@ -1789,13 +1789,13 @@ ib_string* ib_string_join(const ib_array *array, const char *sep, int len)
 		ib_string *str = ib_string_new();
 		size_t i, size = 0;
 		char *ptr;
-		len = (len >= 0)? len : strlen(sep);
+		len = (len >= 0)? len : (int)strlen(sep);
 		for (i = 0; i < array->size; i++) {
 			ib_string *item = (ib_string*)array->items[i];
 			size += item->size;
 			if (i > 0) size += len;
 		}
-		ib_string_resize(str, size);
+		ib_string_resize(str, (int)size);
 		ptr = str->ptr;
 		for (i = 0; i < array->size; i++) {
 			ib_string *item = (ib_string*)array->items[i];

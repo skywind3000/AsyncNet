@@ -1838,7 +1838,7 @@ void *iposix_path_load(const char *filename, long *size)
 	for (remain = length, out = ptr; remain > 0; ) {
 		size_t ret = fread(out, 1, remain, fp);
 		if (ret == 0) break;
-        remain -= ret;
+        remain -= (long)ret;
         out += ret;
 	}
 
@@ -1895,7 +1895,7 @@ void *iposix_path_wload(const wchar_t *filename, long *size)
 	for (remain = length, out = ptr; remain > 0; ) {
 		size_t ret = fread(out, 1, remain, fp);
 		if (ret == 0) break;
-        remain -= ret;
+        remain -= (long)ret;
         out += ret;
 	}
 
