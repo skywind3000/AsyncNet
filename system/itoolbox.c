@@ -235,7 +235,7 @@ char *iposix_addr_str(const iPosixAddress *addr, char *text)
 }
 
 // setup address from sockaddr+length
-void iposix_addr_setup(iPosixAddress *addr, const struct sockaddr *sa, int sa_len)
+void iposix_addr_clone(iPosixAddress *addr, const struct sockaddr *sa, int sa_len)
 {
 	if (sa_len <= 0) {
 		if (sa->sa_family == AF_INET) {

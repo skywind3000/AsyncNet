@@ -76,8 +76,8 @@ char *iposix_addr_get_ip_text(const iPosixAddress *addr, char *text);
 int iposix_addr_make(iPosixAddress *addr, int family, const char *t, int p);
 char *iposix_addr_str(const iPosixAddress *addr, char *text);
 
-// setup address from sockaddr+length
-void iposix_addr_setup(iPosixAddress *addr, const struct sockaddr *sa, int sa_len);
+// clone address from sockaddr+length
+void iposix_addr_clone(iPosixAddress *addr, const struct sockaddr *sa, int sa_len);
 
 // parse 192.168.1.11:8080 or [fe80::1]:8080 like text to posix address
 int iposix_addr_from(iPosixAddress *addr, const char *text);
