@@ -49,6 +49,7 @@ public:
 	inline bool CanWrite() const { return (GetDirection() & ASYNC_STREAM_OUTPUT) != 0; }
 	inline bool EndOfInput() const { return (GetEof(ASYNC_STREAM_INPUT) != 0); }
 	inline bool EndOfOutput() const { return (GetEof(ASYNC_STREAM_OUTPUT) != 0); }
+	inline int IsEnabled(int m) const { return _stream ? (_stream->enabled & m): 0; }
 
 	// get the underlying socket fd, returns -1 if not a TCP stream
 	inline int GetFd() const { return async_stream_tcp_getfd(_stream); }
@@ -80,10 +81,14 @@ public:
 	void Close();
 
 	// how many bytes remain in the recv buffer
-	inline long Remain() const { return _async_stream_remain(_stream); }
+	inline long Remain() const { 
+		return (_stream)? _async_stream_remain(_stream) : -1; 
+	}
 
 	// how many bytes remain in the send buffer
-	inline long Pending() const { return _async_stream_pending(_stream); }
+	inline long Pending() const { 
+		return (_stream)? _async_stream_pending(_stream) : -1;
+	}
 
 	// read data from recv buffer
 	long Read(void *ptr, long size);
@@ -150,6 +155,9 @@ public:
 
 	// start listening
 	int Start(int flags, int family, const char *text, int port);
+
+	// start assign
+	int Start(int fd);
 
 	// stop listening
 	void Stop();

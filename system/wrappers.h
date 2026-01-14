@@ -36,7 +36,7 @@ public:
 	PosixAddress(int family) { Init(); SetFamily(family); }
 	PosixAddress(const iPosixAddress &addr) { _address = addr; }
 	PosixAddress(const PosixAddress &addr) { _address = addr._address; }
-	PosixAddress(const sockaddr *addr, int size) { _address.sa = *addr; }
+	PosixAddress(const sockaddr *addr, int size) { Setup(addr, size); }
 	PosixAddress(const sockaddr_in &in4) { _address.sin4 = in4; }
 
 	#ifdef AF_INET6
@@ -45,6 +45,10 @@ public:
 
 	PosixAddress(int family, const char *ip, int port) {
 		iposix_addr_make(&_address, family, ip, port);
+	}
+
+	PosixAddress(const char *text) {
+		FromString(text);
 	}
 
 public:
@@ -69,6 +73,10 @@ public:
 	int GetFamily() const { return iposix_addr_get_family(&_address); }
 	int GetPort() const { return iposix_addr_get_port(&_address); }
 	int GetIp(void *ip) const { return iposix_addr_get_ip(&_address, ip); }
+
+	void Setup(const sockaddr *addr, int size) {
+		iposix_addr_setup(&_address, addr, size);
+	}
 
 	void SetIpText(const char *text) { iposix_addr_set_ip_text(&_address, text); }
 	void SetIpText(const std::string &text) { SetIpText(text.c_str()); }
@@ -115,64 +123,72 @@ public:
 public:
 	PosixAddress& operator = (const PosixAddress &src) { _address = src._address; return *this; }
 	PosixAddress& operator = (const iPosixAddress &src) { _address = src; return *this; }
-	PosixAddress& operator = (const sockaddr &addr) { _address.sa = addr; return *this; }
+	PosixAddress& operator = (const sockaddr &addr) { Setup(&addr, -1); return *this; }
 	PosixAddress& operator = (const sockaddr_in &in4) { _address.sin4 = in4; return *this; }
+	PosixAddress& operator = (const char *text) { FromString(text); return *this; }
+	PosixAddress& operator = (const std::string &text) { FromString(text); return *this; }
 	#ifdef AF_INET6
 	PosixAddress& operator = (const sockaddr_in6 &in6) { _address.sin6 = in6; return *this; }
 	#endif
 
 	inline bool operator == (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) == 0;
+		return compare(&_address, &(src._address)) == 0;
 	}
 
 	inline bool operator == (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) == 0;
+		return compare(&_address, &src) == 0;
 	}
 
 	inline bool operator != (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) != 0;
+		return compare(&_address, &src) != 0;
 	}
 
 	inline bool operator != (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) != 0;
+		return compare(&_address, &(src._address)) != 0;
 	}
 
 	inline bool operator < (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) < 0;
+		return compare(&_address, &src) < 0;
 	}
 
 	inline bool operator < (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) < 0;
+		return compare(&_address, &(src._address)) < 0;
 	}
 
 	inline bool operator > (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) > 0;
+		return compare(&_address, &src) > 0;
 	}
 
 	inline bool operator > (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) > 0;
+		return compare(&_address, &(src._address)) > 0;
 	}
 
 	inline bool operator <= (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) <= 0;
+		return compare(&_address, &src) <= 0;
 	}
 
 	inline bool operator <= (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) <= 0;
+		return compare(&_address, &(src._address)) <= 0;
 	}
 
 	inline bool operator >= (const iPosixAddress &src) const {
-		return iposix_addr_compare(&_address, &src) >= 0;
+		return compare(&_address, &src) >= 0;
 	}
 
 	inline bool operator >= (const PosixAddress &src) const {
-		return iposix_addr_compare(&_address, &(src._address)) >= 0;
+		return compare(&_address, &(src._address)) >= 0;
 	}
 
+private:
+
+	static inline int compare(const iPosixAddress *a1, const iPosixAddress *a2) {
+		return iposix_addr_compare(a1, a2);
+	}
 
 public:
 	iPosixAddress _address;
 };
+
 
 
 //---------------------------------------------------------------------
@@ -383,6 +399,20 @@ static inline uint32_t SignatureTime(const char *signature) {
 
 
 NAMESPACE_END(System);
+
+
+//---------------------------------------------------------------------
+// patch std hash for PosixAddress
+//---------------------------------------------------------------------
+namespace std {
+	template <> struct hash<System::PosixAddress> {
+		size_t operator()(const System::PosixAddress& addr) const {
+			uint64_t uuid = (uint64_t)addr.uuid();
+			return (size_t)((uuid >> 32) ^ uuid);
+		}
+	};
+}
+
 
 #endif
 

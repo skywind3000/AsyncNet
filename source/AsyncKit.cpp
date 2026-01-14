@@ -583,6 +583,15 @@ int AsyncListener::Start(int flags, int family, const char *text, int port)
 
 
 //---------------------------------------------------------------------
+// start assign
+//---------------------------------------------------------------------
+int AsyncListener::Start(int fd)
+{
+	return async_listener_assign(_listener, fd);
+}
+
+
+//---------------------------------------------------------------------
 // stop listening
 //---------------------------------------------------------------------
 void AsyncListener::Stop()

@@ -234,10 +234,28 @@ char *iposix_addr_str(const iPosixAddress *addr, char *text)
 	return NULL;
 }
 
+// setup address from sockaddr+length
+void iposix_addr_setup(iPosixAddress *addr, const struct sockaddr *sa, int sa_len)
+{
+	if (sa_len <= 0) {
+		if (sa->sa_family == AF_INET) {
+			sa_len = sizeof(struct sockaddr_in);
+		}
+#ifdef AF_INET6
+		else if (sa->sa_family == AF_INET6) {
+			sa_len = sizeof(struct sockaddr_in6);
+		}
+#endif
+		else {
+			sa_len = sizeof(struct sockaddr);
+		}
+	}
+	memcpy(&(addr->sa), sa, sa_len);
+}
 
 // returns zero if a1 equals to a2
-// returns 1 if a1 is greater than a2
-// returns -1 if a1 is less than a2
+// returns positive if a1 is greater than a2
+// returns negative if a1 is less than a2
 int iposix_addr_compare(const iPosixAddress *a1, const iPosixAddress *a2)
 {
 	int f1 = iposix_addr_family(a1);

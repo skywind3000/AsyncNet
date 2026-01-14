@@ -1100,8 +1100,9 @@ long async_tcp_read(CAsyncStream *stream, void *ptr, long size)
 long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 {
 	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
+	long total = 0;
 	if (tcp->prewrite == NULL) {
-		ims_write(&tcp->sendbuf, ptr, size);
+		total = ims_write(&tcp->sendbuf, ptr, size);
 	}
 	else {
 		const char *lptr = (const char*)ptr;
@@ -1114,6 +1115,7 @@ long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 			ims_write(&tcp->sendbuf, data, need);
 			lptr += need;
 			size -= need;
+			total += need;
 		}
 	}
 	if (tcp->sendbuf.size > 0) {
@@ -1127,7 +1129,7 @@ long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 			}
 		}
 	}
-	return 0;
+	return total;
 }
 
 

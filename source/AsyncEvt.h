@@ -137,6 +137,11 @@ public:
 		return monotonic? _loop->monotonic : _loop->timestamp;
 	}
 
+	// 取得毫秒时间戳
+	int64_t Millisecond(bool monotonic) const {
+		return Timestamp(monotonic) / 1000000;
+	}
+
 	// 取得当前的 jiffies 计时，每毫秒递增 1，用于驱动内部的 Linux 时间轮
 	uint32_t Jiffies() const { return _loop->jiffies; }
 

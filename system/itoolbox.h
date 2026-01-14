@@ -76,6 +76,9 @@ char *iposix_addr_get_ip_text(const iPosixAddress *addr, char *text);
 int iposix_addr_make(iPosixAddress *addr, int family, const char *t, int p);
 char *iposix_addr_str(const iPosixAddress *addr, char *text);
 
+// setup address from sockaddr+length
+void iposix_addr_setup(iPosixAddress *addr, const struct sockaddr *sa, int sa_len);
+
 // parse 192.168.1.11:8080 or [fe80::1]:8080 like text to posix address
 int iposix_addr_from(iPosixAddress *addr, const char *text);
 
@@ -86,8 +89,8 @@ IUINT32 iposix_addr_hash(const iPosixAddress *addr);
 IINT64 iposix_addr_uuid(const iPosixAddress *addr);
 
 // returns zero if a1 equals to a2
-// returns 1 if a1 is greater than a2
-// returns -1 if a1 is less than a2
+// returns positive if a1 is greater than a2
+// returns negative if a1 is less than a2
 int iposix_addr_compare(const iPosixAddress *a1, const iPosixAddress *a2);
 
 // returns 1 if a1 equals to a2, returns 0 if not equal
