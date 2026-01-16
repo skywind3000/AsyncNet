@@ -31,3 +31,5 @@
 /.vscode/*
 /build/*
 
+/update.cmd
+/update.py

@@ -50,6 +50,7 @@ public:
 	inline bool EndOfInput() const { return (GetEof(ASYNC_STREAM_INPUT) != 0); }
 	inline bool EndOfOutput() const { return (GetEof(ASYNC_STREAM_OUTPUT) != 0); }
 	inline int IsEnabled(int m) const { return _stream ? (_stream->enabled & m): 0; }
+	inline bool IsClosed() const { return (_stream == NULL); }
 
 	// get the underlying socket fd, returns -1 if not a TCP stream
 	inline int GetFd() const { return async_stream_tcp_getfd(_stream); }

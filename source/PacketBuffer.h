@@ -29,7 +29,7 @@
 #endif
 
 
-NAMESPACE_BEGIN(AsyncNet)
+NAMESPACE_BEGIN(System)
 
 //---------------------------------------------------------------------
 // Exception
@@ -40,8 +40,6 @@ NAMESPACE_BEGIN(AsyncNet)
 class NetError {
 public:
 	NetError(const char *what = NULL, int code = 0, int line = -1, const char *file = NULL);
-	NetError(const NetError &e);
-	NetError& operator=(const NetError &);
 	virtual ~NetError();
 	const char* what() const;
 	int code() const;
@@ -56,7 +54,7 @@ protected:
 };
 
 #define NETWORK_THROW(what, code) do { \
-		throw (::AsyncNet::NetError(what, code, __LINE__, __FILE__)); \
+		throw (*new ::System::NetError(what, code, __LINE__, __FILE__)); \
 	} while (0)
 
 #ifdef _MSC_VER
@@ -65,7 +63,7 @@ protected:
 
 // generate a error
 inline NetError::NetError(const char *what, int code, int line, const char *file) {
-	int size = (what)? strlen(what) : 0;
+	int size = (what)? (int)strlen(what) : 0;
 	int need = size + 2048;
 	_what = new char[need];
 	assert(_what);
@@ -75,29 +73,6 @@ inline NetError::NetError(const char *what, int code, int line, const char *file
 	_code = code;
 	_file = file;
 	_line = line;
-}
-
-inline NetError::NetError(const NetError &e)
-{
-	int size = (e._what)? strlen(e._what) : 0;
-	_what = new char[size + 1];
-	memcpy(_what, e._what, size + 1);
-	_code = e._code;
-	_file = e._file;
-	_line = e._line;
-}
-
-inline NetError& NetError::operator=(const NetError &e)
-{
-	if (_what) delete []_what;	
-	int size = (e._what)? strlen(e._what) : 0;
-	_what = new char[size + 1];
-	assert(_what);
-	memcpy(_what, e._what, size + 1);
-	_code = e._code;
-	_file = e._file;
-	_line = e._line;
-	return *this;
 }
 
 // destructor of NetError
@@ -132,7 +107,7 @@ inline int NetError::line() const {
 // 使用 KMEM分配包内存
 #ifndef _DEBUG
 // 暂时不适用 KMEM
-#define IKMEM_PACKET 
+// #define IKMEM_PACKET 
 #endif
 
 //---------------------------------------------------------------------
@@ -145,9 +120,6 @@ class PacketBuffer
 {
 public:
 	inline PacketBuffer(int datasize, int overhead = 64);
-	inline PacketBuffer(const PacketBuffer &p);
-	inline PacketBuffer& operator=(const PacketBuffer &p);
-
 	inline virtual ~PacketBuffer();
 
 #ifdef IKMEM_PACKET
@@ -185,6 +157,7 @@ public:
 	inline void push_tail_int8(IINT8 x);
 	inline void push_tail_int16(IINT16 x);
 	inline void push_tail_int32(IINT32 x);
+	inline void push_tail_int64(IINT64 x);
 
 	inline IUINT8 pop_head_uint8();
 	inline IUINT16 pop_head_uint16();
@@ -199,6 +172,7 @@ public:
 	inline IINT8 pop_tail_int8();
 	inline IINT16 pop_tail_int16();
 	inline IINT32 pop_tail_int32();
+	inline IINT64 pop_tail_int64();
 
 protected:
 	char *_buffer;		// 缓存指针
@@ -223,47 +197,6 @@ inline PacketBuffer::PacketBuffer(int datasize, int overhead) {
 	_head = _buffer + overhead;
 	_endup = _buffer + maxsize;
 	_tail = _head;
-}
-
-inline PacketBuffer::PacketBuffer(const PacketBuffer &p)
-{
-	#ifdef IKMEM_PACKET
-	_buffer = (char*)ikmem_malloc(p._maxsize);
-	#else
-	_buffer = new char[p._maxsize];
-	#endif
-	if (_buffer == NULL) {
-		NETWORK_THROW("PacketBuffer: can not allocate memory", 1000);
-	}
-	_maxsize = p._maxsize;
-	_head = p._head;
-	_endup = p._endup;
-	_tail = p._tail;
-	if (p._head > p._tail) {
-		memcpy(_head, p._head, (size_t)(p._tail - p._head));
-	}
-}
-
-inline PacketBuffer& PacketBuffer::operator=(const PacketBuffer &p)
-{
-#ifdef IKMEM_PACKET
-	if (_buffer) ikmem_free(_buffer);
-	_buffer = (char*)ikmem_malloc(p._maxsize);
-#else
-	if (_buffer) delete []_buffer;
-	_buffer = new char[p._maxsize];
-#endif
-	if (_buffer == NULL) {
-		NETWORK_THROW("PacketBuffer: can not allocate memory", 1000);
-	}
-	_maxsize = p._maxsize;
-	_head = p._head;
-	_endup = p._endup;
-	_tail = p._tail;
-	if (p._head > p._tail) {
-		memcpy(_head, p._head, (size_t)(p._tail - p._head));
-	}
-	return *this;
 }
 
 inline PacketBuffer::~PacketBuffer() {
@@ -428,6 +361,12 @@ inline void PacketBuffer::push_tail_int32(IINT32 x) {
 	push_tail_uint32((IUINT32)x); 
 }
 
+inline void PacketBuffer::push_tail_int64(IINT64 x) {
+	IUINT64 z = (IUINT64)x;
+	push_tail_uint32((IUINT32)(z & 0xffffffff));
+	push_tail_uint32((IUINT32)(z >> 32));
+}
+
 inline IUINT8 PacketBuffer::pop_head_uint8() {
 	IUINT8 x;
 	pop_head(&x, 1);
@@ -496,135 +435,14 @@ inline IINT32 PacketBuffer::pop_tail_int32() {
 	return (IINT32)pop_tail_uint32();
 }
 
-
-//---------------------------------------------------------------------
-// TimeOut
-//---------------------------------------------------------------------
-class Timeout
-{
-public:
-	inline Timeout();
-
-	// 检查是否超时
-	inline bool check(IUINT32 current);
-
-	// 复位周期
-	inline void reset(IUINT32 current);
-
-	// 开始计时：current当前时钟，period周期，multiplier百分比的超时放大
-	inline void start(IUINT32 current, IUINT32 period = 300, IUINT32 multiplier = 125, bool immediately = true);
-
-	// 停止计时：
-	inline void stop();
-
-	// 是否启动：
-	inline bool isstarted() const;
-
-protected:
-	IUINT32 _current;
-	IUINT32 _slap;
-	IUINT32 _rto;
-	IUINT32 _multiplier;
-	IUINT32 _period;
-	bool _started;
-};
-
-inline Timeout::Timeout() {
-	_started = false;
-	_current = 0;
-	_rto = 0;
-	_multiplier = 0;
-	_slap = 0;
+inline IINT64 PacketBuffer::pop_tail_int64() {
+	IUINT32 b2 = pop_tail_uint32();
+	IUINT32 b1 = pop_tail_uint32();
+	IUINT64 z = b1 | (((IUINT64)b2) << 32);
+	return (IINT64)z;
 }
 
-// 开始计时：current当前时钟，period周期，multiplier百分比的超时放大
-inline void Timeout::start(IUINT32 current, IUINT32 period, IUINT32 multiplier, bool immediately) {
-	_started = true;
-	_period = period;
-	_rto = period;
-	_current = current;
-	_multiplier = multiplier;
-	_slap = _current + ((immediately)? 0 : period);
-}
-
-// 检查是否超时
-inline bool Timeout::check(IUINT32 current) {
-	_current = current;
-	if (_started == false) return false;
-	if (current < _slap) return false;
-	_rto = (_rto * _multiplier) / 100;
-	_slap = _current + _rto;
-	return true;
-}
-
-// 复位计时
-inline void Timeout::reset(IUINT32 current) {
-	_current = current;
-	if (_started) {
-		_rto = _period;
-		_slap = _current + _rto;
-	}
-}	
-
-// 停止计时：
-inline void Timeout::stop() {
-	_started = false;
-}
-
-// 判断是否启动
-inline bool Timeout::isstarted() const {
-	return _started;
-}
-
-
-
-//---------------------------------------------------------------------
-// TimeRto
-//---------------------------------------------------------------------
-class TimeRto
-{
-public:
-	inline TimeRto();
-	inline int update(int rtt);
-	inline int rto() const;
-	inline void reset();
-protected:
-	IINT32 rx_rttval, rx_srtt, rx_rto;
-};
-
-inline TimeRto::TimeRto() {
-	reset();
-}
-
-inline void TimeRto::reset() {
-	rx_rttval = 0;
-	rx_srtt = 0;
-	rx_rto = 0;
-}
-
-inline int TimeRto::update(int rtt) {
-	IINT32 rto = 0;
-	if (rx_srtt == 0) {
-		rx_srtt = rtt;
-		rx_rttval = rtt / 2;
-	}	else {
-		long delta = rtt - rx_srtt;
-		if (delta < 0) delta = -delta;
-		rx_rttval = (3 * rx_rttval + delta) / 4;
-		rx_srtt = (7 * rx_srtt + rtt) / 8;
-		if (rx_srtt < 1) rx_srtt = 1;
-	}
-	rto = rx_srtt + _imax(1, 4 * rx_rttval);
-	rx_rto = _ibound(1, rto, 60000);
-	return rx_rto;
-}
-
-inline int TimeRto::rto() const {
-	return rx_rto;
-}
-
-
-NAMESPACE_END(AsyncNet)
+NAMESPACE_END(System)
 
 
 

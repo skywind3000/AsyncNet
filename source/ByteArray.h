@@ -179,6 +179,12 @@ public:
 	// set current position forward by offset: position += offset
 	inline int advance(int offset);
 
+	// load content from file
+	inline bool load(const char *filename);
+
+	// save content to file
+	inline bool save(const char *filename) const;
+
 public:
 	inline void write_uint8(uint8_t x);
 	inline void write_uint16(uint16_t x);
@@ -1116,6 +1122,53 @@ inline void ByteArray::obfuscate(const uint8_t *str, int size) {
 			mask = str;
 		}
 	}
+}
+
+// load content from file
+inline bool ByteArray::load(const char *filename)
+{
+	rewind();
+	truncate();
+	FILE *fp = fopen(filename, "rb");
+	if (fp == NULL) return false;
+	const int bufsize = 4096;
+	unsigned char buffer[bufsize];
+	bool hr = true;
+	while (1) {
+		size_t readed = fread(buffer, 1, bufsize, fp);
+		if (readed == 0) {
+			if (feof(fp)) break;
+			else {
+				hr = false;
+				break;
+			}
+		}
+		write(buffer, (int)readed);
+	}
+	fclose(fp);
+	return hr;
+}
+
+
+// save content to file
+inline bool ByteArray::save(const char *filename) const
+{
+	FILE *fp = fopen(filename, "wb");
+	if (fp == NULL) return false;
+	const char *ptr = reinterpret_cast<const char*>(data());
+	size_t remain = size();
+	bool hr = true;
+	while (remain > 0) {
+		size_t written = fwrite(ptr, 1, remain, fp);
+		remain -= written;
+		ptr += written;
+		if (written == 0) { 
+			hr = false;
+			break;
+		}
+	}
+	fclose(fp);
+	return hr;
 }
 
 

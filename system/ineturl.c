@@ -77,7 +77,7 @@ int ihttpsock_connect(IHTTPSOCK *httpsock, const struct sockaddr *remote)
 	}
 	ims_clear(&httpsock->sendmsg);
 	ims_clear(&httpsock->recvmsg);
-	httpsock->sock = socket(AF_INET, SOCK_STREAM, 0);
+	httpsock->sock = (int)socket(AF_INET, SOCK_STREAM, 0);
 	if (httpsock->sock < 0) return -2;
 	isocket_enable(httpsock->sock, ISOCK_NOBLOCK);
 	isocket_enable(httpsock->sock, ISOCK_REUSEADDR);
@@ -108,13 +108,13 @@ int ihttpsock_proxy(IHTTPSOCK *httpsock, int type,
 	if (type == ISOCKPROXY_TYPE_NONE) return 0;
 	if (addr == NULL) return 0;
 	if (user) {
-		int len = strlen(user);
+		int len = (int)strlen(user);
 		httpsock->proxy_user = (char*)ikmem_malloc(len + 1);
 		if (httpsock->proxy_user == NULL) return -1;
 		memcpy(httpsock->proxy_user, user, len + 1);
 	}
 	if (pass) {
-		int len = strlen(pass);
+		int len = (int)strlen(pass);
 		httpsock->proxy_pass = (char*)ikmem_malloc(len + 1);
 		if (httpsock->proxy_pass == NULL) return -2;
 		memcpy(httpsock->proxy_pass, pass, len + 1);
@@ -191,7 +191,7 @@ static void ihttpsock_try_send(IHTTPSOCK *httpsock)
 	if (httpsock->state != IHTTPSOCK_STATE_CONNECTED) return;
 
 	while (1) {
-		size = ims_flat(&httpsock->sendmsg, &ptr);
+		size = (long)ims_flat(&httpsock->sendmsg, &ptr);
 		if (size <= 0) break;
 		flat = (char*)ptr;
 		retval = isend(httpsock->sock, flat, size, 0);
@@ -262,7 +262,7 @@ long ihttpsock_recv(IHTTPSOCK *httpsock, void *data, long size)
 	if (size == 0) return 0;
 
 	while (1) {
-		long canread = ims_dsize(&httpsock->recvmsg);
+		long canread = (long)ims_dsize(&httpsock->recvmsg);
 		if ((IINT64)canread > remain) canread = (long)remain;
 		if (canread > 0) {
 			ims_read(&httpsock->recvmsg, lptr, canread);
@@ -309,7 +309,7 @@ int ihttpsock_poll(IHTTPSOCK *httpsock, int event, int millsec)
 long ihttpsock_dsize(const IHTTPSOCK *httpsock)
 {
 	assert(httpsock);
-	return ims_dsize(&httpsock->sendmsg);
+	return (long)ims_dsize(&httpsock->sendmsg);
 }
 
 // change buffer size
@@ -493,7 +493,7 @@ int ihttplib_open(IHTTPLIB *http, const char *HOST)
 
 	it_strstrip(&host, &help);
 
-	pos = it_strfindc2(&host, ":", 0);
+	pos = (long)it_strfindc2(&host, ":", 0);
 
 	if (pos >= 0) {
 		it_strsub(&host, &help, pos + 1, it_size(&host));
@@ -566,14 +566,14 @@ int ihttplib_proxy(IHTTPLIB *http, int type, const char *addr,
 	}
 
 	if (user) {
-		int len = strlen(user);
+		int len = (int)strlen(user);
 		http->proxy_user = (char*)ikmem_malloc(len + 1);
 		if (http->proxy_user == NULL) return -1;
 		memcpy(http->proxy_user, user, len + 1);
 	}
 
 	if (pass) {
-		int len = strlen(pass);
+		int len = (int)strlen(pass);
 		http->proxy_pass = (char*)ikmem_malloc(len + 1);
 		if (http->proxy_pass == NULL) return -2;
 		memcpy(http->proxy_pass, pass, len + 1);
@@ -644,7 +644,7 @@ void ihttplib_header_write(IHTTPLIB *http, const char *header)
 
 void ihttplib_header_send(IHTTPLIB *http)
 {
-	long size = it_size(&http->sheader);
+	long size = (long)it_size(&http->sheader);
 	ihttpsock_send(http->sock, it_str(&http->sheader), size);
 	ihttpsock_send(http->sock, "\r\n", 2);
 }
@@ -750,7 +750,7 @@ int ihttplib_read_header(IHTTPLIB *http)
 	}
 	else {
 		long colon;
-		colon = it_strfindc2(&http->line, ":", 0);
+		colon = (long)it_strfindc2(&http->line, ":", 0);
 		if (colon >= 0) {
 			it_strsub(&http->line, &name, 0, colon);
 			it_strsub(&http->line, &help, colon + 1, it_size(&http->line));
@@ -772,7 +772,7 @@ int ihttplib_read_header(IHTTPLIB *http)
 					long pos;
 					it_strsub(&help, &name, 5, it_size(&help));
 					it_strstrip(&name, &delim);
-					pos = it_strfindc2(&name, "/", 0);
+					pos = (long)it_strfindc2(&name, "/", 0);
 					if (pos >= 0) {
 						it_strsub(&name, &help, pos + 1, it_size(&name));
 						it_strstrip(&help, &delim);
@@ -781,7 +781,7 @@ int ihttplib_read_header(IHTTPLIB *http)
 					}	else {
 						http->range_size = -1;
 					}
-					pos = it_strfindc2(&name, "-", 0);
+					pos = (long)it_strfindc2(&name, "-", 0);
 					if (pos >= 0) {
 						it_strsub(&name, &help, pos + 1, it_size(&name));
 						it_sresize(&name, pos);
@@ -875,7 +875,7 @@ long ihttplib_read_chunked(IHTTPLIB *http, void *data, long size)
 				return IHTTP_RECV_CLOSED;
 			}
 			it_strstripc(&http->line, "\r\n\t ");
-			pos = it_strfindc2(&http->line, " ", 0);
+			pos = (long)it_strfindc2(&http->line, " ", 0);
 			if (pos >= 0) it_str(&http->line)[pos] = 0;
 			http->chunksize = istrtoll(it_str(&http->line), NULL, 16);
 			it_sresize(&http->line, 0);
@@ -1072,7 +1072,7 @@ int ihttplib_getresponse(IHTTPLIB *http, ivalue_t *content, int waitms)
 	it_sresize(&http->buffer, 4096);
 	ptr = it_str(&http->buffer);
 	for (received = 0; ; ) {
-		retval = ihttplib_recv(http, ptr, it_size(&http->buffer));
+		retval = ihttplib_recv(http, ptr, (long)it_size(&http->buffer));
 		//printf("ihttplib_recv: %d\n", retval);
 		if (retval >= 0) {
 			received += retval;
@@ -1121,7 +1121,7 @@ static int ineturl_get_absurl(ivalue_t *absurl, const ivalue_t *baseurl,
 		it_cpy(absurl, relurl);
 	}
 	else if (it_str(relurl)[0] == '/') {
-		long FirstSlashPos = it_strfindc2(baseurl, "/", 7);
+		long FirstSlashPos = (long)it_strfindc2(baseurl, "/", 7);
 		if (FirstSlashPos >= 0) {
 			it_strsub(baseurl, absurl, 0, FirstSlashPos);
 			it_strcat(absurl, relurl);
@@ -1133,7 +1133,7 @@ static int ineturl_get_absurl(ivalue_t *absurl, const ivalue_t *baseurl,
 	else {
 		long LastSlashPos;
 		it_strcpyc2(&help, "/");
-		LastSlashPos = it_strfindr(baseurl, &help, 0, it_size(baseurl));
+		LastSlashPos = (long)it_strfindr(baseurl, &help, 0, it_size(baseurl));
 		if (LastSlashPos >= 7) {
 			it_strsub(baseurl, absurl, 0, LastSlashPos + 1);
 			it_strcat(absurl, relurl);
@@ -1170,7 +1170,7 @@ int ineturl_split(const char *URL, ivalue_t *protocol,
 
 	it_init_str(&url, URL, strlen(URL));
 
-	StartPos = it_strfindc2(&url, "://", 0);
+	StartPos = (long)it_strfindc2(&url, "://", 0);
 
 	if (StartPos >= 0) {
 		it_strsub(&url, protocol, 0, StartPos);
@@ -1180,7 +1180,7 @@ int ineturl_split(const char *URL, ivalue_t *protocol,
 		StartPos = 0;
 	}
 
-	FirstSlashPos = it_strfindc2(&url, "/", StartPos);
+	FirstSlashPos = (long)it_strfindc2(&url, "/", StartPos);
 	if (FirstSlashPos >= 0) {
 		it_strsub(&url, host, StartPos, FirstSlashPos);
 		it_strsub(&url, path, FirstSlashPos, it_size(&url));
@@ -1208,7 +1208,7 @@ static char *ineturl_strdup(const char *src)
 		ptr[0] = 0;
 	}	
 	else {
-		int len = strlen(src) + 1;
+		int len = (int)strlen(src) + 1;
 		ptr = (char*)ikmem_malloc(len);
 		assert(ptr);
 		memcpy(ptr, src, len);
@@ -1374,7 +1374,7 @@ IURLD *ineturl_open(const char *URL, const void *data, long size,
 			it_strcatc(&auth, proxy_user, -1);
 			it_strcatc(&auth, ":", -1);
 			it_strcatc(&auth, proxy_pass, -1);
-			size = ibase64_encode(NULL, it_size(&auth), NULL);
+			size = (int)ibase64_encode(NULL, it_size(&auth), NULL);
 			it_sresize(&base64, size);
 			ibase64_encode(it_str(&auth), it_size(&base64), it_str(&base64));
 			it_sresize(&base64, strlen(it_str(&base64)));

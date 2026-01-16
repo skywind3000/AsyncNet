@@ -16,6 +16,28 @@
 #include "isecure.h"
 
 
+//=====================================================================
+// Public Macros
+//=====================================================================
+#define ISTRINGIFY(x)    ISTRINGIFY_HELPER(x)
+#define ISTRINGIFY_HELPER(x)     #x
+
+#define ISTRINGCAT(x, y)  ISTRINGCAT_HELPER(x, y)
+#define ISTRINGCAT_HELPER(x, y)  x##y
+
+#ifdef PRINT_DEBUG
+#define printd(...) printf(__VA_ARGS__)
+#else
+#define printd(...)
+#endif
+
+#ifdef PRINT_ERROR
+#define printe(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define printe(...)
+#endif
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -38,8 +38,8 @@
 // DateTime          取日期和时间（精确到毫秒的）
 //
 //=====================================================================
-#ifndef __SYSTEM_H__
-#define __SYSTEM_H__
+#ifndef _SYSTEM_H_
+#define _SYSTEM_H_
 
 #include <string>
 #include <vector>
@@ -139,7 +139,12 @@
 #endif
 
 
+
+//---------------------------------------------------------------------
+// Namespace Begin
+//---------------------------------------------------------------------
 NAMESPACE_BEGIN(System)
+
 
 //---------------------------------------------------------------------
 // Exception
@@ -797,6 +802,44 @@ private:
 protected:
 	ipolld _ipoll_desc;
 };
+
+
+//---------------------------------------------------------------------
+// 延迟运行
+//---------------------------------------------------------------------
+#if _CPP_STANDARD >= 11
+class Defer {
+public:
+	template <typename Callable>
+	Defer(Callable&& func) : _func(std::forward<Callable>(func)), _active(true) {}
+
+	Defer(Defer&& other) noexcept 
+		: _func(std::move(other._func)), _active(other._active) {
+		other._active = false;
+	}
+
+	Defer(const Defer&) = delete;
+	Defer& operator=(const Defer&) = delete;
+
+	~Defer() {
+		if (_active) {
+			_func();
+		}
+	}
+
+	void dismiss() noexcept {
+		_active = false;
+	}
+private:
+	std::function<void()> _func;
+	bool _active;
+};
+
+#define DeferCall(code) \
+	auto ISTRINGCAT(_defer_, __LINE__) = ::System::Defer([&]() { code; });
+
+#endif
+
 
 
 //---------------------------------------------------------------------
@@ -2330,6 +2373,10 @@ static inline bool StringContains(const std::string &str, char ch) {
 	return (str.find(ch) != std::string::npos);
 }
 
+
+//---------------------------------------------------------------------
+// Namespace End
+//---------------------------------------------------------------------
 NAMESPACE_END(System)
 
 

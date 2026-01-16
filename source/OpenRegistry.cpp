@@ -695,8 +695,8 @@ void OpenRegistry::StringStrip(std::string &str, const char *seps)
 		str.assign("");
 		return;
 	}
-	for (p2 = str.size() - 1; p2 >= p1; p2--) {
-		char ch = str[p2];
+	for (p2 = str.size(); p2 > p1; p2--) {
+		char ch = str[p2 - 1];
 		int skip = 0;
 		for (i = 0; seps[i]; i++) {
 			if (ch == seps[i]) {
@@ -707,7 +707,7 @@ void OpenRegistry::StringStrip(std::string &str, const char *seps)
 		if (skip == 0) 
 			break;
 	}
-	str = str.substr(p1, p2 - p1 + 1);
+	str = str.substr(p1, p2 - p1);
 }
 
 

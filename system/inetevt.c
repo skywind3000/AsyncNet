@@ -213,10 +213,12 @@ CAsyncLoop* async_loop_new(void)
 			loop->xfd[1] = -1;
 		}
 	}
+	#if 0
 	if (loop->xfd[0] >= 0) {
 		ikeepalive(loop->xfd[0], 50, 300, 10);
 		ikeepalive(loop->xfd[1], 50, 300, 10);
 	}
+	#endif
 #endif
 
 	loop->xfd[ASYNC_LOOP_PIPE_FLAG] = 0;
