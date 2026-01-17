@@ -117,6 +117,16 @@ public:
 		return (iposix_addr_ip_equals(&_address, &(src._address)) != 0);
 	}
 
+	bool SockName(int fd) {
+		int hr = iposix_addr_sockname(fd, &_address);
+		return (hr == 0)? true : false;
+	}
+
+	bool PeerName(int fd) {
+		int hr = iposix_addr_peername(fd, &_address);
+		return (hr == 0)? true : false;
+	}
+
 public:
 	PosixAddress& operator = (const PosixAddress &src) { _address = src._address; return *this; }
 	PosixAddress& operator = (const iPosixAddress &src) { _address = src; return *this; }

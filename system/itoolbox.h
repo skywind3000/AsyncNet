@@ -120,6 +120,13 @@ int iposix_addr_ip_equals(const iPosixAddress *a1, const iPosixAddress *a2);
 // otherwise returns 4
 int iposix_addr_version(const char *text);
 
+// setup address from sockaddr
+int iposix_addr_sockname(int fd, iPosixAddress *addr);
+
+// setup address from sockaddr
+int iposix_addr_peername(int fd, iPosixAddress *addr);
+
+
 
 //=====================================================================
 // DNS Resolve

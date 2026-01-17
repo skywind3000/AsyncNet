@@ -603,6 +603,31 @@ int iposix_addr_version(const char *text)
 }
 
 
+// setup address from sockaddr
+int iposix_addr_sockname(int fd, iPosixAddress *addr)
+{
+	if (addr == NULL) return -1;
+	memset(addr, 0, sizeof(iPosixAddress));
+	if (fd < 0) return -2;
+	int addrlen = sizeof(iPosixAddress);
+	int hr = isockname(fd, &(addr->sa), &addrlen);
+	return (hr == 0)? 0 : -1;
+}
+
+
+// setup address from sockaddr
+int iposix_addr_peername(int fd, iPosixAddress *addr)
+{
+	if (addr == NULL) return -1;
+	memset(addr, 0, sizeof(iPosixAddress));
+	if (fd < 0) return -2;
+	int addrlen = sizeof(iPosixAddress);
+	int hr = ipeername(fd, &(addr->sa), &addrlen);
+	return (hr == 0)? 0 : -1;
+}
+
+
+
 //=====================================================================
 // Panic
 //=====================================================================
