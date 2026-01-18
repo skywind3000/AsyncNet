@@ -1,4 +1,4 @@
-﻿//=====================================================================
+//=====================================================================
 //
 // iposix.c - posix file system accessing
 //
@@ -372,7 +372,7 @@ int iposix_wmkdir(const wchar_t *path, int mode)
 // change directory
 int iposix_chdir(const char *path)
 {
-#ifdef _WIN32
+#if defined(_WIN32) && (!defined(__BORLANDC__))
 	return _chdir(path);
 #else
 	return chdir(path);
@@ -509,7 +509,7 @@ IINT64 iposix_path_wgetsize(const wchar_t *path)
 // Posix Path
 //---------------------------------------------------------------------
 
-// 是否是绝对路径，如果是的话返回1，否则返回0
+// check if absolute path, returns 1 for true 0 for false
 int iposix_path_isabs(const char *path)
 {
 	if (path == NULL) return 0;

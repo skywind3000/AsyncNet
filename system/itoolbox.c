@@ -1,4 +1,4 @@
-﻿//=====================================================================
+//=====================================================================
 //
 // itoolbox.c - 
 //
@@ -851,8 +851,7 @@ int select_notify_wake(CSelectNotify *sn)
 // Terminal Colors
 //=====================================================================
 
-// 设置颜色：低4位是文字颜色，高4位是背景颜色
-// 具体编码可以搜索 ansi color或者 
+// set console color, color is a bitmask:
 // http://en.wikipedia.org/wiki/ANSI_escape_code
 void console_set_color(int color)
 {
@@ -880,7 +879,7 @@ void console_set_color(int color)
 	#endif
 }
 
-// 设置光标位置左上角是，行与列都是从1开始计数的
+// set cursor position, row and col are 1-based
 void console_cursor(int row, int col)
 {
 	#ifdef _WIN32
@@ -893,7 +892,7 @@ void console_cursor(int row, int col)
 	#endif
 }
 
-// 恢复屏幕颜色
+// reset console color
 void console_reset(void)
 {
 	#ifdef _WIN32
@@ -903,7 +902,7 @@ void console_reset(void)
 	#endif
 }
 
-// 清屏
+// clear console screen
 void console_clear(int color)
 {
 	#ifdef _WIN32

@@ -1,4 +1,4 @@
-﻿//=====================================================================
+//=====================================================================
 //
 // itoolbox.h - 
 //
@@ -208,7 +208,7 @@ int select_notify_wake(CSelectNotify *sn);
 #define CTEXT_BOLD_CYAN		14
 #define CTEXT_BOLD_WHITE	15
 
-// 背景颜色定义
+// background colors
 #define CBG_BLACK			0
 #define CBG_RED				(1 << 4)
 #define CBG_GREEN			(2 << 4)
@@ -219,19 +219,18 @@ int select_notify_wake(CSelectNotify *sn);
 #define CBG_WHITE			(7 << 4)
 
 
-// 设置颜色：低4位是文字颜色，高4位是背景颜色
-// 具体编码可以搜索 ansi color或者 
+// set console text color, see details at
 // http://en.wikipedia.org/wiki/ANSI_escape_code
 void console_set_color(int color);
 
 
-// 设置光标位置左上角是，行与列都是从1开始计数的
+// set console cursor position
 void console_cursor(int row, int col);
 
-// 恢复屏幕颜色
+// reset console
 void console_reset(void);
 
-// 清屏
+// clear console with specific color
 void console_clear(int color);
 
 

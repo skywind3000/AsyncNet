@@ -1290,11 +1290,12 @@ static void async_tcp_check(CAsyncStream *stream)
 long async_stream_tcp_move(CAsyncStream *stream, long size)
 {
 	CAsyncTcp *tcp;
+	ilong hr = 0;
 	if (stream->name != ASYNC_STREAM_NAME_TCP) {
 		return -1; // not a TCP stream
 	}
 	tcp = async_stream_upcast(stream, CAsyncTcp, stream);
-	ilong hr = ims_move(&tcp->sendbuf, &tcp->recvbuf, (ilong)size);
+	hr = ims_move(&tcp->sendbuf, &tcp->recvbuf, (ilong)size);
 	async_tcp_check(stream);
 	return (long)hr;
 }

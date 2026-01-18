@@ -299,9 +299,9 @@ void async_signal_handler(int signum)
 void async_signal_reading(CAsyncLoop *loop, CAsyncEvent *event, int evt) 
 {
 	CAsyncSignal *sig = (CAsyncSignal*)event->user;
-	if (sig == NULL || sig->fd_reader < 0) return;
 	int signum = -1;
 	int retval = 0;
+	if (sig == NULL || sig->fd_reader < 0) return;
 #ifdef __unix
 	retval = read(sig->fd_reader, &signum, sizeof(int));
 #else
