@@ -514,6 +514,80 @@ static inline const char *idecode32i_msb(const char *p, IINT32 *w) {
 	return p + 4;
 }
 
+/* encode 64 bits unsigned int (lsb) */
+static inline char *iencode64u_lsb(char *p, IUINT64 v) {
+#if IWORDS_BIG_ENDIAN
+	iencode32u_lsb((char*)p + 0, (IUINT32)(v >> 0));
+	iencode32u_lsb((char*)p + 4, (IUINT32)(v >> 32));
+#else
+	memcpy((void*)p, &v, sizeof(IUINT64));
+#endif
+	return (char*)p + 8;
+}
+
+/* encode 64 bits unsigned int (msb) */
+static inline char *iencode64u_msb(char *p, IUINT64 v) {
+#if IWORDS_BIG_ENDIAN
+	memcpy((void*)p, &v, sizeof(IUINT64));
+#else
+	iencode32u_msb((char*)p + 4, (IUINT32)(v >> 0));
+	iencode32u_msb((char*)p + 0, (IUINT32)(v >> 32));
+#endif
+	return (char*)p + 8;
+}
+
+/* decode 64 bits unsigned int (lsb) */
+static inline const char *idecode64u_lsb(const char *p, IUINT64 *v) {
+#if IWORDS_BIG_ENDIAN
+	IUINT32 low, high;
+	idecode32u_lsb(p + 0, &low);
+	idecode32u_lsb(p + 4, &high);
+	*v = (((IUINT64)high) << 32) | ((IUINT64)low);
+#else
+	memcpy(v, p, sizeof(IUINT64));
+#endif
+	return (const char*)p + 8;
+}
+
+/* decode 64 bits unsigned int (msb) */
+static inline const char *idecode64u_msb(const char *p, IUINT64 *v) {
+#if IWORDS_BIG_ENDIAN
+	memcpy(v, p, sizeof(IUINT64));
+#else
+	IUINT32 high, low;
+	idecode32u_msb(p + 0, &high);
+	idecode32u_msb(p + 4, &low);
+	*v = (((IUINT64)high) << 32) | ((IUINT64)low);
+#endif
+	return (const char*)p + 8;
+}
+
+/* encode 64 bits int (lsb) */
+static inline char *iencode64i_lsb(char *p, IINT64 v) {
+	return iencode64u_lsb(p, (IUINT64)v);
+}
+
+/* encode 64 bits int (msb) */
+static inline char *iencode64i_msb(char *p, IINT64 v) {
+	return iencode64u_msb(p, (IUINT64)v);
+}
+
+/* decode 64 bits int (lsb) */
+static inline const char *idecode64i_lsb(const char *p, IINT64 *v) {
+	IUINT64 uv;
+	p = idecode64u_lsb(p, &uv);
+	*v = (IINT64)uv;
+	return p;
+}
+
+/* decode 64 bits int (msb) */
+static inline const char *idecode64i_msb(const char *p, IINT64 *v) {
+	IUINT64 uv;
+	p = idecode64u_msb(p, &uv);
+	*v = (IINT64)uv;
+	return p;
+}
+
 /* encode float */
 static inline char *iencodef_lsb(char *p, float f) {
 	union { IUINT32 intpart; float floatpart; } vv;
@@ -582,6 +656,70 @@ static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
 	str[maxlen - 1] = 0;
 	return idecodes(p, str, &maxlen);
 }
+
+
+
+/*====================================================================*/
+/* POINTER READER                                                     */
+/*====================================================================*/
+
+static inline IUINT8 ipointer_read8u(const char *ptr) {
+	return *(const IUINT8*)ptr;
+}
+
+static inline IINT8 ipointer_read8i(const char *ptr) {
+	return *(const IINT8*)ptr;
+}
+
+static inline IUINT16 ipointer_read16u_lsb(const char *ptr) {
+	IUINT16 w; idecode16u_lsb(ptr, &w); return w;
+}
+
+static inline IUINT16 ipointer_read16u_msb(const char *ptr) {
+	IUINT16 w; idecode16u_msb(ptr, &w); return w;
+}
+
+static inline IINT16 ipointer_read16i_lsb(const char *ptr) {
+	IINT16 w; idecode16i_lsb(ptr, &w); return w;
+}
+
+static inline IINT16 ipointer_read16i_msb(const char *ptr) {
+	IINT16 w; idecode16i_msb(ptr, &w); return w;
+}
+
+static inline IUINT32 ipointer_read32u_lsb(const char *ptr) {
+	IUINT32 l; idecode32u_lsb(ptr, &l); return l;
+}
+
+static inline IUINT32 ipointer_read32u_msb(const char *ptr) {
+	IUINT32 l; idecode32u_msb(ptr, &l); return l;
+}
+
+static inline IINT32 ipointer_read32i_lsb(const char *ptr) {
+	IINT32 l; idecode32i_lsb(ptr, &l); return l;
+}
+
+static inline IINT32 ipointer_read32i_msb(const char *ptr) {
+	IINT32 l; idecode32i_msb(ptr, &l); return l;
+}
+
+static inline IUINT64 ipointer_read64u_lsb(const char *ptr) {
+	IUINT64 v; idecode64u_lsb(ptr, &v); return v;
+}
+
+static inline IUINT64 ipointer_read64u_msb(const char *ptr) {
+	IUINT64 v; idecode64u_msb(ptr, &v); return v;
+	return v;
+}
+
+static inline IINT64 ipointer_read64i_lsb(const char *ptr) {
+	IINT64 v; idecode64i_lsb(ptr, &v); return v;
+}
+
+static inline IINT64 ipointer_read64i_msb(const char *ptr) {
+	IINT64 v; idecode64i_msb(ptr, &v); return v;
+}
+
 
 
 /*====================================================================*/

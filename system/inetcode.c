@@ -356,7 +356,7 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab)
 {
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
 	asyncsock->fd = -1;
-	asyncsock->header = (header < 0 || header > ITMH_LINESPLIT)? 0 : header;
+	asyncsock->header = (header < 0 || header > ITMH_MANUAL)? 0 : header;
 
 	if (asyncsock->buffer == NULL) {
 		if (asyncsock->external == NULL) {
@@ -774,7 +774,7 @@ long async_sock_send_vector(CAsyncSock *asyncsock,
 			long remain = veclen[i];
 			long bufsize = asyncsock->bufsize;
 			for (; remain > 0; ) {
-				long canread = (size > bufsize)? bufsize : remain;
+				long canread = (remain > bufsize)? bufsize : remain;
 				icrypt_rc4_crypt(asyncsock->rc4_send_box, 
 					&asyncsock->rc4_send_x, 
 					&asyncsock->rc4_send_y, 
@@ -1681,7 +1681,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 
 	if (sock->mode == ASYNC_CORE_NODE_LISTEN) {
 		ipv6 = sock->ipv6;
-		afunix = sock->ipv6;
+		afunix = sock->afunix;
 		remote = (struct sockaddr*)&rmt.address;
 		if (sock->ipv6 == 0 && sock->afunix == 0) {
 			addrlen = sizeof(rmt.in4);

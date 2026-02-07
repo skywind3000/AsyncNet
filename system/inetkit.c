@@ -1030,6 +1030,11 @@ static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 		total = async_tcp_try_writing(stream);
 	}
 
+	if ((stream->enabled & ASYNC_EVENT_WRITE) == 0) {
+		if (async_event_is_active(&tcp->evt_write)) {
+			async_event_stop(loop, &tcp->evt_write);
+		}
+	}
 	if (tcp->sendbuf.size == 0) {
 		if (async_event_is_active(&tcp->evt_write)) {
 			async_event_stop(loop, &tcp->evt_write);
@@ -1037,15 +1042,6 @@ static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 		if (loop->logmask & ASYNC_LOOP_LOG_TCP) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_TCP,
 				"[tcp] tcp write no data, fd=%d", tcp->fd);
-		}
-	}
-	else if ((stream->enabled & ASYNC_EVENT_WRITE) != 0) {
-		if (async_event_is_active(&tcp->evt_write)) {
-			async_event_stop(loop, &tcp->evt_write);
-		}
-		if (loop->logmask & ASYNC_LOOP_LOG_TCP) {
-			async_loop_log(loop, ASYNC_LOOP_LOG_TCP,
-				"[tcp] tcp write event stopped fd=%d", tcp->fd);
 		}
 	}
 
@@ -1601,7 +1597,7 @@ void async_listener_stop(CAsyncListener *listener)
 void async_listener_pause(CAsyncListener *listener, int pause)
 {
 	if (listener->fd >= 0) {
-		if (pause) {
+		if (pause == 0) {
 			if (async_event_is_active(&listener->evt_read) == 0) {
 				async_event_start(listener->loop, &listener->evt_read);
 			}
@@ -2152,6 +2148,7 @@ int async_udp_open(CAsyncUdp *udp, const struct sockaddr *addr, int addrlen, int
 		addr = &local;
 		memset(&local, 0, sizeof(local));
 		local.sa_family = AF_INET;
+		addrlen = sizeof(struct sockaddr_in);
 	}
 
 	fd = isocket_udp_open(addr, addrlen, ff);

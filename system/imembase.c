@@ -1597,12 +1597,12 @@ ib_string* ib_string_clear(ib_string *str)
 
 ib_string* ib_string_assign(ib_string *str, const char *src)
 {
-	return ib_string_assign_size(str, src, (int)strlen(src));
+	return ib_string_assign_size(str, src, -1);
 }
 
 ib_string* ib_string_assign_size(ib_string *str, const char *src, int size)
 {
-	if (size < 0) size = (int)strlen(src);
+	if (size < 0) size = (src)? ((int)strlen(src)) : 0;
 	ib_string_resize(str, size);
 	if (src) {
 		memcpy(str->ptr, src, size);
@@ -1787,7 +1787,8 @@ ib_string* ib_string_join(const ib_array *array, const char *sep, int len)
 	}
 	else {
 		ib_string *str = ib_string_new();
-		size_t i, size = 0;
+		size_t i;
+		int size = 0;
 		char *ptr;
 		len = (len >= 0)? len : (int)strlen(sep);
 		for (i = 0; i < array->size; i++) {
