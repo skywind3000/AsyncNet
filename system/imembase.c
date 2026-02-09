@@ -1,11 +1,49 @@
 /**********************************************************************
  *
- * imembase.c - basic interface of memory operation
+ * imembase.c - portable memory, containers and data structures
  * skywind3000 (at) gmail.com, 2006-2016
  *
- * Provides efficient memory operations, dynamic containers, and data
- * structures including allocators, vectors, memory pools, AVL trees,
- * hash tables, strings, and arrays with cross-platform support.
+ * OVERVIEW:
+ * Implementation of the interfaces declared in imembase.h.
+ * All code is written in plain C (C89/C99 compatible) with no
+ * external dependencies beyond the standard C library.
+ *
+ * MEMORY ALLOCATORS:
+ * - internal_malloc / internal_free / internal_realloc: dispatch
+ *   through a pluggable IALLOCATOR or the global hook functions.
+ * - ikmem_malloc / ikmem_realloc / ikmem_free: thin wrappers
+ *   around the global ikmem_allocator.
+ * - ib_fastbin: fixed-size object pool backed by page-granularity
+ *   allocation with a singly-linked free list.
+ * - ib_zone: arena allocator that bumps a pointer within pages,
+ *   supports finalizer chains, and frees all memory on destroy.
+ *
+ * CONTAINERS:
+ * - IVECTOR: growable byte buffer with amortized-doubling capacity
+ *   strategy; supports push, pop, insert, erase, and reserve.
+ * - IMEMNODE: indexed node allocator that maintains open (free) and
+ *   close (in-use) doubly-linked lists over a paged memory pool.
+ * - ib_array: dynamic void* array with O(1) push/pop, O(n) insert,
+ *   heap-based sort, linear search, and binary search.
+ * - ib_string: dynamic string with SSO, supporting insert, erase,
+ *   append, prepend, find, rfind, split, join, strip, and replace.
+ *
+ * TREES:
+ * - AVL tree core: rotation (left/right), height update, rebalance
+ *   after insert, erase with successor-swap, and O(n) tear-down.
+ * - ib_tree: user-friendly AVL tree operating on arbitrary structs
+ *   via a compare callback and a member offset.
+ *
+ * HASH TABLES:
+ * - ib_hash_table: static hash table with AVL-tree buckets;
+ *   includes add, find, erase, replace, iteration, clear, and
+ *   dynamic re-indexing (ib_hash_swap) for capacity changes.
+ * - ib_hash_map: automatic-rehash hash map with key/value pairs
+ *   (ib_hash_entry), supporting typed helpers for uint, int,
+ *   ib_string, and C-string keys, plus configurable key copy
+ *   and destroy callbacks.
+ * - Hash functions: multiplicative integer hash, STL-style
+ *   (FNV-like) byte hash, and Lua-style byte hash.
  *
  * For more information, please see the readme file.
  *
@@ -174,6 +212,7 @@ int iv_resize(struct IVECTOR *v, size_t newsize)
 {
 	if (newsize > v->capacity) {
 		size_t capacity = v->capacity * 2;
+		if (capacity == 0) capacity = 8;
 		if (capacity < newsize) {
 			capacity = sizeof(char*);
 			while (capacity < newsize) {
@@ -261,7 +300,7 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 {
 	struct IMEMNODE *mnode = mn;
 
-	assert(mnode != NULL);
+	ASSERTION(mnode != NULL);
 	mnode->allocator = ac;
 
 	iv_init(&mnode->vprev, ac);
@@ -291,7 +330,7 @@ void imnode_destroy(struct IMEMNODE *mnode)
 {
     ilong i;
 
-	assert(mnode != NULL);
+	ASSERTION(mnode != NULL);
 	if (mnode->mem_count > 0) {
 		for (i = 0; i < mnode->mem_count && mnode->mmem; i++) {
 			if (mnode->mmem[i]) {
@@ -950,10 +989,18 @@ _ib_child_replace(struct ib_node *oldnode, struct ib_node *newnode,
 static inline struct ib_node *
 _ib_node_rotate_left(struct ib_node *node, struct ib_root *root)
 {
-	struct ib_node *right = node->right;
-	struct ib_node *parent = node->parent;
+	struct ib_node *right, *parent;
+	if (node == NULL) {
+		ASSERTION(node);
+		abort();
+	}
+	right = node->right;
+	parent = node->parent;
+	if (right == NULL) {
+		ASSERTION(right);
+		abort();
+	}
 	node->right = right->left;
-	ASSERTION(node && right);
 	if (right->left)
 		right->left->parent = node;
 	right->left = node;
@@ -966,10 +1013,18 @@ _ib_node_rotate_left(struct ib_node *node, struct ib_root *root)
 static inline struct ib_node *
 _ib_node_rotate_right(struct ib_node *node, struct ib_root *root)
 {
-	struct ib_node *left = node->left;
-	struct ib_node *parent = node->parent;
+	struct ib_node *left, *parent;
+	if (node == NULL) {
+		ASSERTION(node);
+		abort();
+	}
+	left = node->left;
+	parent = node->parent;
+	if (left == NULL) {
+		ASSERTION(left);
+		abort();
+	}
 	node->left = left->right;
-	ASSERTION(node && left);
 	if (left->right)
 		left->right->parent = node;
 	left->right = node;
@@ -1436,7 +1491,10 @@ void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 ib_string* ib_string_new(void)
 {
 	struct ib_string* str = (ib_string*)ikmem_malloc(sizeof(ib_string));
-	ASSERTION(str);
+	if (str == NULL) {
+		ASSERTION(str);
+		return NULL;
+	}
 	str->ptr = str->sso;
 	str->size = 0;
 	str->capacity = IB_STRING_SSO;
@@ -1453,8 +1511,8 @@ void ib_string_delete(ib_string *str)
 			ikmem_free(str->ptr);
 		str->ptr = NULL;
 		str->size = str->capacity = 0;
+		ikmem_free(str);
 	}
-	ikmem_free(str);
 }
 
 ib_string* ib_string_new_size(const char *text, int size)
@@ -1511,6 +1569,7 @@ ib_string* ib_string_resize(ib_string *str, int newsize)
 	ASSERTION(str && newsize >= 0);
 	if (newsize > str->capacity) {
 		int capacity = str->capacity * 2;
+		if (capacity == 0) capacity = 8;
 		if (capacity < newsize) {
 			while (capacity < newsize) {
 				capacity = capacity * 2;
@@ -1543,7 +1602,7 @@ ib_string* ib_string_insert(ib_string *str, int pos,
 {
 	int current = str->size;
 	if (pos < 0 || pos > str->size) {
-		return str;
+		return NULL;
 	}
 	ib_string_resize(str, str->size + size);
 	if (pos < current) {
@@ -1572,7 +1631,7 @@ ib_string* ib_string_insert_c(ib_string *str, int pos, char c)
 ib_string* ib_string_erase(ib_string *str, int pos, int size)
 {
 	int current = str->size;
-	if (pos >= current) return str;
+	if (pos >= current) return NULL;
 	if (pos + size >= current) size = current - pos;
 	if (size == 0) return str;
 	memmove(str->ptr + pos, str->ptr + pos + size, current - pos - size);
@@ -1613,6 +1672,7 @@ ib_string* ib_string_assign_size(ib_string *str, const char *src, int size)
 
 ib_string* ib_string_append(ib_string *str, const char *src)
 {
+	if (src == NULL) return str;
 	return ib_string_append_size(str, src, (int)strlen(src));
 }
 
@@ -2153,8 +2213,12 @@ void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
 		ht->index[i].avlroot.node = NULL;
 		ilist_init(&ht->index[i].node);
 	}
-	ilist_replace(&ht->head, &head);
-	ilist_init(&ht->head);
+	if (ilist_is_empty(&ht->head)) {
+		ilist_init(&head);
+	}   else {
+		ilist_replace(&ht->head, &head);
+		ilist_init(&ht->head);
+	}
 	while (!ilist_is_empty(&head)) {
 		struct ib_hash_index *index = ilist_entry(head.next,
 				struct ib_hash_index, node);
@@ -2493,6 +2557,7 @@ size_t ib_hash_bytes_stl(const void *ptr, size_t size, size_t seed)
 		k *= m;
 		hash = (hash * m) ^ k;
 	}
+	/* fall through */
 	switch (size) {
 	case 3: hash ^= ((IUINT32)buf[2]) << 16;
 	case 2: hash ^= ((IUINT32)buf[1]) << 8;

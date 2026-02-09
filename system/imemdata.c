@@ -61,10 +61,9 @@ ilong iring_modulo(const struct IRING *ring, ilong offset)
 	else {
 		offset = -offset;
 		if (offset >= cap) {
-			offset -= cap;
-			offset = (offset < cap)? offset : (offset % cap);
+			offset %= cap;
 		}
-		return cap - offset;
+		return (offset > 0) ? cap - offset : 0;
 	}
 }
 
@@ -276,6 +275,10 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 	if (s->lrusize == 0) {
 		for (i = 0; i < IMSPAGE_LRU_SIZE; i++) {
 			page = ims_page_new(s);
+			if (page == NULL) {
+				ASSERTION(page);
+				abort();
+			}
 			ilist_add_tail(&page->head, &s->lru);
 			s->lrusize++;
 		}
@@ -494,8 +497,8 @@ char* istrcasestr(char* s1, char* s2)
 int istrncasecmp(char* s1, char* s2, size_t num)
 {
 	char c1, c2;
+	assert(s1 && s2);
 	if(!s1|| !s2 || num == 0) return 0;
-	assert(s1 && s2 && num > 0);
 	while(num > 0){
 		c1 = ITOUPPER(*s1);
 		c2 = ITOUPPER(*s2);
@@ -701,7 +704,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 		flags |= IFL_READDIGIT;
 	
 		if (number < maxval || (number == maxval && 
-			(IUINT64)digval <= ~0ul / ibase)) {
+			(IUINT64)digval <= ~((IUINT64)0) / ibase)) {
 			number = number * ibase + digval;
 		}	else {
 			flags |= IFL_OVERFLOW;
@@ -726,7 +729,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 		(!(flags & IFL_UNSIGNED) &&
 		(((flags & IFL_NEG) && (number > limit)) || 
 		(!(flags & IFL_NEG) && (number > limit - 1))))) {
-		if (flags & IFL_UNSIGNED) number = ~0ul;
+		if (flags & IFL_UNSIGNED) number = ~((IUINT64)0);
 		else if (flags & IFL_NEG) number = (IUINT64)IINT64_MIN;
 		else number = (IUINT64)IINT64_MAX;
 	}
@@ -881,7 +884,8 @@ ilong istrsave(const char *src, ilong size, char *out)
 		for (i = 0; i < size; i++) {
 			IUINT8 ch = ptr[i];
 			if (ch == '\r' || ch == '\n' || ch == '\t') length += 2;
-			else if (ch == '\'' || ch == '\"') length += 2;
+				else if (ch == '\"') length += 2;
+			else if (ch == '\\') length += 2;
 			else if (ch < 32) length += 4;
 			else length++;
 		}
@@ -1873,8 +1877,12 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 	IINT32 length, size, cc;
 	char head[16];
 	if (queue->size < 16) return -1;
-	ims_peek(queue, &length, 4);
-	assert(length >= 16);
+	ims_peek(queue, head, 4);
+	idecode32i_lsb(head, &length);
+	if (length < 16) {
+		assert(length >= 16);
+		abort();
+	}
 	size = length - 16;
 	if ((IINT32)(queue->size) < length) return -1;
 	if (data == NULL) return size;
@@ -2641,7 +2649,6 @@ int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 	if (it_type(src) != ITYPE_STR || it_type(dst) != ITYPE_STR) return -2;
 
 	p1 = it_str(src);
-	p2 = it_str(sep);
 
 	current = (pos != NULL)? *pos : 0;
 
@@ -2654,10 +2661,11 @@ int it_strsep(const ivalue_t *src, iulong *pos, ivalue_t *dst,
 		size = it_size(src) - current;
 		it_sresize(dst, size);
 		memcpy(it_str(dst), it_str(src) + current, size);
-		it_cpy(dst, src);
 		if (pos) *pos = it_size(src);
 		return 0;
 	}
+
+	p2 = it_str(sep);
 
 	s1 = it_size(src);
 	s2 = it_size(sep);
@@ -2875,11 +2883,11 @@ ivalue_t *it_strcase(ivalue_t *src, int change)
 	pe = it_str(src) + it_size(src);
 	if (change == 0) {
 		for (; p < pe; p++) {
-			if (*p >= 'a' && *p <= 'a') *p -= 'a' - 'A';
+			if (*p >= 'a' && *p <= 'z') *p -= 'a' - 'A';
 		}
 	}	else {
 		for (; p < pe; p++) {
-			if (*p >= 'A' && *p <= 'A') *p += 'a' - 'A';
+			if (*p >= 'A' && *p <= 'Z') *p += 'a' - 'A';
 		}
 	}
 	return src;
@@ -3067,12 +3075,14 @@ void istring_list_delete(istring_list_t *strings)
 	if (strings) {
 		if (strings->values) {
 			ilong i;
-			for (i = strings->count - 1; i >= 0; i--) 
+			for (i = strings->count - 1; i >= 0; i--) {
 				it_destroy(strings->values[i]);
+				ikmem_free(strings->values[i]);
+			}
 			strings->values = NULL;
 		}
 		if (strings->vector) {
-			ikmem_free(strings->vector);
+			iv_delete(strings->vector);
 			strings->vector = NULL;
 		}
 		strings->count = 0;
@@ -3084,31 +3094,36 @@ void istring_list_delete(istring_list_t *strings)
 int istring_list_insert(istring_list_t *strings, ilong pos, 
 	const ivalue_t *value)
 {
-	ivalue_t **values = strings->values;
+	ivalue_t **values;
 	ilong newsize, i;
 	if (pos < 0) pos = strings->count + pos + 1;
 	if (pos < 0) pos = 0;
-	newsize = pos + 1;
-
-	/* resize memory */
-	if (newsize > strings->count) {
+	if (pos > strings->count) {
+		/* sparse insert: fill gaps with NONE values */
+		newsize = pos + 1;
 		if (iv_resize(strings->vector, newsize * sizeof(void*)) != 0)
 			return -1;
 		strings->values = (ivalue_t**)strings->vector->data;
 		values = strings->values;
 		for (i = strings->count; i < newsize; i++) 
 			values[i] = NULL;
-		for (i = strings->count; i < newsize - 1; i++) {
+		for (i = strings->count; i < pos; i++) {
 			values[i] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
 			if (values[i] == NULL) return -2;
 			it_init(values[i], ITYPE_NONE);
 		}
 		strings->count = newsize;
+	}	else {
+		/* insert within range: grow by 1 and shift right */
+		newsize = strings->count + 1;
+		if (iv_resize(strings->vector, newsize * sizeof(void*)) != 0)
+			return -1;
+		strings->values = (ivalue_t**)strings->vector->data;
+		values = strings->values;
+		for (i = strings->count; i > pos; i--) 
+			values[i] = values[i - 1];
+		strings->count = newsize;
 	}
-
-	/* move data */
-	for (i = strings->count - 1; i > pos; i--) 
-		values[i] = values[i - 1];
 
 	values[pos] = (ivalue_t*)ikmem_malloc(sizeof(ivalue_t));
 	if (values[pos] == NULL) return -3;
@@ -3124,7 +3139,7 @@ void istring_list_remove(istring_list_t *strings, ilong pos)
 {
 	ivalue_t **values = strings->values;
 	ilong i;
-	if (pos < 0) pos = strings->count + pos + 1;
+	if (pos < 0) pos = strings->count + pos;
 	if (pos < 0 || pos >= strings->count) return;
 	if (values[pos]) {
 		it_destroy(values[pos]);

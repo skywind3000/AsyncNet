@@ -183,7 +183,7 @@ ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
 /*====================================================================*/
 #define ITOUPPER(a) (((a) >= 97 && (a) <= 122) ? ((a) - 32) : (a))
 
-#define ILONG_MAX	((ilong)((~0ul) >> 1))
+#define ILONG_MAX	((ilong)((~(iulong)0) >> 1))
 #define ILONG_MIN	(-ILONG_MAX - 1)
 
 #define IINT64_MAX	((IINT64)((~((IUINT64)0)) >> 1))
@@ -488,11 +488,7 @@ static inline char *iencode32i_lsb(char *p, IINT32 l) {
 static inline const char *idecode32i_lsb(const char *p, IINT32 *w) {
 	IUINT32 x;
 	idecode32u_lsb(p, &x);
-	if (x & 0x80000000) {
-		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
-	}	else {
-		*w = (long)x;
-	}
+	*w = (IINT32)x;
 	return p + 4;
 }
 
@@ -506,11 +502,7 @@ static inline char *iencode32i_msb(char *p, IINT32 l) {
 static inline const char *idecode32i_msb(const char *p, IINT32 *w) {
 	IUINT32 x;
 	idecode32u_msb(p, &x);
-	if (x & 0x80000000) {
-		*w = -(long)((~((x & 0x7ffffffful) - 1)) & 0x7ffffffful);
-	}	else {
-		*w = (long)x;
-	}
+	*w = (IINT32)x;
 	return p + 4;
 }
 
@@ -621,22 +613,22 @@ static inline const char *idecodef_msb(const char *p, float *f) {
 
 /* encode string (string = ptr + size) */
 static inline char *iencodes(char *p, const void *ptr, ilong size) {
-	p = iencode16u_lsb(p, (unsigned short)size);
+	p = iencode32u_lsb(p, (IUINT32)size);
 	if (ptr) memcpy(p, ptr, size);
 	return p + size;
 }
 
 /* decode string (string = ptr + size) */
 static inline const char *idecodes(const char *p, void *ptr, ilong *size) {
-	unsigned short length;
+	IUINT32 length;
 	ilong min = 0xffff;
-	p = idecode16u_lsb(p, &length);
+	p = idecode32u_lsb(p, &length);
 	if (size) {
 		if (*size > 0) min = *size;
 		*size = length;
 	}
 	if (ptr) {
-		min = min < length ? min : length;
+		min = min < (ilong)length ? min : (ilong)length;
 		memcpy(ptr, p, min);
 	}
 	return p + length;
@@ -644,17 +636,19 @@ static inline const char *idecodes(const char *p, void *ptr, ilong *size) {
 
 /* encode c-string (endup with zero) */
 static inline char *iencodestr(char *p, const char *str) {
-	long len = (long)strlen(str) + 1;
+	IUINT32 len = (IUINT32)strlen(str) + 1;
 	return iencodes(p, str, len);
 }
 
 /* decode c-string (endup with zero) */
 static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
-	unsigned short size;
-	idecode16u_lsb(p, &size);
+	IUINT32 size;
+	const char *ret;
+	idecode32u_lsb(p, &size);
 	if (maxlen <= 0) maxlen = size + 1;
-	str[maxlen - 1] = 0;
-	return idecodes(p, str, &maxlen);
+	ret = idecodes(p, str, &maxlen);
+	str[maxlen < (ilong)size ? maxlen - 1 : size] = 0;
+	return ret;
 }
 
 
@@ -709,7 +703,6 @@ static inline IUINT64 ipointer_read64u_lsb(const char *ptr) {
 
 static inline IUINT64 ipointer_read64u_msb(const char *ptr) {
 	IUINT64 v; idecode64u_msb(ptr, &v); return v;
-	return v;
 }
 
 static inline IINT64 ipointer_read64i_lsb(const char *ptr) {
@@ -861,7 +854,7 @@ static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
 /* encode auto size integer */
 static inline char *iencodei(char *p, IINT64 value) {
 	IUINT64 x, y;
-	y = *(IUINT64*)&value;
+	memcpy(&y, &value, sizeof(y));
 	if (y & ((IUINT64)1 << 63)) x = ((~y) << 1) | 1;
 	else x = y << 1;
 	return iencodeu(p, x);
@@ -873,7 +866,7 @@ static inline const char *idecodei(const char *p, IINT64 *value) {
 	p = idecodeu(p, &x);
 	if ((x & 1) == 0) y = x >> 1;
 	else y = ~(x >> 1);
-	*value = *(IINT64*)&y;
+	memcpy(value, &y, sizeof(y));
 	return p;
 }
 
@@ -1108,11 +1101,13 @@ static inline void it_init(ivalue_t *v, int tt)
 static inline void it_destroy(ivalue_t *v)
 {
 	if (it_type(v) == ITYPE_STR) { 
-		if (it_ptr(v) != &(v->param)) 
+		if (it_ptr(v) != &(v->param) && v->param > 0) 
 			ikmem_free(it_str(v)); 
+		/* param == -1 means external ref (it_strref), don't free */
 	}	
 	v->type = ITYPE_NONE; 
 	v->size = 0; 
+	v->param = 0; 
 	it_ptr(v) = NULL; 
 }
 
@@ -1122,6 +1117,25 @@ static inline void it_sresize(ivalue_t *v, iulong s)
 	iulong newsize = s;
 	iulong need = newsize + 1;
 	iulong block;
+	/* param == -1 means external ref (it_strref), must copy first */
+	if (v->param == -1) {
+		const char *old = it_str(v);
+		iulong oldsize = it_size(v);
+		iulong copysize = (oldsize < newsize) ? oldsize : newsize;
+		if (need <= sizeof(v->param)) {
+			it_ptr(v) = &v->param;
+		} else {
+			for (block = 8; block < need; block <<= 1);
+			it_ptr(v) = ikmem_malloc(block);
+			assert(it_ptr(v));
+			v->param = block;
+		}
+		if (copysize > 0) memcpy(it_ptr(v), old, copysize);
+		it_str(v)[newsize] = 0;
+		it_size(v) = newsize;
+		v->rehash = 0;
+		return;
+	}
 	if (it_ptr(v) == &(v->param)) { 
 		if (need > sizeof(v->param)) {
 			for (block = 8; block < need; block <<= 1);
@@ -1185,7 +1199,11 @@ static inline int it_cmp(const ivalue_t *v1, const ivalue_t *v2)
 	}	else { 
 		switch (it_type(v1)) {	
 		case ITYPE_NONE: break; 
-		case ITYPE_INT: r = (it_int(v1) - it_int(v2)); break;
+		case ITYPE_INT:
+			if (it_int(v1) > it_int(v2)) r = 1;
+			else if (it_int(v1) < it_int(v2)) r = -1;
+			else r = 0;
+			break;
 		case ITYPE_FLOAT:
 			if (it_flt(v1) == it_flt(v2)) r = 0;
 			else if (it_flt(v1) > it_flt(v2)) r = 1;
@@ -1329,14 +1347,19 @@ static inline int it_mul(ivalue_t *dst, const ivalue_t *src)
 		switch (it_type(dst)) {
 		case ITYPE_STR:
 			if (it_type(src) == ITYPE_INT) {
-				iulong savesize, i;
-				char *ptr;
-				savesize = it_size(dst);
-				it_sresize(dst, savesize * it_int(src));
-				ptr = it_str(dst) + savesize;
-				for (i = it_int(src) - 1; i > 0; i--) {
-					memcpy(ptr, it_str(dst), savesize);
-					ptr += savesize;
+				ilong count = it_int(src);
+				if (count <= 0) {
+					it_sresize(dst, 0);
+				} else {
+					iulong savesize = it_size(dst);
+					ilong i;
+					char *ptr;
+					it_sresize(dst, savesize * count);
+					ptr = it_str(dst) + savesize;
+					for (i = count - 1; i > 0; i--) {
+						memcpy(ptr, it_str(dst), savesize);
+						ptr += savesize;
+					}
 				}
 				it_rehash(dst) = 0;
 			}	else {
@@ -1440,12 +1463,13 @@ static inline ivalue_t *it_init_str(ivalue_t *v, const char *s, ilong l)
 	return v;
 }
 
-/* setup string reference */
+/* setup string reference (read-only, param = -1 marks external ref) */
 static inline ivalue_t *it_strref(ivalue_t *v, const char *s, ilong l)
 {
 	it_init(v, ITYPE_STR);
-	l = l < 0 ? (long)strlen(s) : l;
+	l = l < 0 ? (ilong)strlen(s) : l;
 	v->size = l;
+	v->param = -1;
 	it_ptr(v) = (char*)s;
 	return v;
 }
@@ -1534,14 +1558,14 @@ static inline char *iencodev(char *p, const ivalue_t *v) {
 
 /* decode auto-type value */
 static inline const char *idecodev(const char *p, ivalue_t *v) {
-	unsigned short size;
+	IUINT32 size;
 	IINT32 x;
 	switch (it_type(v))
 	{
 	case ITYPE_STR:
-		size = *(unsigned short*)p;
+		idecode32u_lsb(p, &size);
 		it_sresize(v, size);
-		p = idecodes(p, &it_ptr(v), NULL);
+		p = idecodes(p, it_ptr(v), NULL);
 		break;
 	case ITYPE_INT:
 		p = idecode32i_lsb(p, &x);

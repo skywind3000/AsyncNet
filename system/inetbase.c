@@ -305,8 +305,10 @@ int ithread_create(ilong *id, ITHREADPROC fun, long stacksize, void *args)
 	if (id) *id = (long)newthread;
 	if (ret) return -1;
 	#elif defined(_WIN32)
+	unsigned int tid;
 	ilong Handle;
-	Handle = (ilong)_beginthread((void(*)(void*))fun, stacksize, args);
+	Handle = (ilong)_beginthreadex(NULL, stacksize,
+		(unsigned int (WINAPI*)(void*))fun, args, 0, &tid);
 	if (id) *id = (ilong)Handle;
 	if (Handle == 0) return -1;
 	#endif
@@ -319,7 +321,7 @@ void ithread_exit(long retval)
 	#ifdef __unix
 	pthread_exit(NULL);
 	#elif defined(_WIN32)
-	_endthread();
+	_endthreadex(0);
 	#endif
 }
 
@@ -366,7 +368,6 @@ int ithread_kill(ilong id)
 	#else
 	retval = -1;
 	#endif
-	CloseHandle((HANDLE)id);
 	#endif
 	return retval;
 }
@@ -2463,6 +2464,7 @@ static int ipoll_fvresize(struct IPOLLFV *fv, long count)
 	retval = ipv_resize(&fv->vec, count * sizeof(struct IPOLLFD));
 	if (retval != 0) {
 		assert(retval == 0);
+		abort();
 		return -1;
 	}
 	fv->fds = (struct IPOLLFD*)fv->vec.data;

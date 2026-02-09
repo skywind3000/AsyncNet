@@ -168,6 +168,10 @@ CAsyncLoop* async_loop_new(void)
 	cc = ipoll_create(&loop->poller, 20000);
 
 	if (cc != 0) {
+		iv_destroy(&loop->v_pending);
+		iv_destroy(&loop->v_changes);
+		iv_destroy(&loop->v_queue);
+		iv_destroy(&loop->v_semaphore);
 		ikmem_free(loop);
 		return NULL;
 	}
@@ -237,7 +241,10 @@ CAsyncLoop* async_loop_new(void)
 	loop->buffer = loop->internal + required;
 	loop->cache = loop->internal + required * 2;
 
-	assert(loop->internal);
+	if (loop->internal == NULL) {
+		ASSERTION(loop->internal);
+		abort();
+	}
 
 	loop->logcache = ib_string_new();
 
@@ -273,7 +280,7 @@ CAsyncLoop* async_loop_new(void)
 #if defined(IHAVE_TIMERFD) && defined(TFD_CLOEXEC)
 	cc = -1;
 #if IENABLE_TIMERFD
-	cc = timerfd_create(0, TFD_CLOEXEC | TFD_NONBLOCK);
+	cc = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
 	if (loop->interval > 10) {
 		loop->interval = 10;
 	}
@@ -315,7 +322,7 @@ void async_loop_delete(CAsyncLoop *loop)
 				ilist_del(&evt->node);
 				ilist_init(&evt->node);
 				evt->active = 0;
-				evt->pending = 0;
+				evt->pending = -1;
 			}
 			entry->fd = -1;
 			entry->mask = 0;
@@ -542,7 +549,11 @@ static int async_loop_fds_resize(CAsyncLoop *loop, int newsize)
 			CAsyncEntry *entry = &loop->fds[i];
 			if (i < previous) {
 				*entry = old[i];
-				ilist_replace(&old[i].watchers, &entry->watchers);
+				if (ilist_is_empty(&old[i].watchers)) {
+					ilist_init(&entry->watchers);
+				} else {
+					ilist_replace(&old[i].watchers, &entry->watchers);
+				}
 			}
 			else {
 				entry->fd = i;
@@ -1665,10 +1676,10 @@ int async_sem_post(CAsyncSemaphore *sem)
 		needpost = 1;
 	}
 	sem->count++;
-	IMUTEX_UNLOCK(&sem->lock);
 	if (needpost) {
 		async_loop_queue_append(loop, uid, sid);
 	}
+	IMUTEX_UNLOCK(&sem->lock);
 	return 0;
 }
 
