@@ -1,61 +1,11 @@
 /**********************************************************************
  *
- * imembase.h - portable memory, containers and data structures
+ * imembase.h - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
- * OVERVIEW:
- * Core header providing portable integer types, memory allocators,
- * and a rich set of data structures implemented in pure C with full
- * cross-platform support (MSVC, GCC, Clang, Watcom, Borland, etc.).
- *
- * MEMORY ALLOCATORS:
- * - IALLOCATOR: pluggable allocator interface (alloc/free/realloc).
- * - ikmem_*: global allocator layer with optional hook overrides
- *   (__ihook_malloc, __ihook_free, __ihook_realloc).
- * - ib_zone: arena / zone allocator for short-lived objects with
- *   finalizer support; allocated memory is freed in bulk on destroy.
- * - ib_fastbin: fixed-size object pool for fast alloc/free without
- *   per-object bookkeeping overhead.
- *
- * CONTAINERS:
- * - IVECTOR (ib_vector): dynamic byte buffer similar to
- *   std::vector<uint8_t>, with push/pop/insert/erase and typed
- *   object access macros (iv_obj_*).
- * - IMEMNODE (ib_memnode): indexed fixed-size node allocator with
- *   open/close free-lists; used to hand out integer indices that
- *   map to fixed-size data slots.
- * - ib_array: dynamic pointer array (void*[]) with push/pop/insert,
- *   heap-sort, linear and binary search.
- * - ib_string: dynamic string with SSO (small string optimization),
- *   find/rfind, split/join, strip, replace.
- *
- * TREES:
- * - ib_node / ib_root: intrusive AVL tree node and root, providing
- *   insert-rebalance, erase, traversal (first/last/next/prev), and
- *   fast bulk tear-down.
- * - ib_tree: convenience wrapper around ib_node/ib_root offering a
- *   BSD-style AVL tree interface with find/add/remove/replace/clear
- *   operating on user-defined structs via offset.
- *
- * HASH TABLES:
- * - ib_hash_table: static (closed) hash table where each bucket is
- *   an AVL tree of ib_hash_node; supports find/add/erase/replace
- *   and dynamic re-indexing (ib_hash_swap).
- * - ib_hash_map: higher-level hash map wrapping ib_hash_table,
- *   providing key/value storage with automatic rehashing, typed
- *   lookup helpers (uint, int, ib_string, cstr), and built-in
- *   hash functions (multiplicative integer hash, STL-style and
- *   Lua-style byte hashing).
- *
- * LISTS:
- * - ILISTHEAD: Linux-kernel-style intrusive doubly-linked list with
- *   macros for init, add, delete, splice, replace, and iteration.
- *
- * UTILITIES:
- * - Portable 8/16/32-bit and pointer-width (ilong/iulong) integer
- *   typedefs with compile-time detection.
- * - INLINE / ASSERTION macros portable across compilers.
- * - IROUND_UP / IROUND_SIZE alignment helpers.
+ * Provides efficient memory operations, dynamic containers, and data
+ * structures including allocators, vectors, memory pools, AVL trees,
+ * hash tables, strings, and arrays with cross-platform support.
  *
  * For more information, please see the readme file.
  *

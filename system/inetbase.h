@@ -709,6 +709,12 @@ int isocket_udp_init(int fd, int flags);
 /* open a dgram */
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags);
 
+/* init a tcp socket */
+int isocket_tcp_init(int fd, int flags);
+
+/* open a tcp (create + bind) */
+int isocket_tcp_open(const struct sockaddr *addr, int addrlen, int flags);
+
 /* check tcp is established ?, returns 1/true, 0/false, -1/error */
 int isocket_tcp_estab(int sock);
 

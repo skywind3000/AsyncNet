@@ -1612,6 +1612,42 @@ int isocket_udp_init(int fd, int flags)
 	return fd;
 }
 
+
+/* init a tcp socket */
+int isocket_tcp_init(int fd, int flags)
+{
+	if ((flags & 0x100) == 0) {
+		isocket_enable(fd, ISOCK_CLOEXEC);
+	}
+
+	if ((flags & 0x200) == 0) {
+		isocket_enable(fd, ISOCK_NOBLOCK);
+	}
+
+	if (flags & 0x80) {
+		if (flags & ISOCK_REUSEADDR) {
+			isocket_enable(fd, ISOCK_REUSEADDR);		
+		}	else {
+			isocket_disable(fd, ISOCK_REUSEADDR);
+		}
+		if (flags & ISOCK_REUSEPORT) {
+			isocket_enable(fd, ISOCK_REUSEPORT);
+		}	else {
+			isocket_disable(fd, ISOCK_REUSEPORT);
+		}
+		if (flags & ISOCK_UNIXREUSE) {
+			isocket_enable(fd, ISOCK_UNIXREUSE);
+		}	else {
+			isocket_disable(fd, ISOCK_UNIXREUSE);
+		}
+	}	else {
+		isocket_enable(fd, ISOCK_UNIXREUSE);
+	}
+
+	return fd;
+}
+
+
 /* open a dgram */
 int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 {
@@ -1651,6 +1687,50 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 	}
 
 	isocket_udp_init(fd, flags);
+
+	return fd;
+}
+
+
+/* open a tcp (create + bind) */
+int isocket_tcp_open(const struct sockaddr *addr, int addrlen, int flags)
+{
+	int fd = -1;
+	int family = (addr == NULL)? AF_INET : addr->sa_family;
+
+	fd = (int)socket(family, SOCK_STREAM, 0);
+
+	if (fd >= 0) {
+	#ifdef AF_INET6
+		if (family == AF_INET6) {
+			#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
+			if (fd >= 0) {
+				unsigned long enable = 1;
+				if ((flags & 0x400) != 0) {
+					enable = 0;
+				}
+				isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+					(const char*)&enable, sizeof(enable));
+			}
+			#endif
+		}
+	#endif
+	}
+
+	if (fd < 0) return -1;
+
+	if ((flags & 0x100) == 0) {
+		isocket_enable(fd, ISOCK_CLOEXEC);
+	}
+
+	if (addr != NULL) {
+		if (ibind(fd, addr, addrlen) != 0) {
+			iclose(fd);
+			return -2;
+		}
+	}
+
+	isocket_tcp_init(fd, flags);
 
 	return fd;
 }

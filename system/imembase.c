@@ -1,49 +1,11 @@
 /**********************************************************************
  *
- * imembase.c - portable memory, containers and data structures
+ * imembase.c - basic interface of memory operation
  * skywind3000 (at) gmail.com, 2006-2016
  *
- * OVERVIEW:
- * Implementation of the interfaces declared in imembase.h.
- * All code is written in plain C (C89/C99 compatible) with no
- * external dependencies beyond the standard C library.
- *
- * MEMORY ALLOCATORS:
- * - internal_malloc / internal_free / internal_realloc: dispatch
- *   through a pluggable IALLOCATOR or the global hook functions.
- * - ikmem_malloc / ikmem_realloc / ikmem_free: thin wrappers
- *   around the global ikmem_allocator.
- * - ib_fastbin: fixed-size object pool backed by page-granularity
- *   allocation with a singly-linked free list.
- * - ib_zone: arena allocator that bumps a pointer within pages,
- *   supports finalizer chains, and frees all memory on destroy.
- *
- * CONTAINERS:
- * - IVECTOR: growable byte buffer with amortized-doubling capacity
- *   strategy; supports push, pop, insert, erase, and reserve.
- * - IMEMNODE: indexed node allocator that maintains open (free) and
- *   close (in-use) doubly-linked lists over a paged memory pool.
- * - ib_array: dynamic void* array with O(1) push/pop, O(n) insert,
- *   heap-based sort, linear search, and binary search.
- * - ib_string: dynamic string with SSO, supporting insert, erase,
- *   append, prepend, find, rfind, split, join, strip, and replace.
- *
- * TREES:
- * - AVL tree core: rotation (left/right), height update, rebalance
- *   after insert, erase with successor-swap, and O(n) tear-down.
- * - ib_tree: user-friendly AVL tree operating on arbitrary structs
- *   via a compare callback and a member offset.
- *
- * HASH TABLES:
- * - ib_hash_table: static hash table with AVL-tree buckets;
- *   includes add, find, erase, replace, iteration, clear, and
- *   dynamic re-indexing (ib_hash_swap) for capacity changes.
- * - ib_hash_map: automatic-rehash hash map with key/value pairs
- *   (ib_hash_entry), supporting typed helpers for uint, int,
- *   ib_string, and C-string keys, plus configurable key copy
- *   and destroy callbacks.
- * - Hash functions: multiplicative integer hash, STL-style
- *   (FNV-like) byte hash, and Lua-style byte hash.
+ * Provides efficient memory operations, dynamic containers, and data
+ * structures including allocators, vectors, memory pools, AVL trees,
+ * hash tables, strings, and arrays with cross-platform support.
  *
  * For more information, please see the readme file.
  *
