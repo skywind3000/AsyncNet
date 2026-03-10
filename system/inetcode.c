@@ -3335,7 +3335,7 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 		*out++ = '=';
 	}
 	*out = '\0';
-	return (int)(saveout - out);
+	return (int)(out - saveout);
 };
 
 

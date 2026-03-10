@@ -74,7 +74,17 @@ void AsyncStream::TcpCB(CAsyncStream *tcp, int event, int args)
 	AsyncStream *self = (AsyncStream*)tcp->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)(event, args);
+		try {
+			(*ref_ptr)(event, args);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncStream callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncStream callback threw an unknown exception");
+		}
 	}
 }
 
@@ -335,7 +345,17 @@ void AsyncUdp::UdpCB(CAsyncUdp *udp, int event, int args)
 	AsyncUdp *self = (AsyncUdp*)udp->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)(event, args);
+		try {
+			(*ref_ptr)(event, args);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncUdp callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncUdp callback threw an unknown exception");
+		}
 	}
 }
 
@@ -348,7 +368,17 @@ void AsyncUdp::UdpReceiver(CAsyncUdp *udp, void *data, long size, const sockaddr
 	AsyncUdp *self = (AsyncUdp*)udp->user;
 	if ((*self->_receiver_ptr) != nullptr) {
 		auto ref_receiver = self->_receiver_ptr;
-		(*ref_receiver)(data, size, addr, addrlen);
+		try {
+			(*ref_receiver)(data, size, addr, addrlen);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncUdp receiver callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncUdp receiver callback threw an unknown exception");
+		}
 	}
 }
 
@@ -537,7 +567,17 @@ void AsyncListener::ListenCB(CAsyncListener *listener, int fd, const sockaddr *a
 	AsyncListener *self = (AsyncListener*)listener->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)(fd, addr, len);
+		try {
+			(*ref_ptr)(fd, addr, len);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncListener callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncListener callback threw an unknown exception");
+		}
 	}
 }
 
@@ -722,7 +762,17 @@ void AsyncSplit::SplitCB(CAsyncSplit *split, int event)
 	AsyncSplit *self = (AsyncSplit*)split->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_cb = self->_cb_ptr;
-		(*ref_cb)(event);
+		try {
+			(*ref_cb)(event);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncSplit callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncSplit callback threw an unknown exception");
+		}
 	}
 }
 
@@ -735,7 +785,17 @@ void AsyncSplit::SplitReceiver(CAsyncSplit *split, void *data, long size)
 	AsyncSplit *self = (AsyncSplit*)split->user;
 	if ((*self->_receiver_ptr) != nullptr) {
 		auto ref_receiver = self->_receiver_ptr;
-		(*ref_receiver)(data, size);
+		try {
+			(*ref_receiver)(data, size);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_loop, -1,
+				"AsyncSplit receiver callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncSplit receiver callback threw an unknown exception");
+		}
 	}
 }
 
@@ -831,7 +891,17 @@ int AsyncMessage::MsgCB(CAsyncMessage *msg, int mid, IINT32 wparam, IINT32 lpara
 	AsyncMessage *self = (AsyncMessage*)msg->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_cb = self->_cb_ptr;
-		(*ref_cb)(mid, (int)wparam, (int)lparam, ptr, size);
+		try {
+			(*ref_cb)(mid, (int)wparam, (int)lparam, ptr, size);
+		}
+		catch (std::exception &e) {
+			async_loop_log(self->_msg->loop, -1,
+				"AsyncMessage callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_msg->loop, -1,
+				"AsyncMessage callback threw an unknown exception");
+		}
 	}
 	return 0;
 }

@@ -713,6 +713,14 @@ static inline IINT64 ipointer_read64i_msb(const char *ptr) {
 	IINT64 v; idecode64i_msb(ptr, &v); return v;
 }
 
+static inline void* ipointer_readptr(const char *ptr) {
+	void *v; memcpy(&v, ptr, sizeof(void*)); return v;
+}
+
+static inline void ipointer_writeptr(char *ptr, void *v) {
+	memcpy(ptr, &v, sizeof(void*));
+}
+
 
 
 /*====================================================================*/

@@ -270,7 +270,7 @@ void AsyncLoop::SetLogHandler(std::function<void(const char *msg)> handler)
 //---------------------------------------------------------------------
 void AsyncLoop::Log(int channel, const char *fmt, ...)
 {
-	if (channel & _loop->logmask) {
+	if ((channel & _loop->logmask) || channel < 0) {
 		if (_loop->writelog != nullptr) {
 			va_list argptr;
 			char *buffer;
@@ -284,6 +284,14 @@ void AsyncLoop::Log(int channel, const char *fmt, ...)
 			if (_cb_log != nullptr) {
 				_cb_log(buffer);
 			}
+		}
+		else if (channel < 0) {
+			va_list argptr;
+			va_start(argptr, fmt);
+			vfprintf(stderr, fmt, argptr);
+			va_end(argptr);
+			fprintf(stderr, "\n");
+			fflush(stderr);
 		}
 	}
 }
@@ -379,7 +387,25 @@ void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
 	AsyncEvent *self = (AsyncEvent*)evt->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)(event);
+		try {
+			(*ref_ptr)(event);
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncEvent callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncEvent callback threw an unknown exception");
+			}
+		}
 	}
 }
 
@@ -400,7 +426,15 @@ void AsyncEvent::SetCallback(std::function<void(int)> callback)
 //---------------------------------------------------------------------
 bool AsyncEvent::Set(int fd, int mask)
 {
-	int cc = async_event_set(&_event, fd, mask);
+	int cc = 0;
+	if (async_event_is_active(&_event)) {
+		async_event_stop(_loop, &_event);
+		cc = async_event_set(&_event, fd, mask);
+		async_event_start(_loop, &_event);
+	}
+	else {
+		cc = async_event_set(&_event, fd, mask);
+	}
 	return (cc == 0)? true : false;
 }
 
@@ -410,7 +444,15 @@ bool AsyncEvent::Set(int fd, int mask)
 //---------------------------------------------------------------------
 bool AsyncEvent::Modify(int mask)
 {
-	int cc = async_event_modify(&_event, mask);
+	int cc = 0;
+	if (async_event_is_active(&_event)) {
+		async_event_stop(_loop, &_event);
+		cc = async_event_modify(&_event, mask);
+		async_event_start(_loop, &_event);
+	}
+	else {
+		cc = async_event_modify(&_event, mask);
+	}
 	return (cc == 0)? true : false;
 }
 
@@ -484,7 +526,25 @@ void AsyncTimer::TimerCB(CAsyncLoop *loop, CAsyncTimer *timer)
 	AsyncTimer *self = (AsyncTimer*)timer->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		std::shared_ptr<AsyncTimer::Callback> ref_ptr = self->_cb_ptr;
-		(*ref_ptr)();
+		try { 
+			(*ref_ptr)();
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncTimer callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncTimer callback threw an unknown exception");
+			}
+		}
 	}
 }
 
@@ -567,7 +627,25 @@ void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
 	AsyncSemaphore *self = (AsyncSemaphore*)(notify->user);
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)();
+		try {
+			(*ref_ptr)();
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncSemaphore callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncSemaphore callback threw an unknown exception");
+			}
+		}
 	}
 }
 
@@ -661,7 +739,25 @@ void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
 	AsyncPostpone *self = (AsyncPostpone*)postpone->user;
 	if ((*self->_cb_ptr) != NULL) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)();
+		try {
+			(*ref_ptr)();
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncPostpone callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncPostpone callback threw an unknown exception");
+			}
+		}
 	}
 }
 
@@ -744,7 +840,25 @@ void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
 	AsyncIdle *self = (AsyncIdle*)idle->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)();
+		try {
+			(*ref_ptr)();
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncIdle callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncIdle callback threw an unknown exception");
+			}
+		}
 	}
 }
 
@@ -837,7 +951,25 @@ void AsyncOnce::InternalCB(CAsyncLoop *loop, CAsyncOnce *once)
 	AsyncOnce *self = (AsyncOnce*)once->user;
 	if ((*self->_cb_ptr) != nullptr) {
 		auto ref_ptr = self->_cb_ptr;
-		(*ref_ptr)();
+		try {
+			(*ref_ptr)();
+		}
+		catch (const std::exception &e) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncOnce callback threw an exception: %s", e.what());
+			}
+		}
+		catch (...) {
+			// catch all exceptions to avoid crashing the loop
+			// log the error if possible
+			if (self->_loop) {
+				async_loop_log(self->_loop, -1, 
+					"AsyncOnce callback threw an unknown exception");
+			}
+		}
 	}
 }
 

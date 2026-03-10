@@ -47,7 +47,14 @@ public:
 		iposix_addr_make(&_address, family, ip, port);
 	}
 
-	PosixAddress(const char *text) {
+	// auto detect family by ip text, support both ipv4 and ipv6
+	PosixAddress(const char *ip, int port) {
+		iposix_addr_make(&_address, -1, ip, port);
+	}
+
+	// support "xxx.xxx.xxx.xxx:port" like text
+	// but in explicit form
+	explicit PosixAddress(const char *text) {
 		FromString(text);
 	}
 
@@ -90,8 +97,9 @@ public:
 	}
 
 	std::string ToString() const {
-		char buffer[90];
-		std::string text = iposix_addr_str(&_address, buffer);
+		char buffer[128];
+		char *ptr = iposix_addr_str(&_address, buffer);
+		std::string text = (ptr)? ptr : "unknow";
 		return text;
 	}
 

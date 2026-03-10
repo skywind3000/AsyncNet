@@ -548,10 +548,14 @@ static int async_loop_fds_resize(CAsyncLoop *loop, int newsize)
 		for (i = 0; i < newsize; i++) {
 			CAsyncEntry *entry = &loop->fds[i];
 			if (i < previous) {
-				*entry = old[i];
-				if (ilist_is_empty(&old[i].watchers)) {
-					ilist_init(&entry->watchers);
-				} else {
+				assert(old[i].watchers.next != NULL);
+				assert(old[i].watchers.prev != NULL);
+				assert(old[i].fd == i);
+				entry->fd = i;
+				entry->mask = old[i].mask;
+				entry->dirty = old[i].dirty;
+				ilist_init(&entry->watchers);
+				if (!ilist_is_empty(&old[i].watchers)) {
 					ilist_replace(&old[i].watchers, &entry->watchers);
 				}
 			}
@@ -736,6 +740,10 @@ static void async_loop_changes_commit(CAsyncLoop *loop)
 			continue;
 		}
 		entry = &loop->fds[fd];
+		assert(entry);
+		assert(entry->fd == fd);
+		assert(entry->watchers.next != NULL);
+		assert(entry->watchers.prev != NULL);
 		it = entry->watchers.next;
 		for (; it != &entry->watchers; it = it->next) {
 			CAsyncEvent *evt = ilist_entry(it, CAsyncEvent, node);
@@ -1279,7 +1287,7 @@ static int async_loop_dispatch_once(CAsyncLoop *loop, int priority)
 void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...)
 {
 	va_list argptr;
-	if (channel & loop->logmask) {
+	if ((channel & loop->logmask) != 0 || channel < 0) {
 		if (loop->writelog != NULL) {
 			char *buffer;
 			if (ib_string_size(loop->logcache) < 2048) {
@@ -1290,6 +1298,13 @@ void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...)
 			vsprintf(buffer, fmt, argptr);
 			va_end(argptr);
 			loop->writelog(loop->logger, buffer);
+		}
+		else if (channel < 0) {
+			va_start(argptr, fmt);
+			vfprintf(stderr, fmt, argptr);
+			va_end(argptr);
+			fprintf(stderr, "\n");
+			fflush(stderr);
 		}
 	}
 }
@@ -1411,6 +1426,11 @@ int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 		entry->dirty = 0;
 		ilist_init(&entry->watchers);
 	}
+
+	assert(entry);
+	assert(entry->fd == fd);
+	assert(entry->watchers.next != NULL);
+	assert(entry->watchers.prev != NULL);
 
 	ilist_add_tail(&evt->node, &entry->watchers);
 	async_loop_changes_push(loop, fd);
@@ -1651,10 +1671,11 @@ int async_sem_stop(CAsyncLoop *loop, CAsyncSemaphore *sem)
 //---------------------------------------------------------------------
 int async_sem_active(const CAsyncSemaphore *sem)
 {
+	CAsyncSemaphore *m = (CAsyncSemaphore*)sem;
 	int cc = 0;
-	IMUTEX_LOCK(&sem->lock);
-	cc = (sem->loop != NULL)? 1 : 0;
-	IMUTEX_UNLOCK(&sem->lock);
+	IMUTEX_LOCK(&m->lock);
+	cc = (m->loop != NULL)? 1 : 0;
+	IMUTEX_UNLOCK(&m->lock);
 	return cc;
 }
 

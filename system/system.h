@@ -204,6 +204,7 @@ inline SystemError::SystemError(const SystemError &e) {
 }
 
 inline SystemError& SystemError::operator=(const SystemError &e) {
+	if (this == &e) return *this;
 	if (_what) delete []_what;	
 	int size = (e._what)? (int)strlen(e._what) : 0;
 	_what = new char[size + 1];
@@ -1849,7 +1850,7 @@ struct DateTime
 {
 	IINT64 datetime;
 
-	DateTime() {}
+	DateTime() { datetime = 0; }
 	DateTime(const DateTime &dt) { datetime = dt.datetime; }
 	
 	inline void localtime() { iposix_datetime(0, &datetime); }
