@@ -1853,7 +1853,9 @@ static void async_split_callback(CAsyncStream *stream, int event, int args)
 		while (split->releasing == 0 && split->error == 0) {
 			long size = async_split_try_reading(split, data, ASYNC_LOOP_BUFFER_SIZE);
 			if (size < 0) break;
-			data[size] = 0;
+			if (size < ASYNC_LOOP_BUFFER_SIZE) {
+				data[size] = 0;
+			}
 			split->busy = 1;
 			if (split->receiver) {
 				split->receiver(split, data, size);
@@ -2276,7 +2278,9 @@ static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 				hr = irecvfrom(udp->fd, data, ASYNC_LOOP_BUFFER_SIZE, 
 						0, &addr.address, &addrlen);
 				if (hr < 0) break;
-				data[hr] = '\0';
+				if (hr < ASYNC_LOOP_BUFFER_SIZE) {
+					data[hr] = '\0';
+				}
 				if (udp->receiver) {
 					udp->receiver(udp, data, hr, &addr.address, addrlen);
 				}
@@ -2500,7 +2504,9 @@ static void async_msg_evt_sem(CAsyncLoop *loop, CAsyncSemaphore *sem)
 				ASYNC_LOOP_BUFFER_SIZE);
 		IMUTEX_UNLOCK(&msg->lock);
 		if (size < 0) break;
-		data[size] = '\0';   // ensure null-termination
+		if (size < ASYNC_LOOP_BUFFER_SIZE) {
+			data[size] = '\0';
+		}
 		msg->num_msg_read++;
 		if (msg->callback) {
 			msg->callback(msg, (int)mid, wparam, lparam, data, size);

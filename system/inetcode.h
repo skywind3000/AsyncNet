@@ -6,8 +6,8 @@
 // for more information, please see the readme file
 // 
 //=====================================================================
-#ifndef __INETCODE_H__
-#define __INETCODE_H__
+#ifndef _INETCODE_H_
+#define _INETCODE_H_
 
 #include <stdio.h>
 #include <stdlib.h>

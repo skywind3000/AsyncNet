@@ -97,6 +97,16 @@
 #define ASYNC_LOOP_PAGE_SIZE    8192
 #endif
 
+#ifndef ASYNC_LOOP_GUARD_CHECK
+#define ASYNC_LOOP_GUARD_CHECK  1
+#endif
+
+
+//---------------------------------------------------------------------
+// internal consts
+//---------------------------------------------------------------------
+static const char ASYNC_LOOP_GUARD[8] = { 7, 6, 5, 4, 3, 2, 1, 0 };
+
 
 //---------------------------------------------------------------------
 // internal static
@@ -114,6 +124,7 @@ static void async_loop_changes_commit(CAsyncLoop *loop);
 static int async_loop_dispatch_post(CAsyncLoop *loop);
 static int async_loop_dispatch_idle(CAsyncLoop *loop);
 static int async_loop_dispatch_once(CAsyncLoop *loop, int priority);
+static int async_loop_guard_check(CAsyncLoop *loop);
 static void async_loop_cleanup(CAsyncLoop *loop);
 
 
@@ -235,11 +246,17 @@ CAsyncLoop* async_loop_new(void)
 	IMUTEX_INIT(&loop->lock_xfd);
 	IMUTEX_INIT(&loop->lock_queue);
 
-	required = IROUND_UP(ASYNC_LOOP_BUFFER_SIZE + 32, 64);
+	cc = (int)sizeof(ASYNC_LOOP_GUARD);
+	required = IROUND_UP(ASYNC_LOOP_BUFFER_SIZE + cc, 64);
 
 	loop->internal = (char*)ikmem_malloc(required * 3);
 	loop->buffer = loop->internal + required;
 	loop->cache = loop->internal + required * 2;
+
+	// setup guard
+	memcpy(loop->internal + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
+	memcpy(loop->buffer + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
+	memcpy(loop->cache + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
 
 	if (loop->internal == NULL) {
 		ASSERTION(loop->internal);
@@ -973,6 +990,32 @@ int async_loop_sem_detach(CAsyncLoop *loop, CAsyncSemaphore *sem)
 
 
 //---------------------------------------------------------------------
+// check loop guard
+//---------------------------------------------------------------------
+static int async_loop_guard_check(CAsyncLoop *loop)
+{
+	long offset = (long)ASYNC_LOOP_BUFFER_SIZE;
+	long cc = (long)sizeof(ASYNC_LOOP_GUARD);
+	if (memcmp(loop->internal + offset, ASYNC_LOOP_GUARD, cc) != 0) {
+		fprintf(stderr, "[error] loop guard check failed (internal)\n");
+		fflush(stderr);
+		abort();
+	}
+	if (memcmp(loop->buffer + offset, ASYNC_LOOP_GUARD, cc) != 0) {
+		fprintf(stderr, "[error] loop guard check failed (buffer)\n");
+		fflush(stderr);
+		abort();
+	}
+	if (memcmp(loop->cache + offset, ASYNC_LOOP_GUARD, cc) != 0) {
+		fprintf(stderr, "[error] loop guard check failed (cache)\n");
+		fflush(stderr);
+		abort();
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
 // Run an iteration, receive available events and dispatch them
 //---------------------------------------------------------------------
 int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
@@ -984,6 +1027,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 	if (recursion) {
 		return 0;
 	}
+
+#if ASYNC_LOOP_GUARD_CHECK
+	// memory guard check
+	async_loop_guard_check(loop);
+#endif
 
 	loop->depth++;
 
@@ -1124,6 +1172,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 			loop->on_idle(loop);
 		}
 	}
+
+#if ASYNC_LOOP_GUARD_CHECK
+	// memory guard check
+	async_loop_guard_check(loop);
+#endif
 
 	return cc;
 }

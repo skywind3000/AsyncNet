@@ -2633,6 +2633,7 @@ static long _async_core_fetch(CAsyncCore *core, long hid,
 	if (sock == NULL) return -1;
 	if (data == NULL) return (long)sock->recvmsg.size;
 	if (sock->header != ITMH_MANUAL) return -2;
+	if (size == 0) return 0;
 	hr = async_sock_recv(sock, data, size);
 	if ((sock->mask & IPOLL_IN) == 0) {
 		long remain = (long)sock->recvmsg.size;

@@ -8,8 +8,8 @@
 // for more information, please see the readme file
 //
 //=====================================================================
-#ifndef __INETKCP_H__
-#define __INETKCP_H__
+#ifndef _INETKCP_H_
+#define _INETKCP_H_
 
 #include <stdio.h>
 #include <stdlib.h>

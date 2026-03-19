@@ -3,7 +3,7 @@
 // ByteArray.h - ActionScript3 ByteArray Simulation
 //
 // Created by skywind on 2019/07/02
-// Last Modified: 2023/12/20 11:41
+// Last Modified: 2026/03/19 23:00:08
 //
 // ByteArray is a byte array with file-object like interfaces:
 //
@@ -446,10 +446,16 @@ inline ByteArray& ByteArray::operator=(const char *text) {
 // position manipulate
 //---------------------------------------------------------------------
 inline unsigned char& ByteArray::operator[](int pos) {
+	if (pos < 0 || pos >= _size) {
+		throw ByteError("ByteArray: index out of range");
+	}
 	return _data[pos];
 }
 
 inline const unsigned char& ByteArray::operator[](int pos) const {
+	if (pos < 0 || pos >= _size) {
+		throw ByteError("ByteArray: index out of range");
+	}
 	return _data[pos];
 }
 
@@ -496,6 +502,9 @@ inline void ByteArray::reserve(int size) {
 
 // ensure remain() >= size, otherwise raise ByteError
 inline void ByteArray::require(int size) const {
+	if (size < 0) {
+		throw ByteError("ByteArray: require nagitive size");
+	}
 	if (remain() < size) {
 		throw ByteError("ByteArray: require more data");
 	}
@@ -563,7 +572,7 @@ inline int ByteArray::read(void *ptr, int size) {
 		if (ptr) {
 			memcpy(ptr, &_data[_pos], canread);
 		}
-		_pos += size;
+		_pos += canread;
 	}
 	return canread;
 }
@@ -901,6 +910,9 @@ inline void ByteArray::write_string(const char *text, int size) {
 
 inline std::string ByteArray::read_string() {
 	int32_t size = read_int32();
+	if (size < 0) {
+		throw ByteError("ByteArray: negative string size");
+	}
 	require(size);
 	std::string text;
 	require(size);
@@ -913,6 +925,9 @@ inline std::string ByteArray::read_string() {
 
 inline std::string ByteArray::peek_string() const {
 	int32_t size = peek_int32();
+	if (size < 0) {
+		throw ByteError("ByteArray: negative string size");
+	}
 	require(size + 4);
 	std::string text;
 	text.resize(size);
@@ -1230,9 +1245,12 @@ inline ByteArray& operator << (ByteArray &ba, const std::vector<T> &array) {
 
 template <typename T>
 inline ByteArray& operator >> (ByteArray &ba, std::vector<T> &array) {
-	uint32_t size = ba.read_uint32();
+	int32_t size = ba.read_int32();
 	array.resize(0);
-	for (uint32_t i = 0; i < size; i++) {
+	if (size < 0) {
+		throw ByteError("ByteArray: negative vector size");
+	}
+	for (int32_t i = 0; i < size; i++) {
 		T value;
 		ba >> value;
 		array.push_back(value);
@@ -1253,9 +1271,12 @@ inline ByteArray& operator << (ByteArray &ba, const std::map<TK, TV> &pairs) {
 
 template <typename TK, typename TV>
 inline ByteArray& operator >> (ByteArray &ba, std::map<TK, TV> &pairs) {
-	uint32_t size = ba.read_uint32();
+	int32_t size = ba.read_int32();
 	pairs.clear();
-	for (uint32_t i = 0; i < size; i++) {
+	if (size < 0) {
+		throw ByteError("ByteArray: negative map size");
+	}
+	for (int32_t i = 0; i < size; i++) {
 		TK key;
 		TV val;
 		ba >> key >> val;
