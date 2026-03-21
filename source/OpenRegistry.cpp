@@ -3,7 +3,7 @@
 // OpenRegistry.cpp - Sectioned string registry utilities
 //
 // Created by skywind on 2021/11/02
-// Last Modified: 2025/12/11 16:15:35
+// Last Modified: 2026/03/19 23:31:46
 //
 // OpenRegistry manages string-to-string settings grouped by sections.
 // It tracks section order, offers typed helpers, and persists data 
@@ -505,6 +505,9 @@ bool OpenRegistry::Unmarshal(std::istream &ifs)
 			return false;
 		}
 		int32_t key_count = (int32_t)StreamReadUInt32(ifs);
+		if (key_count < 0) {
+			return false;
+		}
 		for (int32_t j = 0; j < key_count; j++) {
 			std::string key = StreamReadString(ifs);
 			std::string value = StreamReadString(ifs);

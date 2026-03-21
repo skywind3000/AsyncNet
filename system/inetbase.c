@@ -5534,9 +5534,7 @@ void iposix_thread_delete(iPosixThread *thread)
 		thread->target = NULL;
 	#ifndef IPOSIX_THREAD_KILL_ON_DELETE
 		if (thread->state != IPOSIX_THREAD_STATE_STOP) {
-			int notstop = 1;
 			IMUTEX_UNLOCK(&thread->lock);
-			assert(notstop == 0);
 			abort();
 			return;
 		}

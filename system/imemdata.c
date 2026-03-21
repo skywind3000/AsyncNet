@@ -1892,7 +1892,10 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 	idecode32i_lsb(head + 8, wparam);
 	idecode32i_lsb(head + 12, lparam);
 	cc = (IINT32)ims_read(queue, data, size);
-	assert(cc == size);
+	if (cc != size) {
+		assert(cc == size);
+		abort();
+	}
 	return size;
 }
 

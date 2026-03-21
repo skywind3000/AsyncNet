@@ -3,7 +3,7 @@
 // ByteArray.h - ActionScript3 ByteArray Simulation
 //
 // Created by skywind on 2019/07/02
-// Last Modified: 2026/03/19 23:00:08
+// Last Modified: 2026/03/19 23:13:44
 //
 // ByteArray is a byte array with file-object like interfaces:
 //
@@ -488,6 +488,9 @@ inline const unsigned char* ByteArray::data() const {
 // size / resize
 //---------------------------------------------------------------------
 inline void ByteArray::resize(int size) {
+	if (size < 0) {
+		throw ByteError("ByteArray: size out of range");
+	}
 	if (size > (int)_data.size()) {
 		_data.resize(size);
 	}
@@ -596,10 +599,11 @@ inline int ByteArray::peek(void *ptr, int size) const {
 
 // insert data to current position
 inline int ByteArray::insert(const void *ptr, int size) {
+	int boundary = _size;
 	if (_pos > _size) resize(_pos);
 	resize(_size + size);
-	if (_pos < _size) {
-		memmove(data() + _pos + size, data() + _pos, _size - _pos);
+	if (_pos < boundary) {
+		memmove(data() + _pos + size, data() + _pos, boundary - _pos);
 	}
 	if (ptr != NULL) {
 		memcpy(data() + _pos, ptr, size);
@@ -628,7 +632,9 @@ inline int ByteArray::pop(void *ptr, int size) {
 	size = Maximum(Minimum(_size, size), 0);
 	if (size > 0) {
 		_pos = _size - size;
-		memcpy(ptr, data() + _pos, size);
+		if (ptr != NULL) {
+			memcpy(ptr, data() + _pos, size);
+		}
 		resize(_size - size);
 	}
 	return size;
@@ -835,10 +841,10 @@ inline uint64_t ByteArray::peek_uint64() const {
 		c3 = _data[_pos + 1];
 		c4 = _data[_pos + 0];
 		hi = c1 | (c2 << 8) | (c3 << 16) | (c4 << 24);
-		c1 = _data[_pos + 3];
-		c2 = _data[_pos + 2];
-		c3 = _data[_pos + 1];
-		c4 = _data[_pos + 0];
+		c1 = _data[_pos + 7];
+		c2 = _data[_pos + 6];
+		c3 = _data[_pos + 5];
+		c4 = _data[_pos + 4];
 		lo = c1 | (c2 << 8) | (c3 << 16) | (c4 << 24);
 	}
 	return (hi << 32) | lo;
