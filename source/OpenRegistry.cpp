@@ -392,6 +392,7 @@ bool OpenRegistry::ReadBool(const std::string &section, const std::string &key, 
 		return default_value;
 	}
 	StringLower(text);
+	StringStrip(text);
 	if (text == "1" || text == "yes" || text == "true" || text == "on") {
 		return true;
 	}
