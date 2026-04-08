@@ -2621,7 +2621,7 @@ static int ips_poll_del(ipolld ipd, int fd)
 	PSTRUCT *ps = PDESC(ipd);
 	int mask = 0;
 
-	if (fd > ps->max_fd) return -1;
+	if (fd < 0 || fd > ps->max_fd) return -1;
 	mask = ps->fv.fds[fd].mask;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
@@ -2644,6 +2644,7 @@ static int ips_poll_set(ipolld ipd, int fd, int mask)
 	PSTRUCT *ps = PDESC(ipd);
 	int omask = 0;
 
+	if (fd < 0 || fd > ps->max_fd) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -1;
 	omask = ps->fv.fds[fd].mask;
 
@@ -3210,7 +3211,7 @@ static int ipk_poll_del(ipolld ipd, int fd)
 	PSTRUCT *ps = PDESC(ipd);
 
 	if (ps->num_fd <= 0) return -1;
-	if (fd >= ps->usr_len) return -2;
+	if (fd < 0 || fd >= ps->usr_len) return -2;
 	if (ps->fv.fds[fd].fd < 0) return -3;
 
 	if (ipk_poll_kevent(ipd, fd, EVFILT_READ, EV_DELETE | EV_DISABLE)) 
@@ -3233,7 +3234,7 @@ static int ipk_poll_set(ipolld ipd, int fd, int mask)
 {
 	PSTRUCT *ps = PDESC(ipd);
 
-	if (fd >= ps->usr_len) return -3;
+	if (fd < 0 || fd >= ps->usr_len) return -3;
 	if (ps->fv.fds[fd].fd < 0) return -4;
 
 	if (IFEATURE_HAS(IFEATURE_KEVENT_REFRESH) == 0) {
@@ -3501,6 +3502,8 @@ static int ipe_poll_del(ipolld ipd, int fd)
 	PSTRUCT *ps = PDESC(ipd);
 	struct epoll_event ee;
 
+	if ((unsigned int)fd >= (unsigned int)ps->usr_len) return -1;
+	if (fd < 0) return -1;
 	if (ps->num_fd <= 0) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
@@ -4115,6 +4118,8 @@ static int ipu_poll_del(ipolld ipd, int fd)
 {
 	PSTRUCT *ps = PDESC(ipd);
 
+	if ((unsigned int)fd >= (unsigned int)ps->usr_len) return -1;
+	if (fd < 0) return -1;
 	if (ps->num_fd <= 0) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 	
@@ -4142,6 +4147,7 @@ static int ipu_poll_set(ipolld ipd, int fd, int mask)
 	/* must convert to unsigned to prevent a gcc -O3 */
 	/* false warning from some older gcc versions, on solaris */
 	if ((unsigned int)fd >= (unsigned int)ps->usr_len) return -1;
+	if (fd < 0) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
 	save = ps->fv.fds[fd].mask;
@@ -4464,6 +4470,7 @@ static int ipx_poll_del(ipolld ipd, int fd)
 {
 	PSTRUCT *ps = PDESC(ipd);
 
+	if (fd < 0 || fd >= ps->usr_len) return -1;
 	if (ps->num_fd <= 0) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 	
@@ -4486,7 +4493,7 @@ static int ipx_poll_set(ipolld ipd, int fd, int mask)
 	int events = 0;
 	int retval = 0;
 
-	if (fd >= ps->usr_len) return -1;
+	if (fd < 0 || fd >= ps->usr_len) return -1;
 	if (ps->fv.fds[fd].fd < 0) return -2;
 
 	mask =  mask & (IPOLL_IN | IPOLL_OUT | IPOLL_ERR);
