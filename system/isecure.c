@@ -545,6 +545,182 @@ void HASH_SHA1_Final(HASH_SHA1_CTX* ctx, unsigned char digest[20])
 }
 
 
+//=====================================================================
+// SHA-256: Secure Hash Algorithm 256-bit (FIPS 180-4)
+//=====================================================================
+
+/* SHA-256 constants - first 32 bits of the fractional parts of the
+ * cube roots of the first 64 prime numbers */
+static const IUINT32 sha256_k[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+/* SHA-256 functions */
+#define SHA256_ROTR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+#define SHA256_CH(x, y, z)  (((x) & (y)) ^ ((~(x)) & (z)))
+#define SHA256_MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
+#define SHA256_EP0(x)       (SHA256_ROTR(x, 2) ^ SHA256_ROTR(x, 13) ^ SHA256_ROTR(x, 22))
+#define SHA256_EP1(x)       (SHA256_ROTR(x, 6) ^ SHA256_ROTR(x, 11) ^ SHA256_ROTR(x, 25))
+#define SHA256_SIG0(x)      (SHA256_ROTR(x, 7) ^ SHA256_ROTR(x, 18) ^ ((x) >> 3))
+#define SHA256_SIG1(x)      (SHA256_ROTR(x, 17) ^ SHA256_ROTR(x, 19) ^ ((x) >> 10))
+
+/* Transform a single 512-bit block */
+static void HASH_SHA256_Transform(IUINT32 state[8], const unsigned char *buffer)
+{
+    IUINT32 a, b, c, d, e, f, g, h, t1, t2;
+    IUINT32 w[64];
+    int i;
+
+    /* Prepare message schedule */
+    for (i = 0; i < 16; i++) {
+        w[i] = ((IUINT32)buffer[i * 4 + 0] << 24) |
+               ((IUINT32)buffer[i * 4 + 1] << 16) |
+               ((IUINT32)buffer[i * 4 + 2] << 8)  |
+               ((IUINT32)buffer[i * 4 + 3]);
+    }
+    for (i = 16; i < 64; i++) {
+        w[i] = SHA256_SIG1(w[i - 2]) + w[i - 7] + SHA256_SIG0(w[i - 15]) + w[i - 16];
+    }
+
+    /* Initialize working variables */
+    a = state[0]; b = state[1]; c = state[2]; d = state[3];
+    e = state[4]; f = state[5]; g = state[6]; h = state[7];
+
+    /* Main loop */
+    for (i = 0; i < 64; i++) {
+        t1 = h + SHA256_EP1(e) + SHA256_CH(e, f, g) + sha256_k[i] + w[i];
+        t2 = SHA256_EP0(a) + SHA256_MAJ(a, b, c);
+        h = g; g = f; f = e; e = d + t1;
+        d = c; c = b; b = a; a = t1 + t2;
+    }
+
+    /* Add compressed chunk to current hash value */
+    state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+    state[4] += e; state[5] += f; state[6] += g; state[7] += h;
+}
+
+/* HASH_SHA256_Init - Initialize new context */
+void HASH_SHA256_Init(HASH_SHA256_CTX *ctx)
+{
+    /* SHA-256 initial hash values - first 32 bits of the fractional
+     * parts of the square roots of the first 8 prime numbers */
+    ctx->state[0] = 0x6a09e667;
+    ctx->state[1] = 0xbb67ae85;
+    ctx->state[2] = 0x3c6ef372;
+    ctx->state[3] = 0xa54ff53a;
+    ctx->state[4] = 0x510e527f;
+    ctx->state[5] = 0x9b05688c;
+    ctx->state[6] = 0x1f83d9ab;
+    ctx->state[7] = 0x5be0cd19;
+    ctx->count = 0;
+    memset(ctx->buffer, 0, 64);
+}
+
+/* HASH_SHA256_Update - Add data to context */
+void HASH_SHA256_Update(HASH_SHA256_CTX *ctx, const void *input, unsigned int len)
+{
+    const unsigned char *data = (const unsigned char *)input;
+    unsigned int buffer_used;
+
+    /* Calculate how much of the buffer is already filled */
+    buffer_used = (unsigned int)(ctx->count & 63);
+
+    /* Update total byte count */
+    ctx->count += len;
+
+    /* If the buffer has some data, try to fill it first */
+    if (buffer_used > 0) {
+        unsigned int buffer_left = 64 - buffer_used;
+        if (len < buffer_left) {
+            memcpy(ctx->buffer + buffer_used, data, len);
+            return;
+        }
+        memcpy(ctx->buffer + buffer_used, data, buffer_left);
+        HASH_SHA256_Transform(ctx->state, ctx->buffer);
+        data += buffer_left;
+        len -= buffer_left;
+    }
+
+    /* Process complete 64-byte blocks directly from input */
+    while (len >= 64) {
+        HASH_SHA256_Transform(ctx->state, data);
+        data += 64;
+        len -= 64;
+    }
+
+    /* Copy remaining data to buffer */
+    if (len > 0) {
+        memcpy(ctx->buffer, data, len);
+    }
+}
+
+/* HASH_SHA256_Final - Finalize and produce digest */
+void HASH_SHA256_Final(HASH_SHA256_CTX *ctx, unsigned char digest[32])
+{
+    unsigned int buffer_used;
+    IUINT64 bit_count;
+    int i;
+
+    /* Calculate how much of the buffer is filled */
+    buffer_used = (unsigned int)(ctx->count & 63);
+
+    /* Calculate total bit count */
+    bit_count = ctx->count << 3;
+
+    /* Append padding bit (0x80) */
+    ctx->buffer[buffer_used++] = 0x80;
+
+    /* If not enough room for length (need 8 bytes), pad and process */
+    if (buffer_used > 56) {
+        while (buffer_used < 64) {
+            ctx->buffer[buffer_used++] = 0x00;
+        }
+        HASH_SHA256_Transform(ctx->state, ctx->buffer);
+        buffer_used = 0;
+    }
+
+    /* Pad to 56 bytes */
+    while (buffer_used < 56) {
+        ctx->buffer[buffer_used++] = 0x00;
+    }
+
+    /* Append length in bits (big-endian) */
+    ctx->buffer[56] = (unsigned char)(bit_count >> 56);
+    ctx->buffer[57] = (unsigned char)(bit_count >> 48);
+    ctx->buffer[58] = (unsigned char)(bit_count >> 40);
+    ctx->buffer[59] = (unsigned char)(bit_count >> 32);
+    ctx->buffer[60] = (unsigned char)(bit_count >> 24);
+    ctx->buffer[61] = (unsigned char)(bit_count >> 16);
+    ctx->buffer[62] = (unsigned char)(bit_count >> 8);
+    ctx->buffer[63] = (unsigned char)(bit_count);
+
+    /* Process final block */
+    HASH_SHA256_Transform(ctx->state, ctx->buffer);
+
+    /* Produce digest in big-endian format */
+    for (i = 0; i < 8; i++) {
+        digest[i * 4 + 0] = (unsigned char)(ctx->state[i] >> 24);
+        digest[i * 4 + 1] = (unsigned char)(ctx->state[i] >> 16);
+        digest[i * 4 + 2] = (unsigned char)(ctx->state[i] >> 8);
+        digest[i * 4 + 3] = (unsigned char)(ctx->state[i]);
+    }
+}
+
 
 //=====================================================================
 // UTILITIES
@@ -588,6 +764,19 @@ char* hash_sha1sum(char *out, const void *in, unsigned int len)
 	HASH_SHA1_Final(&ctx, digest);
 	if (out == NULL) out = text;
 	return hash_digest_to_string(out, digest, 20);
+}
+
+// calculate sha256sum and convert digests to string
+char* hash_sha256sum(char *out, const void *in, unsigned int len)
+{
+	static char text[80];
+	unsigned char digest[32];
+	HASH_SHA256_CTX ctx;
+	HASH_SHA256_Init(&ctx);
+	HASH_SHA256_Update(&ctx, in, len);
+	HASH_SHA256_Final(&ctx, digest);
+	if (out == NULL) out = text;
+	return hash_digest_to_string(out, digest, 32);
 }
 
 // crc32
@@ -650,6 +839,125 @@ IUINT32 hash_checksum(const void *in, unsigned int len)
 	IUINT32 checksum = 0;
 	for (; len > 0; len--, p++) checksum += *p;
 	return checksum;
+}
+
+
+//=====================================================================
+// HMAC functions
+//=====================================================================
+
+// calculate HMAC-MD5, digest must be 16 bytes buffer
+void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void *digest)
+{
+	HASH_MD5_CTX ctx;
+	unsigned char kbuf[64];
+	unsigned char ibuf[64];
+	unsigned char obuf[64];
+	unsigned char tmp[16];
+	unsigned char *out = (unsigned char*)digest;
+	int i;
+
+	if (size < 0 || keylen < 0) return;
+
+	// prepare key
+	memset(kbuf, 0, 64);
+	if (keylen > 64) {
+		HASH_MD5_Init(&ctx, 0);
+		HASH_MD5_Update(&ctx, key, keylen);
+		HASH_MD5_Final(&ctx, kbuf);
+	} else {
+		memcpy(kbuf, key, keylen);
+	}
+
+	// inner hash: H((K ^ ipad) || msg)
+	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
+	HASH_MD5_Init(&ctx, 0);
+	HASH_MD5_Update(&ctx, ibuf, 64);
+	if (size > 0) HASH_MD5_Update(&ctx, msg, size);
+	HASH_MD5_Final(&ctx, tmp);
+
+	// outer hash: H((K ^ opad) || inner_digest)
+	for (i = 0; i < 64; i++) obuf[i] = kbuf[i] ^ 0x5c;
+	HASH_MD5_Init(&ctx, 0);
+	HASH_MD5_Update(&ctx, obuf, 64);
+	HASH_MD5_Update(&ctx, tmp, 16);
+	HASH_MD5_Final(&ctx, out);
+}
+
+// calculate HMAC-SHA1, digest must be 20 bytes buffer
+void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void *digest)
+{
+	HASH_SHA1_CTX ctx;
+	unsigned char kbuf[64];
+	unsigned char ibuf[64];
+	unsigned char obuf[64];
+	unsigned char tmp[20];
+	unsigned char *out = (unsigned char*)digest;
+	int i;
+
+	if (size < 0 || keylen < 0) return;
+
+	// prepare key
+	memset(kbuf, 0, 64);
+	if (keylen > 64) {
+		HASH_SHA1_Init(&ctx);
+		HASH_SHA1_Update(&ctx, key, keylen);
+		HASH_SHA1_Final(&ctx, kbuf);
+	} else {
+		memcpy(kbuf, key, keylen);
+	}
+
+	// inner hash: H((K ^ ipad) || msg)
+	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
+	HASH_SHA1_Init(&ctx);
+	HASH_SHA1_Update(&ctx, ibuf, 64);
+	if (size > 0) HASH_SHA1_Update(&ctx, msg, size);
+	HASH_SHA1_Final(&ctx, tmp);
+
+	// outer hash: H((K ^ opad) || inner_digest)
+	for (i = 0; i < 64; i++) obuf[i] = kbuf[i] ^ 0x5c;
+	HASH_SHA1_Init(&ctx);
+	HASH_SHA1_Update(&ctx, obuf, 64);
+	HASH_SHA1_Update(&ctx, tmp, 20);
+	HASH_SHA1_Final(&ctx, out);
+}
+
+// calculate HMAC-SHA256, digest must be 32 bytes buffer
+void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, void *digest)
+{
+	HASH_SHA256_CTX ctx;
+	unsigned char kbuf[64];
+	unsigned char ibuf[64];
+	unsigned char obuf[64];
+	unsigned char tmp[32];
+	unsigned char *out = (unsigned char*)digest;
+	int i;
+
+	if (size < 0 || keylen < 0) return;
+
+	// prepare key
+	memset(kbuf, 0, 64);
+	if (keylen > 64) {
+		HASH_SHA256_Init(&ctx);
+		HASH_SHA256_Update(&ctx, key, keylen);
+		HASH_SHA256_Final(&ctx, kbuf);
+	} else {
+		memcpy(kbuf, key, keylen);
+	}
+
+	// inner hash: H((K ^ ipad) || msg)
+	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
+	HASH_SHA256_Init(&ctx);
+	HASH_SHA256_Update(&ctx, ibuf, 64);
+	if (size > 0) HASH_SHA256_Update(&ctx, msg, size);
+	HASH_SHA256_Final(&ctx, tmp);
+
+	// outer hash: H((K ^ opad) || inner_digest)
+	for (i = 0; i < 64; i++) obuf[i] = kbuf[i] ^ 0x5c;
+	HASH_SHA256_Init(&ctx);
+	HASH_SHA256_Update(&ctx, obuf, 64);
+	HASH_SHA256_Update(&ctx, tmp, 32);
+	HASH_SHA256_Final(&ctx, out);
 }
 
 
@@ -1097,13 +1405,13 @@ static inline IUINT32 crypto_subw(IUINT32 in) {
 // get unaligned little-endian uint32
 static inline IUINT32 crypto_get_le32(const void *p) {
 	IUINT32 x;
-	is_decode32u_lsb(p, &x);
+	is_decode32u_lsb((const char*)p, &x);
 	return x;
 }
 
 // put unaligned little-endian uint32
 static inline void crypto_put_le32(IUINT32 x, void *p) {
-	is_encode32u_lsb(p, x);
+	is_encode32u_lsb((char*)p, x);
 }
 
 // keylen: 16, 24, 32 bytes

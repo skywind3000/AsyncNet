@@ -205,6 +205,20 @@ void HASH_SHA1_Final(HASH_SHA1_CTX *ctx, unsigned char digest[20]);
 
 
 //=====================================================================
+// SHA-256: Secure Hash Algorithm 256-bit (FIPS 180-4)
+//=====================================================================
+typedef struct {
+    IUINT32 state[8];
+    IUINT64 count;
+    unsigned char buffer[64];
+}   HASH_SHA256_CTX;
+
+void HASH_SHA256_Init(HASH_SHA256_CTX *ctx);
+void HASH_SHA256_Update(HASH_SHA256_CTX *ctx, const void *input, unsigned int len);
+void HASH_SHA256_Final(HASH_SHA256_CTX *ctx, unsigned char digest[32]);
+
+
+//=====================================================================
 // UTILITIES
 //=====================================================================
 
@@ -217,11 +231,28 @@ char* hash_md5sum(char *out, const void *in, unsigned int len);
 // calculate sha1sum and convert digests to string
 char* hash_sha1sum(char *out, const void *in, unsigned int len);
 
+// calculate sha256sum and convert digests to string
+char* hash_sha256sum(char *out, const void *in, unsigned int len);
+
 // calculate crc32 and return result
 IUINT32 hash_crc32(const void *in, unsigned int len);
 
 // sum all bytes together
 IUINT32 hash_checksum(const void *in, unsigned int len);
+
+
+//=====================================================================
+// HMAC functions
+//=====================================================================
+
+// calculate HMAC-MD5, digest must be 16 bytes buffer
+void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void *digest);
+
+// calculate HMAC-SHA1, digest must be 20 bytes buffer
+void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void *digest);
+
+// calculate HMAC-SHA256, digest must be 32 bytes buffer
+void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, void *digest);
 
 
 //=====================================================================
