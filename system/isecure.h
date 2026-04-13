@@ -296,12 +296,12 @@ static inline IUINT32 hash_update_murmur(IUINT32 h, IUINT32 x) {
 // Diffie-Hellman key exchange
 // http://zh.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange
 // usage: 1. get an local asymmetric-key a from DH_Random
-//        2. calculate A=(5 ^ a) % p by DH_Exchange 
+//        2. calculate A=(5 ^ a) % p by DH_Exchange
 //        3. send A to remote
 //        4. obtain symmetrical-key by DH_Key(local_key, RemoteA)
 //=====================================================================
 
-// returns random local key
+// returns random local key using rand() (call srand() first)
 IUINT64 DH_Random();
 
 // calculate A/B which will be sent to remote

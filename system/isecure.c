@@ -683,20 +683,22 @@ void HASH_SHA256_Final(HASH_SHA256_CTX *ctx, unsigned char digest[32])
     bit_count = ctx->count << 3;
 
     /* Append padding bit (0x80) */
-    ctx->buffer[buffer_used++] = 0x80;
+    ctx->buffer[buffer_used] = 0x80;
+    buffer_used++;
 
     /* If not enough room for length (need 8 bytes), pad and process */
     if (buffer_used > 56) {
-        while (buffer_used < 64) {
-            ctx->buffer[buffer_used++] = 0x00;
+        /* Pad remaining bytes with zeros */
+        for (i = buffer_used; i < 64; i++) {
+            ctx->buffer[i] = 0x00;
         }
         HASH_SHA256_Transform(ctx->state, ctx->buffer);
         buffer_used = 0;
     }
 
     /* Pad to 56 bytes */
-    while (buffer_used < 56) {
-        ctx->buffer[buffer_used++] = 0x00;
+    for (i = buffer_used; i < 56; i++) {
+        ctx->buffer[i] = 0x00;
     }
 
     /* Append length in bits (big-endian) */
@@ -730,6 +732,11 @@ char* hash_digest_to_string(char *out, const unsigned char *in, int size)
 	static const char hex[17] = "0123456789abcdef";
 	static char buffer[96];
 	char *ptr = out;
+	if (size <= 0) {
+		if (out == NULL) out = buffer;
+		out[0] = 0;
+		return out;
+	}
 	if (out == NULL) out = buffer;
 	for (; 0 < size; size--) {
 		unsigned char ch = *in++;
@@ -1022,12 +1029,19 @@ IUINT64 DH_PowerMod(IUINT64 a, IUINT64 b, IUINT64 c)
 	return x;
 }
 
-// returns random local key
+// returns random local key using rand() with mixing
+// user should call srand() before using this function
 IUINT64 DH_Random()
 {
-	IUINT64 x = ((rand() << 16) ^ rand()) & 0x7fffffff;
-	IUINT64 y = ((rand() << 16) ^ rand()) & 0x7fffffff;
-	return (x << 32) | y;
+	IUINT64 a, b, c, d;
+	a = ((IUINT64)rand() << 15) ^ rand();
+	b = ((IUINT64)rand() << 15) ^ rand();
+	c = ((IUINT64)rand() << 15) ^ rand();
+	d = ((IUINT64)rand() << 15) ^ rand();
+	// splitmix64 style mixing for better bit distribution
+	a = (a ^ (a >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	b = (b ^ (b >> 30)) * 0xbf58476d1ce4e5b9ULL;
+	return ((a ^ (a >> 31)) << 32) | ((b ^ (b >> 31)) ^ c ^ d);
 }
 
 // calculate A/B which will be sent to remote
