@@ -448,7 +448,7 @@ IINT64 iclockrt(void);
 IINT64 iclock_nano(int monotonic);
 
 /* global millisecond clock value, updated by itimeofday */
-volatile extern IINT64 itimeclock;
+extern volatile IINT64 itimeclock;
 
 
 /*===================================================================*/

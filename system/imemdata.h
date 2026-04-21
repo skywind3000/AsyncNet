@@ -647,7 +647,7 @@ static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
 	idecode32u_lsb(p, &size);
 	if (maxlen <= 0) maxlen = size + 1;
 	ret = idecodes(p, str, &maxlen);
-	str[maxlen < (ilong)size ? maxlen - 1 : size] = 0;
+	str[maxlen < (ilong)size ? maxlen - 1 : (ilong)size] = 0;
 	return ret;
 }
 

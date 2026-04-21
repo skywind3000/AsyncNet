@@ -318,6 +318,7 @@ int ithread_create(ilong *id, ITHREADPROC fun, long stacksize, void *args)
 /* exit thread */
 void ithread_exit(long retval)
 {
+	(void)retval;
 	#ifdef __unix
 	pthread_exit(NULL);
 	#elif defined(_WIN32)
@@ -345,6 +346,7 @@ int ithread_detach(ilong id)
 	#ifdef __unix
 	status = pthread_detach((pthread_t)id);
 	#elif defined(_WIN32)
+	(void)id;
 	status = 0;
 	#endif
 	return status;
@@ -1766,6 +1768,8 @@ int isocket_set_mark(int fd, unsigned int mark)
 #ifdef SO_MARK
 	return isocket_set_uint(fd, SOL_SOCKET, SO_MARK, mark);
 #else
+	(void)fd;
+	(void)mark;
 	return -1;
 #endif
 }
@@ -1776,6 +1780,7 @@ int isocket_get_mark(int fd, unsigned int *mark)
 #ifdef SO_MARK
 	return isocket_get_uint(fd, SOL_SOCKET, SO_MARK, mark);
 #else
+	(void)fd;
 	if (mark) mark[0] = 0;
 	return 0;
 #endif
@@ -1885,6 +1890,8 @@ int isocket_pair_afunix(SOCKET fds[2], int mode)
 	} a;
 
 	socklen_t addrlen = sizeof(a);
+
+	(void)mode;
 
 	fds[0] = INVALID_SOCKET;
 	fds[1] = INVALID_SOCKET;
@@ -3682,6 +3689,7 @@ static int ipw_init_pd(ipolld ipd, int param)
 {
 	int retval = 0;
 	PSTRUCT *ps = PDESC(ipd);
+	(void)param;
 
 	ps->max_fd = 0;
 	ps->min_fd = 0x7fffffff;

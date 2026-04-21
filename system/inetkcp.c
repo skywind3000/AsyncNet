@@ -49,11 +49,13 @@ typedef struct IKCPSEG IKCPSEG;
 
 static IKCPSEG* ikcp_segment_new(ikcpcb *kcp, int size)
 {
+	(void)kcp;
 	return (IKCPSEG*)ikmem_malloc(sizeof(IKCPSEG) + size);
 }
 
 static void ikcp_segment_delete(ikcpcb *kcp, IKCPSEG *seg)
 {
+	(void)kcp;
 	ikmem_free(seg);
 }
 

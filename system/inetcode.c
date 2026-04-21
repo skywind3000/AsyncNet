@@ -1587,6 +1587,7 @@ static void _async_core_on_sem(CAsyncLoop *loop, CAsyncSemaphore *sem)
 static void _async_core_on_post(CAsyncLoop *loop, CAsyncPostpone *post)
 {
 	CAsyncCore *core = (CAsyncCore*)post->user;
+	(void)loop;
 
 	/* process pending close */
 	while (!ilist_is_empty(&core->pending)) {
@@ -2809,6 +2810,7 @@ int async_core_dispatch(CAsyncCore *core, long hid, int cmd,
 void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr)
 {
 	void *hr = NULL;
+	(void)value;
 	ASYNC_CORE_CRITICAL_BEGIN(core);
 	switch (op) {
 	case ASYNC_CORE_REG_GET_PARENT:
@@ -3491,6 +3493,7 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 	int ips[5], i, j;
 	char auth[512], auth64[512];
 	char addr[64];
+	(void)mode;
 
 	proxy->socket = sock;
 	proxy->type = type;

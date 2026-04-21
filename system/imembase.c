@@ -583,7 +583,7 @@ ib_array *ib_array_new(void (*destroy_func)(void*))
 	array->size = 0;
 	array->items = NULL;
 	return array;
-};
+}
 
 
 void ib_array_delete(ib_array *array)
@@ -1439,8 +1439,32 @@ void* ib_fastbin_new(struct ib_fastbin *fb)
 	return obj;
 }
 
+/* Safety check for ib_fastbin_del (0 = disabled, 1 = enabled) */
+#ifndef IB_FASTBIN_SAFE_CHECK
+#define IB_FASTBIN_SAFE_CHECK  0
+#endif
+
 void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 {
+#if IB_FASTBIN_SAFE_CHECK
+	/* Check if ptr is within allocated page ranges */
+	void *page = fb->pages;
+	int found = 0;
+	while (page && !found) {
+		char *pbase = (char*)page;
+		size_t lineptr = ((size_t)pbase + sizeof(void*) + 15) & (~15);
+		if ((char*)ptr >= (char*)lineptr &&
+			(char*)ptr < pbase + fb->page_size &&
+			(((size_t)((char*)ptr - lineptr)) % fb->obj_size) == 0) {
+			found = 1;
+		}
+		page = ib_read_ptr(page);
+	}
+	if (!found) {
+		ASSERTION(found);
+		return;
+	}
+#endif
 	ib_write_ptr(ptr, fb->next);
 	fb->next = ptr;
 }
@@ -2521,8 +2545,8 @@ size_t ib_hash_bytes_stl(const void *ptr, size_t size, size_t seed)
 	}
 	/* fall through */
 	switch (size) {
-	case 3: hash ^= ((IUINT32)buf[2]) << 16;
-	case 2: hash ^= ((IUINT32)buf[1]) << 8;
+	case 3: hash ^= ((IUINT32)buf[2]) << 16; /* fall through */
+	case 2: hash ^= ((IUINT32)buf[1]) << 8;  /* fall through */
 	case 1: hash ^= ((IUINT32)buf[0]); hash = hash * m; break;
 	}
 	hash = (hash ^ (hash >> 13)) * m;
@@ -2806,6 +2830,8 @@ static void* ib_zone_alloc(struct IALLOCATOR *allocator, size_t size)
 /* allocator: free */
 static void ib_zone_free(struct IALLOCATOR *allocator, void *ptr)
 {
+	(void)allocator;
+	(void)ptr;
 }
 
 /* allocator: realloc */

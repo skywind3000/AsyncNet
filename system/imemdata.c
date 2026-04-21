@@ -1393,7 +1393,9 @@ static inline int iposix_utf8_legal(const IUINT8 *source, int length) {
 		default: return 0;
 				 /* Everything else falls through when "true"... */
 		case 4: if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
+				/* fall through */
 		case 3: if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
+				/* fall through */
 		case 2: if ((a = (*--srcptr)) > 0xBF) return 0;
 					switch (*source) {
 						/* no fall-through in this inner switch */
@@ -1403,6 +1405,7 @@ static inline int iposix_utf8_legal(const IUINT8 *source, int length) {
 						case 0xF4: if (a > 0x8F) return 0; break;
 						default:   if (a < 0x80) return 0;
 					}
+				/* fall through */
 		case 1: if (*source >= 0x80 && *source < 0xC2) return 0;
 	}
 	if (*source > 0xF4) return 0;
@@ -1441,11 +1444,11 @@ int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		 * The cases all fall through. See "Note A" below.
 		 */
 		switch (extraBytesToRead) {
-			case 5: ch += *source++; ch <<= 6; /* remember, illegal UTF-8 */
-			case 4: ch += *source++; ch <<= 6; /* remember, illegal UTF-8 */
-			case 3: ch += *source++; ch <<= 6;
-			case 2: ch += *source++; ch <<= 6;
-			case 1: ch += *source++; ch <<= 6;
+			case 5: ch += *source++; ch <<= 6; /* fall through */
+			case 4: ch += *source++; ch <<= 6; /* fall through */
+			case 3: ch += *source++; ch <<= 6; /* fall through */
+			case 2: ch += *source++; ch <<= 6; /* fall through */
+			case 1: ch += *source++; ch <<= 6; /* fall through */
 			case 0: ch += *source++;
 		}
 		ch -= iconv_utf8_offset[extraBytesToRead];
@@ -1516,11 +1519,11 @@ int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		 * The cases all fall through. See "Note A" below.
 		 */
 		switch (extraBytesToRead) {
-			case 5: ch += *source++; ch <<= 6;
-			case 4: ch += *source++; ch <<= 6;
-			case 3: ch += *source++; ch <<= 6;
-			case 2: ch += *source++; ch <<= 6;
-			case 1: ch += *source++; ch <<= 6;
+			case 5: ch += *source++; ch <<= 6; /* fall through */
+			case 4: ch += *source++; ch <<= 6; /* fall through */
+			case 3: ch += *source++; ch <<= 6; /* fall through */
+			case 2: ch += *source++; ch <<= 6; /* fall through */
+			case 1: ch += *source++; ch <<= 6; /* fall through */
 			case 0: ch += *source++;
 		}
 		ch -= iconv_utf8_offset[extraBytesToRead];
@@ -1626,8 +1629,11 @@ int iposix_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		}
 		switch (bytesToWrite) { /* note: everything falls through. */
 		case 4: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 3: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 2: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 1: *--target = (IUINT8)(ch | iconv_first_mark[bytesToWrite]);
 		}
 		target += bytesToWrite;
@@ -1748,8 +1754,11 @@ int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		}
 		switch (bytesToWrite) { /* note: everything falls through. */
 		case 4: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 3: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 2: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
+				/* fall through */
 		case 1: *--target = (IUINT8) (ch | iconv_first_mark[bytesToWrite]);
 		}
 		target += bytesToWrite;

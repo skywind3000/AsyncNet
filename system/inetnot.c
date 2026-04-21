@@ -627,6 +627,8 @@ static int async_notify_firewall(const struct sockaddr *remote, int len,
 {
 	CAsyncNotify *notify = (CAsyncNotify*)user;
 	char t[128];
+	(void)core;
+	(void)listenhid;
 	if (notify->use_allow_table == 0) return 1;
 	if (async_notify_allow_check(notify, remote, len) == 0) {
 		async_notify_log(notify, ASYNC_NOTIFY_LOG_REJECT,
@@ -938,6 +940,7 @@ static void async_notify_on_new(CAsyncNotify *notify, long hid, long tag,
 	CAsyncNode *node;
 	char text[128];
 	int mode;
+	(void)tag;
 
 	// check if listening socket or out coming socket
 	node = async_notify_node_get(notify, hid);
@@ -990,6 +993,7 @@ static void async_notify_on_leave(CAsyncNotify *notify, long hid, long tag,
 	const char *name = "unknow";
 	IUINT32 cc[2];
 	int sid;
+	(void)tag;
 
 	node = async_notify_node_get(notify, hid);
 
@@ -1053,6 +1057,7 @@ static void async_notify_on_leave(CAsyncNotify *notify, long hid, long tag,
 static void async_notify_on_estab(CAsyncNotify *notify, long hid, long tag)
 {
 	CAsyncNode *node;
+	(void)tag;
 	node = async_notify_node_get(notify, hid);
 
 	if (node == NULL) {
@@ -1087,6 +1092,7 @@ static void async_notify_on_data(CAsyncNotify *notify, long hid, long tag,
 	CAsyncNode *node;
 	int mid, cmd;
 	IUINT32 ts;
+	(void)tag;
 
 	node = async_notify_node_get(notify, hid);
 	assert(node != NULL);
@@ -1929,6 +1935,7 @@ void async_notify_log_stdout(const char *text, void *user)
 	time_t tt_now = 0;
 	struct tm tm_time, *tmx = &tm_time;
 	char timetxt[64];
+	(void)user;
 	tt_now = time(NULL);
 	memcpy(&tm_time, localtime(&tt_now), sizeof(tm_time));	
 	sprintf(timetxt, "%04d-%02d-%02d %02d:%02d:%02d", tmx->tm_year + 1900, 

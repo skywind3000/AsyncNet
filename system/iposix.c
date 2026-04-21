@@ -345,6 +345,7 @@ wchar_t *iposix_wgetcwd(wchar_t *path, int size)
 int iposix_mkdir(const char *path, int mode)
 {
 #ifdef _WIN32
+	(void)mode;
 	return _mkdir(path);
 #else
 	if (mode < 0) mode = 0755;
@@ -356,6 +357,7 @@ int iposix_mkdir(const char *path, int mode)
 int iposix_wmkdir(const wchar_t *path, int mode)
 {
 #ifdef _WIN32
+	(void)mode;
 	return _wmkdir(path);
 #else
 	int hr;

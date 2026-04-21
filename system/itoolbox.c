@@ -905,6 +905,7 @@ void console_reset(void)
 // clear console screen
 void console_clear(int color)
 {
+	(void)color;
 	#ifdef _WIN32
 	COORD coordScreen = { 0, 0 };
 	DWORD cCharsWritten;

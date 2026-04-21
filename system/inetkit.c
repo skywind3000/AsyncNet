@@ -331,6 +331,7 @@ static void async_pair_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone)
 	CAsyncStream *stream = (CAsyncStream*)postpone->user;
 	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	char notify[8];
+	(void)loop;
 	while ((long)pair->notify.size >= 8) {
 		IINT32 event, args;
 		ims_read(&pair->notify, notify, 8);
@@ -507,6 +508,9 @@ static void async_pair_watermark(CAsyncStream *stream, long high, long low)
 //---------------------------------------------------------------------
 static long async_pair_option(CAsyncStream *stream, int option, long value)
 {
+	(void)stream;
+	(void)option;
+	(void)value;
 	return 0;
 }
 
@@ -838,6 +842,7 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 	CAsyncStream *stream;
 	CAsyncTcp *tcp;
 	int hr;
+	(void)mask;
 
 	stream = (CAsyncStream*)evt->user;
 	assert(stream);
@@ -975,6 +980,7 @@ static void async_tcp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 	int error = stream->error;
 	int event = 0;
 	long total = 0;
+	(void)mask;
 	if ((stream->enabled & ASYNC_EVENT_READ) == 0) {
 		if (async_event_is_active(&tcp->evt_read)) {
 			async_event_stop(loop, &tcp->evt_read);
@@ -1025,6 +1031,7 @@ static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 	int error = stream->error;
 	long total = 0;
 	int event = 0;
+	(void)mask;
 
 	if (tcp->sendbuf.size > 0) {
 		total = async_tcp_try_writing(stream);
@@ -1064,6 +1071,8 @@ static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 //---------------------------------------------------------------------
 static void async_tcp_evt_timer(CAsyncLoop *loop, CAsyncTimer *timer)
 {
+	(void)loop;
+	(void)timer;
 }
 
 
@@ -1411,6 +1420,8 @@ void async_listener_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 	isockaddr_union addr;
 	int addrlen = sizeof(addr);
 	int fd;
+	(void)loop;
+	(void)mask;
 
 	memset(&addr, 0, sizeof(addr));
 
@@ -1843,6 +1854,7 @@ static long async_split_try_reading(CAsyncSplit *split, char *data, long maxsize
 static void async_split_callback(CAsyncStream *stream, int event, int args)
 {
 	CAsyncSplit *split = (CAsyncSplit*)stream->user;
+	(void)args;
 	if (split->callback) {
 		split->busy = 1;
 		split->callback(split, event);
@@ -2257,6 +2269,7 @@ static void async_udp_dispatch(CAsyncUdp *udp, int event, int args)
 static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 {
 	CAsyncUdp *udp = (CAsyncUdp*)evt->user;
+	(void)mask;
 	if ((udp->enabled & ASYNC_EVENT_READ) == 0) {
 		if (async_event_is_active(&udp->evt_read)) {
 			async_event_stop(loop, &udp->evt_read);
@@ -2301,6 +2314,7 @@ static void async_udp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 static void async_udp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 {
 	CAsyncUdp *udp = (CAsyncUdp*)evt->user;
+	(void)mask;
 	if ((udp->enabled & ASYNC_EVENT_WRITE) == 0) {
 		if (async_event_is_active(&udp->evt_write)) {
 			async_event_stop(loop, &udp->evt_write);
