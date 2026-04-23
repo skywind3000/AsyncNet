@@ -178,7 +178,11 @@ int iv_resize(struct IVECTOR *v, size_t newsize)
 		if (capacity < newsize) {
 			capacity = sizeof(char*);
 			while (capacity < newsize) {
-				capacity = capacity * 2;
+				size_t next = capacity * 2;
+				if (next <= capacity) {  /* overflow */
+					return -1;
+				}
+				capacity = next;
 			}
 		}
 		if (iv_capacity(v, capacity) != 0) {
@@ -335,16 +339,20 @@ static int imnode_node_resize(struct IMEMNODE *mnode, ilong size)
 	size2 = (size_t)(size * (ilong)sizeof(void*));
 
 	if (iv_resize(&mnode->vprev, size1)) return -1;
-	if (iv_resize(&mnode->vnext, size1)) return -2;
-	if (iv_resize(&mnode->vnode, size1)) return -3;
-	if (iv_resize(&mnode->vdata, size2)) return -5;
-	if (iv_resize(&mnode->vmode, size1)) return -6;
-
 	mnode->mprev = (ilong*)((void*)mnode->vprev.data);
+
+	if (iv_resize(&mnode->vnext, size1)) return -2;
 	mnode->mnext = (ilong*)((void*)mnode->vnext.data);
+
+	if (iv_resize(&mnode->vnode, size1)) return -3;
 	mnode->mnode = (ilong*)((void*)mnode->vnode.data);
-	mnode->mdata =(void**)((void*)mnode->vdata.data);
+
+	if (iv_resize(&mnode->vdata, size2)) return -5;
+	mnode->mdata = (void**)((void*)mnode->vdata.data);
+
+	if (iv_resize(&mnode->vmode, size1)) return -6;
 	mnode->mmode = (ilong*)((void*)mnode->vmode.data);
+
 	mnode->node_max = size;
 
 	return 0;
@@ -1504,6 +1512,7 @@ void ib_string_delete(ib_string *str)
 ib_string* ib_string_new_size(const char *text, int size)
 {
 	struct ib_string *str = ib_string_new();
+	if (str == NULL) return NULL;
 	size = (size > 0)? size : 0;
 	if (size > 0 && text) {
 		ib_string_resize(str, size);
@@ -1557,8 +1566,14 @@ ib_string* ib_string_resize(ib_string *str, int newsize)
 		int capacity = str->capacity * 2;
 		if (capacity == 0) capacity = 8;
 		if (capacity < newsize) {
+			capacity = 8;
 			while (capacity < newsize) {
-				capacity = capacity * 2;
+				int next = capacity * 2;
+				if (next <= capacity) {  /* overflow */
+					ASSERTION(0);
+					return str;
+				}
+				capacity = next;
 			}
 		}
 		_ib_string_set_capacity(str, capacity);
@@ -2493,11 +2508,31 @@ int ib_map_remove(struct ib_hash_map *hm, const void *key)
 
 void ib_map_clear(struct ib_hash_map *hm)
 {
-	while (1) {
-		struct ib_hash_entry *entry = ib_map_first(hm);
-		if (entry == NULL) break;
-		ib_map_erase(hm, entry);
+	struct ib_node *avlnode, *next_avlnode;
+	struct ib_hash_node *hnode;
+	struct ib_hash_entry *entry;
+	struct ib_hash_index *index;
+	struct ILISTHEAD *head_node;
+
+	/* iterate each non-empty bucket, tear all nodes and free entries */
+	while (!ilist_is_empty(&hm->ht.head)) {
+		head_node = hm->ht.head.next;
+		index = ilist_entry(head_node, struct ib_hash_index, node);
+		next_avlnode = NULL;
+		while (index->avlroot.node != NULL) {
+			avlnode = ib_node_tear(&index->avlroot, &next_avlnode);
+			hnode = IB_ENTRY(avlnode, struct ib_hash_node, avlnode);
+			entry = IB_ENTRY(hnode, struct ib_hash_entry, node);
+			ib_node_init(&(entry->node.avlnode));
+			if (hm->key_destroy) hm->key_destroy(entry->node.key);
+			if (hm->value_destroy) hm->value_destroy(entry->value);
+			entry->node.key = NULL;
+			entry->value = NULL;
+			ib_fastbin_del(&hm->fb, entry);
+		}
+		ilist_del_init(&index->node);
 	}
+	hm->ht.count = 0;
 	ASSERTION(hm->ht.count == 0);
 	ib_map_rehash(hm, hm->ht.count, 1);
 }
@@ -2622,7 +2657,8 @@ int ib_hash_compare_cstr(const void *key1, const void *key2)
 {
 	const char *x = (const char*)key1;
 	const char *y = (const char*)key2;
-	return ib_compare_bytes(x, strlen(x), y, strlen(y));
+	int hr = strcmp(x, y);
+	return (hr < 0)? -1 : (hr > 0)? 1 : 0;
 }
 
 
