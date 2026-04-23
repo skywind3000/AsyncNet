@@ -848,29 +848,49 @@ struct ib_hash_entry
 	void *value;
 };
 
+/* ib_hash_map callback semantics:
+ *
+ * key_copy:     called on new key insertion. NULL = use pointer directly.
+ * key_destroy:  called on key removal (erase/remove/clear/destroy).
+ *               NULL = keys are not freed.
+ * value_copy:   called on new value storage. NULL = use pointer directly.
+ * value_destroy: called on value removal (erase/remove/clear/destroy),
+ *               AND when ib_map_set replaces an existing value
+ *               (old value destroyed first, then new value assigned).
+ *               NULL = values are not freed.
+ *
+ * WARNING: ib_map_set on an existing key calls value_destroy on the
+ * old value before assigning the new one. If old and new value are
+ * the same pointer, this creates a dangling pointer (use-after-free).
+ */
 struct ib_hash_map
 {
-	int insert;
-	int fixed;
-	int builtin;
-	void* (*key_copy)(void *key);
-	void (*key_destroy)(void *key);
-	void* (*value_copy)(void *value);
-	void (*value_destroy)(void *value);
-	struct ib_fastbin fb;
-	struct ib_hash_table ht;
+	int insert;                      /* internal: last add was new insert */
+	int fixed;                       /* 1 = disable auto rehash */
+	int builtin;                     /* internal flag */
+	void* (*key_copy)(void *key);    /* deep-copy callback for keys */
+	void (*key_destroy)(void *key);  /* destructor callback for keys */
+	void* (*value_copy)(void *value);   /* deep-copy callback for values */
+	void (*value_destroy)(void *value); /* destructor callback for values */
+	struct ib_fastbin fb;            /* entry allocator (slab) */
+	struct ib_hash_table ht;         /* underlying hash table */
 };
 
 
 #define ib_hash_key(entry)     ((entry)->node.key)
 #define ib_hash_value(entry)   ((entry)->value)
 
+/* ib_map_init: initialize hash map. Callbacks default to NULL
+ * (no copy, no destroy). Set key_copy/key_destroy/value_copy/
+ * value_destroy before calling add/set/erase/clear/destroy. */
 void ib_map_init(struct ib_hash_map *hm, size_t (*hash)(const void*),
 		int (*compare)(const void *, const void *));
 
+/* ib_map_destroy: clear all entries (calling key_destroy/
+ * value_destroy), then free internal fastbin and hash table. */
 void ib_map_destroy(struct ib_hash_map *hm);
 
-/* iteration functions */
+/* iteration — no callback side effects */
 struct ib_hash_entry* ib_map_first(struct ib_hash_map *hm);
 struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm);
 
@@ -879,25 +899,40 @@ struct ib_hash_entry* ib_map_next(struct ib_hash_map *hm,
 struct ib_hash_entry* ib_map_prev(struct ib_hash_map *hm,
 		struct ib_hash_entry *n);
 
+/* ib_map_find: lookup by key. No callback side effects. */
 struct ib_hash_entry* ib_map_find(struct ib_hash_map *hm, const void *key);
 
+/* ib_map_lookup: find value or return defval. No callbacks. */
 void* ib_map_lookup(struct ib_hash_map *hm, const void *key, void *defval);
 
+/* ib_map_add: insert (key, value). Existing key -> *success=0,
+ * old value kept, new value ignored (no value_destroy on old).
+ * New key -> *success=1; key_copy/value_copy called if set. */
 struct ib_hash_entry* ib_map_add(struct ib_hash_map *hm,
 		void *key, void *value, int *success);
 
+/* ib_map_set: insert or replace. New key -> key_copy/value_copy
+ * if set. Existing key -> value_destroy on old value first,
+ * then value_copy on new value if set. See WARNING above. */
 struct ib_hash_entry* ib_map_set(struct ib_hash_map *hm,
 		void *key, void *value);
 
+/* ib_map_get: lookup value by key, NULL if not found. No callbacks. */
 void* ib_map_get(struct ib_hash_map *hm, const void *key);
 
+/* ib_map_erase: remove entry. Calls key_destroy on key and
+ * value_destroy on value. Entry struct freed via fastbin. */
 void ib_map_erase(struct ib_hash_map *hm, struct ib_hash_entry *entry);
 
+/* ib_map_reserve: pre-allocate bucket array. No callbacks. */
 void ib_map_reserve(struct ib_hash_map *hm, size_t capacity);
 
-/* returns 0 for success, -1 for key mismatch */
+/* ib_map_remove: find key and erase entry. Calls key_destroy
+ * and value_destroy. Returns 0 on success, -1 if key not found. */
 int ib_map_remove(struct ib_hash_map *hm, const void *key);
 
+/* ib_map_clear: remove all entries. Calls key_destroy and
+ * value_destroy on every entry. Entry structs freed via fastbin. */
 void ib_map_clear(struct ib_hash_map *hm);
 
 /* return object count in the hash map */
