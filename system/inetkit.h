@@ -291,7 +291,7 @@ struct CAsyncSplit {
 #define ASYNC_SPLIT_EBYTEMSB      11  // header: 1 byte MSB (exclude self)
 #define ASYNC_SPLIT_DWORDMASK     12  // header: 4 bytes LSB (self and mask)
 #define ASYNC_SPLIT_LINESPLIT     13  // header: '\n' split
-#define ASYNC_SPLIT_PREMITIVE     14  // header: raw data in premitive mode
+#define ASYNC_SPLIT_PRIMITIVE     14  // header: raw data in primitive mode
 
 
 //---------------------------------------------------------------------

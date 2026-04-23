@@ -10,7 +10,6 @@
 #ifndef __INETNOT_H__
 #define __INETNOT_H__
 
-#include "imemdata.h"
 #include "inetcode.h"
 
 

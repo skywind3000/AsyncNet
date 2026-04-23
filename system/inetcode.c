@@ -3339,7 +3339,7 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 	}
 	*out = '\0';
 	return (int)(out - saveout);
-};
+}
 
 
 /* polling */

@@ -28,6 +28,7 @@ void async_stream_zero(CAsyncStream *stream)
 	stream->underlying = NULL;
 	stream->underown = 0;
 	stream->hiwater = 0;
+	stream->lowater = 0;
 	stream->state = 0; // closed
 	stream->direction = 0; // no direction
 	stream->eof = 0; // no eof
@@ -187,11 +188,13 @@ static void async_pair_dispatch(CAsyncStream *stream, int event, int args);
 //---------------------------------------------------------------------
 // create a new pair stream
 //---------------------------------------------------------------------
-CAsyncStream *async_pair_new(CAsyncLoop *loop)
+static CAsyncStream *async_pair_new(CAsyncLoop *loop)
 {
 	CAsyncPair *pair = (CAsyncPair*)ikmem_malloc(sizeof(CAsyncPair));
 	CAsyncStream *stream;
-	assert(pair);
+	if (pair == NULL) {
+		return NULL;
+	}
 	stream = &(pair->stream);
 	async_stream_zero(stream);
 	stream->name = ASYNC_STREAM_NAME_PAIR;
@@ -384,11 +387,11 @@ static long async_pair_read(CAsyncStream *stream, void *ptr, long size)
 {
 	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	long hr = 0;
-	if (pair->partner == NULL) {
-		return -1; // no partner
+	if (pair->recvbuf.size == 0 && pair->partner == NULL) {
+		return -1; // no partner and no buffered data
 	}
 	hr = (long)ims_read(&pair->recvbuf, ptr, size);
-	if (hr > 0) {
+	if (hr > 0 && pair->partner != NULL) {
 		async_pair_check(stream, ASYNC_STREAM_INPUT);
 	}
 	return hr;
@@ -420,8 +423,8 @@ static long async_pair_peek(CAsyncStream *stream, void *ptr, long size)
 {
 	CAsyncPair *pair = async_stream_upcast(stream, CAsyncPair, stream);
 	long hr = 0;
-	if (pair->partner == NULL) {
-		return -1; // no partner
+	if (pair->recvbuf.size == 0 && pair->partner == NULL) {
+		return -1; // no partner and no buffered data
 	}
 	hr = (long)ims_peek(&pair->recvbuf, ptr, size);
 	return hr;
@@ -523,9 +526,14 @@ int async_stream_pair_new(CAsyncLoop *loop, CAsyncStream *pair[2])
 	CAsyncStream *s1, *s2;
 	CAsyncPair *p1, *p2;
 	s1 = async_pair_new(loop);
+	if (s1 == NULL) {
+		return -1;
+	}
 	s2 = async_pair_new(loop);
-	assert(s1);
-	assert(s2);
+	if (s2 == NULL) {
+		async_pair_close(s1);
+		return -1;
+	}
 	p1 = async_stream_upcast(s1, CAsyncPair, stream);
 	p2 = async_stream_upcast(s2, CAsyncPair, stream);
 	p1->partner = s2;
@@ -1653,7 +1661,7 @@ long async_split_hdr_peek(CAsyncStream *stream, int header, int *hdrsize)
 	hdrlen = async_split_head_len[header];
 	hdrinc = async_split_head_inc[header];
 
-	if (header == ASYNC_SPLIT_PREMITIVE) {
+	if (header == ASYNC_SPLIT_PRIMITIVE) {
 		len = (long)_async_stream_remain(stream);
 		if (len > ASYNC_LOOP_BUFFER_SIZE) 
 			return ASYNC_LOOP_BUFFER_SIZE;
@@ -1723,7 +1731,7 @@ void async_split_hdr_push(CAsyncStream *stream, int header, long size)
 
 	assert(stream);
 
-	if (header >= ASYNC_SPLIT_PREMITIVE) return;
+	if (header >= ASYNC_SPLIT_PRIMITIVE) return;
 
 	hdrlen = async_split_head_len[header];
 	hdrinc = async_split_head_inc[header];
@@ -2510,7 +2518,7 @@ static void async_msg_evt_sem(CAsyncLoop *loop, CAsyncSemaphore *sem)
 	int size;
 	msg->busy = 1;
 	while (1) {
-		IINT32 wparam = 0, lparam = 0, mid;
+		IINT32 wparam = 0, lparam = 0, mid = 0;
 		if (msg->releasing) break;
 		IMUTEX_LOCK(&msg->lock);
 		msg->signaled = 0;

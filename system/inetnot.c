@@ -63,11 +63,11 @@ struct CAsyncNotify
 	struct ILISTHEAD idle;		// idle queue
 	struct IVECTOR *vector;		// buffer for data
 	struct CAsyncNode *nodes;	// hid -> nodes look-up table
-	idict_t *sid2hid_in;		// sid -> hid look-up table
-	idict_t *sid2hid_out;		// out sid -> hid
-	idict_t *sid2addr;			// sid -> addr
-	idict_t *allowip;			// ip white list
-	idict_t *sidblack;			// black list 
+	struct ib_hash_map sid2hid_in;	// sid -> hid look-up table
+	struct ib_hash_map sid2hid_out;	// out sid -> hid
+	struct ib_hash_map sid2addr;	// sid -> addr (value: isockaddr_union*)
+	struct ib_hash_map allowip;		// ip white list (key: ib_string*)
+	struct ib_hash_map sidblack;	// black list 
 	IUINT32 current;			// current millisec
 	ivalue_t token;				// authentication token
 	IINT64 seconds;				// seconds since UTC 1970.1.1 00:00:00
@@ -237,7 +237,7 @@ static CAsyncNode *async_notify_node_first(CAsyncNotify *notify, int q)
 // get hid by sid
 static long async_notify_get(CAsyncNotify *self, int mode, int sid)
 {
-	ilong value = -1;
+	struct ib_hash_entry *e;
 	if (sid < 0) return -1;
 	if (mode == ASYNC_CORE_NODE_IN) {
 	#ifndef ASYNC_NOTIFY_NO_FAST
@@ -245,9 +245,8 @@ static long async_notify_get(CAsyncNotify *self, int mode, int sid)
 			return self->sid2hid[sid];
 		}
 	#endif
-		if (idict_search_ii(self->sid2hid_in, sid, &value) == 0) {
-			return (long)value;
-		}
+		e = ib_map_find_int(&self->sid2hid_in, (ilong)sid);
+		if (e) return (long)(ilong)e->value;
 	}
 	else if (mode == ASYNC_CORE_NODE_OUT) {
 	#ifndef ASYNC_NOTIFY_NO_FAST
@@ -255,9 +254,8 @@ static long async_notify_get(CAsyncNotify *self, int mode, int sid)
 			return self->sid2hid[sid + 0x8000];
 		}
 	#endif
-		if (idict_search_ii(self->sid2hid_out, sid, &value) == 0) {
-			return (long)value;
-		}
+		e = ib_map_find_int(&self->sid2hid_out, (ilong)sid);
+		if (e) return (long)(ilong)e->value;
 	}
 	return -1;
 }
@@ -273,9 +271,9 @@ static void async_notify_set(CAsyncNotify *self, int mode, int sid, long hid)
 		}
 	#endif
 		if (hid < 0) {
-			idict_del_i(self->sid2hid_in, sid);
+			ib_map_remove(&self->sid2hid_in, (void*)(ilong)sid);
 		}	else {
-			idict_update_ii(self->sid2hid_in, sid, hid);
+			ib_map_set(&self->sid2hid_in, (void*)(ilong)sid, (void*)(ilong)hid);
 		}
 	}
 	else if (mode == ASYNC_CORE_NODE_OUT) {
@@ -286,9 +284,9 @@ static void async_notify_set(CAsyncNotify *self, int mode, int sid, long hid)
 		}
 	#endif
 		if (hid < 0) {
-			idict_del_i(self->sid2hid_out, sid);
+			ib_map_remove(&self->sid2hid_out, (void*)(ilong)sid);
 		}	else {
-			idict_update_ii(self->sid2hid_out, sid, hid);
+			ib_map_set(&self->sid2hid_out, (void*)(ilong)sid, (void*)(ilong)hid);
 		}
 	}
 }
@@ -298,32 +296,26 @@ static void async_notify_black_set(CAsyncNotify *notify, int sid, int mode)
 {
 	long seconds = (long)notify->seconds;
 	if (mode == 0) {
-		idict_del_i(notify->sidblack, sid);
+		ib_map_remove(&notify->sidblack, (void*)(ilong)sid);
 	}	else {
-		idict_update_is(notify->sidblack, sid, 
-			(char*)&seconds, sizeof(long));
+		ib_map_set(&notify->sidblack, (void*)(ilong)sid, (void*)(ilong)seconds);
 	}
 }
 
 // check sid blacklist
 static int async_notify_black_check(CAsyncNotify *notify, int sid)
 {
+	struct ib_hash_entry *e;
 	long seconds;
-	char *ptr;
-	ilong size;
-	if (idict_search_is(notify->sidblack, sid, &ptr, &size) != 0) return 0;
-	if (size != (int)sizeof(long)) {
-		assert(size == (int)sizeof(long));
-		idict_del_i(notify->sidblack, sid);
-		return 0;
-	}
-	seconds = *((long*)ptr);
+	e = ib_map_find_int(&notify->sidblack, (ilong)sid);
+	if (e == NULL) return 0;
+	seconds = (long)(ilong)e->value;
 	if (notify->cfg.retry_seconds > 0) {
 		if (notify->seconds - seconds <= notify->cfg.retry_seconds) {
 			return 1;
 		}
 	}
-	idict_del_i(notify->sidblack, sid);
+	ib_map_remove(&notify->sidblack, (void*)(ilong)sid);
 	return 0;
 }
 
@@ -417,19 +409,17 @@ CAsyncNotify* async_notify_new(CAsyncLoop *loop, int serverid)
 
 	IMUTEX_INIT(&notify->lock);
 
-	notify->sid2hid_in = idict_create();
-	notify->sid2hid_out = idict_create();
-	notify->sid2addr = idict_create();
-	notify->allowip = idict_create();
-	notify->sidblack = idict_create();
+	ib_map_init(&notify->sid2hid_in, ib_hash_func_int, ib_hash_compare_int);
+	ib_map_init(&notify->sid2hid_out, ib_hash_func_int, ib_hash_compare_int);
+	ib_map_init(&notify->sid2addr, ib_hash_func_int, ib_hash_compare_int);
+	notify->sid2addr.value_destroy = (void (*)(void*))ikmem_free;
+	ib_map_init(&notify->allowip, ib_hash_func_str, ib_hash_compare_str);
+	notify->allowip.key_copy = ib_hash_str_copy;
+	notify->allowip.key_destroy = ib_hash_str_destroy;
+	ib_map_init(&notify->sidblack, ib_hash_func_int, ib_hash_compare_int);
 	notify->sid2hid = (long*)ikmem_malloc(sizeof(long) * 0x10000);
-	
-	if (notify->sid2hid_in == NULL || 
-		notify->sid2hid_out == NULL ||
-		notify->sid2addr == NULL ||
-		notify->allowip == NULL ||
-		notify->sidblack == NULL ||
-		notify->nodes == NULL ||
+
+	if (notify->nodes == NULL ||
 		notify->sid2hid == NULL ||
 		notify->core == NULL) {
 		async_notify_delete(notify);
@@ -485,30 +475,11 @@ void async_notify_delete(CAsyncNotify *notify)
 		notify->nodes = NULL;
 	}
 
-	if (notify->allowip) {
-		idict_delete(notify->allowip);
-		notify->allowip = NULL;
-	}
-
-	if (notify->sidblack) {
-		idict_delete(notify->sidblack);
-		notify->sidblack = NULL;
-	}
-
-	if (notify->sid2addr) {
-		idict_delete(notify->sid2addr);
-		notify->sid2addr = NULL;
-	}
-
-	if (notify->sid2hid_in) {
-		idict_delete(notify->sid2hid_in);
-		notify->sid2hid_in = NULL;
-	}
-
-	if (notify->sid2hid_out) {
-		idict_delete(notify->sid2hid_out);
-		notify->sid2hid_out = NULL;
-	}
+	ib_map_destroy(&notify->allowip);
+	ib_map_destroy(&notify->sidblack);
+	ib_map_destroy(&notify->sid2addr);
+	ib_map_destroy(&notify->sid2hid_in);
+	ib_map_destroy(&notify->sid2hid_out);
 
 	if (notify->sid2hid) {
 		ikmem_free(notify->sid2hid);
@@ -568,23 +539,31 @@ void async_notify_change(CAsyncNotify *notify, int new_server_id)
 void async_notify_allow_clear(CAsyncNotify *notify)
 {
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	idict_clear(notify->allowip);
+	ib_map_clear(&notify->allowip);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
 
 // add or update ip in allow table
 void async_notify_allow_add(CAsyncNotify *notify, const void *ip, int size)
 {
+	ib_string *key;
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	idict_update_si(notify->allowip, (const char*)ip, size, 1);
+	key = ib_string_new_size((const char*)ip, size);
+	ib_map_set(&notify->allowip, key, (void*)(ilong)1);
+	ib_string_delete(key);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
 
 // remove ip
 void async_notify_allow_del(CAsyncNotify *notify, const void *ip, int size)
 {
+	ib_string key;
+	struct ib_hash_entry *e;
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	idict_del_s(notify->allowip, (const char*)ip, size);
+	key.ptr = (char*)ip;
+	key.size = size;
+	e = ib_map_find_str(&notify->allowip, &key);
+	if (e) ib_map_erase(&notify->allowip, e);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
 
@@ -597,11 +576,12 @@ void async_notify_allow_enable(CAsyncNotify *notify, int enable)
 }
 
 // check ip: returns zero for not find, 1 for exists
-static int async_notify_allow_check(CAsyncNotify *notify, 
+static int async_notify_allow_check(CAsyncNotify *notify,
 	const struct sockaddr *remote, int size)
 {
 	char *ip;
-	ilong check = 0;
+	ib_string key;
+	struct ib_hash_entry *e;
 	if (size <= 0) size = sizeof(struct sockaddr_in);
 	if (size > (int)sizeof(struct sockaddr_in) && size > 16) {
 	#ifdef AF_INET6
@@ -616,8 +596,10 @@ static int async_notify_allow_check(CAsyncNotify *notify,
 		ip = (char*)(&(remote4->sin_addr.s_addr));
 		size = 4;
 	}
-	if (idict_search_si(notify->allowip, ip, size, &check) != 0) 
-		return 0;
+	key.ptr = ip;
+	key.size = size;
+	e = ib_map_find_str(&notify->allowip, &key);
+	if (e == NULL) return 0;
 	return 1;
 }
 
@@ -648,13 +630,17 @@ static int async_notify_firewall(const struct sockaddr *remote, int len,
 void async_notify_sid_add(CAsyncNotify *notify, int sid,
 	const struct sockaddr *remote, int size)
 {
+	isockaddr_union *addr;
 	char epname[128];
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
 	if (size <= 0) size = sizeof(struct sockaddr_in);
-	idict_update_is(notify->sid2addr, sid, (const char*)remote, size);
+	addr = (isockaddr_union*)ikmem_malloc(sizeof(isockaddr_union));
+	memset(addr, 0, sizeof(isockaddr_union));
+	memcpy(addr, remote, size);
+	ib_map_set(&notify->sid2addr, (void*)(ilong)sid, addr);
 	async_notify_black_set(notify, sid, 0);
 	async_notify_epname(epname, remote, size);
-	async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO, 
+	async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO,
 		"server add: sid=%d address=%s", sid, epname);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
@@ -663,8 +649,8 @@ void async_notify_sid_add(CAsyncNotify *notify, int sid,
 void async_notify_sid_del(CAsyncNotify *notify, int sid)
 {
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	idict_del_i(notify->sid2addr, sid);
-	async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO, 
+	ib_map_remove(&notify->sid2addr, (void*)(ilong)sid);
+	async_notify_log(notify, ASYNC_NOTIFY_LOG_INFO,
 		"server del: sid=%d", sid);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
@@ -673,15 +659,21 @@ void async_notify_sid_del(CAsyncNotify *notify, int sid)
 static int async_notify_sid_get(CAsyncNotify *notify, int sid,
 	struct sockaddr *remote, int size)
 {
-	char *text;
-	ilong length;
-	if (idict_search_is(notify->sid2addr, sid, &text, &length) == 0) {
-		if (size <= 0) size = sizeof(struct sockaddr_in);
-		if (size < length) return -2;
-		memcpy(remote, text, length);
-		return (int)length;
+	struct ib_hash_entry *e;
+	isockaddr_union *addr;
+	int addrlen;
+	e = ib_map_find_int(&notify->sid2addr, (ilong)sid);
+	if (e == NULL) return -1;
+	addr = (isockaddr_union*)e->value;
+	if (addr->address.sa_family == AF_INET6) {
+		addrlen = sizeof(struct sockaddr_in6);
+	}	else {
+		addrlen = sizeof(struct sockaddr_in);
 	}
-	return -1;
+	if (size <= 0) size = sizeof(struct sockaddr_in);
+	if (size < addrlen) return -2;
+	memcpy(remote, addr, addrlen);
+	return addrlen;
 }
 
 // list sids into an array
@@ -690,22 +682,19 @@ int async_notify_sid_list(CAsyncNotify *notify, int *sids, int maxsize)
 	int size = 0;
 	int i = 0;
 	int hr = 0;
-	ilong pos;
+	struct ib_hash_entry *e;
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	size = (int)notify->sid2addr->size;
+	size = (int)ib_map_count(&notify->sid2addr);
 	if (sids == NULL) {
 		hr = size;
-	}	
+	}
 	else if (maxsize < size) {
 		hr = -size;
-	}	
+	}
 	else {
-		pos = idict_pos_head(notify->sid2addr);
-		while (pos >= 0) {
-			ivalue_t *key = idict_pos_get_key(notify->sid2addr, pos);
-			assert(key != NULL);
-			sids[i++] = (int)it_int(key);
-			pos = idict_pos_next(notify->sid2addr, pos);
+		for (e = ib_map_first(&notify->sid2addr); e != NULL;
+			e = ib_map_next(&notify->sid2addr, e)) {
+			sids[i++] = (int)(ilong)ib_hash_key(e);
 		}
 		hr = size;
 	}
@@ -717,7 +706,7 @@ int async_notify_sid_list(CAsyncNotify *notify, int *sids, int maxsize)
 void async_notify_sid_clear(CAsyncNotify *notify)
 {
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
-	idict_clear(notify->sid2addr);
+	ib_map_clear(&notify->sid2addr);
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }
 
