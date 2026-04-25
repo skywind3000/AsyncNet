@@ -226,6 +226,26 @@ ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
 // STR/BIN compare bytes then length, ARRAY/MAP return 0.
 int ib_object_compare(const ib_object *a, const ib_object *b);
 
+// deep equal comparison. Returns 1 if equal, 0 if not.
+// NULL vs NULL → 1; NULL vs non-NULL → 0.
+// Different types → 0. Same type rules:
+// NIL → always equal; BOOL/INT → integer == integer;
+// DOUBLE → dval == dval; STR → same size + same bytes;
+// BIN → same size + same bytes; ARRAY → same size + each element equal;
+// MAP → same size + each key in A found in B with equal value.
+int ib_object_equal(const ib_object *a, const ib_object *b);
+
+// compute 32-bit hash of entire object tree (FNV1a, recursive).
+// NIL → hash type tag; BOOL/INT → hash integer bytes;
+// DOUBLE → hash dval bytes; STR/BIN → hash size + content bytes;
+// ARRAY → hash type tag + each element; MAP → hash type tag + each pair.
+IUINT32 ib_object_hash(const ib_object *obj);
+
+// create a new string object from C string (strlen auto).
+// Equivalent to ib_object_new_str(alloc, str, (int)strlen(str)).
+// Returns NULL if str is NULL or allocation fails.
+ib_object *ib_object_new_str_cstr(struct IALLOCATOR *alloc, const char *str);
+
 
 //---------------------------------------------------------------------
 // ib_object - L3: mutation operations (require FLAG_OWNED)
@@ -269,6 +289,11 @@ ib_object *ib_object_array_replace(ib_object *arr,
 // clear all items (recursive delete each), size resets to 0.
 // preserves element buffer and capacity. asserts arr has FLAG_OWNED.
 void ib_object_array_clear(struct IALLOCATOR *alloc, ib_object *arr);
+
+// pop last item from array (LIFO, inverse of push).
+// Returns detached item (caller owns it), NULL if arr is NULL or empty.
+// asserts arr has FLAG_OWNED.
+ib_object *ib_object_array_pop(ib_object *arr);
 
 
 // map mutation (ib_object *key)
@@ -399,6 +424,52 @@ int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj);
 
 
 //---------------------------------------------------------------------
+// ib_object - path access (L3, dot-path navigation)
+//
+// Navigate nested ib_object trees using a dot-separated path string.
+// Path syntax:
+//   "key"           -> MAP lookup by key "key"
+//   "a.b"           -> MAP["a"]->MAP["b"]
+//   "items[0]"      -> MAP["items"]->ARRAY[0]
+//   "a.b[2].c"      -> MAP["a"]->MAP["b"]->ARRAY[2]->MAP["c"]
+//   "[3]"           -> ARRAY[3] (root object is an array)
+//
+// '.' separates path segments. Each segment is either:
+//   - a MAP key (alphabetic/key characters, until '.' or '[' or end)
+//   - an ARRAY index in brackets: [N] where N is a 0-based integer
+//
+// A segment like "items[0]" means: first lookup MAP key "items",
+// then access ARRAY element at index 0 — two navigation steps.
+//
+// Empty path "" returns the object itself. NULL path returns NULL/-1.
+//---------------------------------------------------------------------
+
+// navigate to a sub-object by dot-path. Read-only, no FLAG_OWNED required.
+// returns NULL if obj/path is NULL, any segment doesn't exist,
+// or a type mismatch (e.g. '[N]' on a MAP, key on an ARRAY).
+ib_object *ib_object_path_get(const ib_object *obj, const char *path);
+
+// set value at dot-path (upsert). Auto-creates intermediate MAP nodes
+// if they don't exist. ARRAY nodes are never auto-created (parent must
+// be an existing ARRAY with valid index). val ownership transfers on
+// success; NOT consumed on failure. asserts obj has FLAG_OWNED.
+// returns 0 on success, -1 on failure.
+int ib_object_path_set(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *path, ib_object *val);
+
+// erase sub-object at dot-path (recursive delete of leaf node).
+// navigates to parent, then removes the final segment.
+// asserts obj has FLAG_OWNED. returns 0 if found/erased, -1 if not found.
+int ib_object_path_erase(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *path);
+
+// check whether a dot-path resolves to a non-NULL sub-object.
+// returns 1 if path exists, 0 if not found or obj/path is NULL.
+// does not require FLAG_OWNED.
+int ib_object_path_exists(const ib_object *obj, const char *path);
+
+
+//---------------------------------------------------------------------
 // ib_object - type check macros
 //---------------------------------------------------------------------
 #define ib_object_is_nil(o)     ((o)->type == IB_OBJECT_NIL)
@@ -409,6 +480,28 @@ int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj);
 #define ib_object_is_bin(o)     ((o)->type == IB_OBJECT_BIN)
 #define ib_object_is_array(o)   ((o)->type == IB_OBJECT_ARRAY)
 #define ib_object_is_map(o)     ((o)->type == IB_OBJECT_MAP)
+
+
+//---------------------------------------------------------------------
+// ib_object - read-only convenience helpers
+//---------------------------------------------------------------------
+
+// safe int extraction: INT → integer, BOOL → 0 or 1, else defval.
+IINT64 ib_object_as_int(const ib_object *obj, IINT64 defval);
+
+// safe double extraction: DOUBLE → dval, INT → cast to double, else defval.
+double ib_object_as_double(const ib_object *obj, double defval);
+
+// safe bool extraction: BOOL → 0 or 1, INT → 0 is false else true, else defval.
+int ib_object_as_bool(const ib_object *obj, int defval);
+
+// safe str extraction: STR → obj->str pointer, else defval.
+// Returned pointer length is obj->size, null-terminated for OWNED objects.
+const char *ib_object_as_str(const ib_object *obj, const char *defval);
+
+// find first element equal to item (using ib_object_equal).
+// Returns 0-based index, -1 if not found or arr is NULL.
+int ib_object_array_find(const ib_object *arr, const ib_object *item);
 
 
 //=====================================================================

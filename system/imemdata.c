@@ -448,6 +448,104 @@ int ib_object_compare(const ib_object *a, const ib_object *b)
 }
 
 
+int ib_object_equal(const ib_object *a, const ib_object *b)
+{
+	int i;
+	if (a == b) return 1;
+	if (a == NULL || b == NULL) return 0;
+	if (a->type != b->type) return 0;
+	switch (a->type) {
+	case IB_OBJECT_NIL:
+		return 1;
+	case IB_OBJECT_BOOL:
+	case IB_OBJECT_INT:
+		return a->integer == b->integer;
+	case IB_OBJECT_DOUBLE:
+		return a->dval == b->dval;
+	case IB_OBJECT_STR:
+	case IB_OBJECT_BIN:
+		if (a->size != b->size) return 0;
+		return memcmp(a->str, b->str, (size_t)a->size) == 0;
+	case IB_OBJECT_ARRAY:
+		if (a->size != b->size) return 0;
+		for (i = 0; i < a->size; i++) {
+			if (!ib_object_equal(a->element[i], b->element[i]))
+				return 0;
+		}
+		return 1;
+	case IB_OBJECT_MAP:
+		if (a->size != b->size) return 0;
+		for (i = 0; i < a->size; i++) {
+			ib_object *k = ib_object_map_key(a, i);
+			ib_object *v2 = ib_object_map_get(b, k);
+			if (v2 == NULL) return 0;
+			if (!ib_object_equal(ib_object_map_val(a, i), v2))
+				return 0;
+		}
+		return 1;
+	default:
+		return 0;
+	}
+}
+
+IUINT32 ib_object_hash(const ib_object *obj)
+{
+	IUINT32 h;
+	int i;
+	if (obj == NULL) return 0;
+	h = inc_hash_fnv1a(IB_OBJECT_FLAG_DYNAMIC, (IUINT32)obj->type);
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		break;
+	case IB_OBJECT_BOOL:
+	case IB_OBJECT_INT:
+	{
+		IUINT64 v = (IUINT64)obj->integer;
+		h = inc_hash_fnv1a(h, (IUINT32)(v & 0xffffffff));
+		h = inc_hash_fnv1a(h, (IUINT32)(v >> 32));
+		break;
+	}
+	case IB_OBJECT_DOUBLE:
+	{
+		IUINT64 v;
+		memcpy(&v, &obj->dval, sizeof(v));
+		h = inc_hash_fnv1a(h, (IUINT32)(v & 0xffffffff));
+		h = inc_hash_fnv1a(h, (IUINT32)(v >> 32));
+		break;
+	}
+	case IB_OBJECT_STR:
+	case IB_OBJECT_BIN:
+		h = inc_hash_fnv1a(h, (IUINT32)obj->size);
+		for (i = 0; i < obj->size; i++) {
+			h = inc_hash_fnv1a(h, (IUINT32)obj->str[i]);
+		}
+		break;
+	case IB_OBJECT_ARRAY:
+		for (i = 0; i < obj->size; i++) {
+			h = inc_hash_fnv1a(h, ib_object_hash(obj->element[i]));
+		}
+		break;
+	case IB_OBJECT_MAP:
+		for (i = 0; i < obj->size; i++) {
+			h = inc_hash_fnv1a(h,
+					ib_object_hash(ib_object_map_key(obj, i)));
+			h = inc_hash_fnv1a(h,
+					ib_object_hash(ib_object_map_val(obj, i)));
+		}
+		break;
+	default:
+		break;
+	}
+	return h;
+}
+
+ib_object *ib_object_new_str_cstr(struct IALLOCATOR *alloc, const char *str)
+{
+	if (str == NULL) return NULL;
+	return ib_object_new_str(alloc, str, (int)strlen(str));
+}
+
+
 //---------------------------------------------------------------------
 // ib_object - L3: mutation operations (require FLAG_OWNED)
 //---------------------------------------------------------------------
@@ -542,6 +640,19 @@ void ib_object_array_clear(struct IALLOCATOR *alloc, ib_object *arr)
 		}
 	}
 	arr->size = 0;
+}
+
+ib_object *ib_object_array_pop(ib_object *arr)
+{
+	ib_object *item;
+	if (arr == NULL) return NULL;
+	assert(arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	if (arr->size <= 0) return NULL;
+	item = arr->element[arr->size - 1];
+	arr->element[arr->size - 1] = NULL;
+	arr->size--;
+	return item;
 }
 
 
@@ -1046,6 +1157,312 @@ ib_object *ib_object_map_detach_int(struct IALLOCATOR *alloc,
 	return ib_object_map_detach(alloc, map, &needle);
 }
 
+
+//---------------------------------------------------------------------
+// ib_object - read-only convenience helpers
+//---------------------------------------------------------------------
+
+IINT64 ib_object_as_int(const ib_object *obj, IINT64 defval)
+{
+	if (obj == NULL) return defval;
+	if (obj->type == IB_OBJECT_INT) return obj->integer;
+	if (obj->type == IB_OBJECT_BOOL) return obj->integer;
+	return defval;
+}
+
+double ib_object_as_double(const ib_object *obj, double defval)
+{
+	if (obj == NULL) return defval;
+	if (obj->type == IB_OBJECT_DOUBLE) return obj->dval;
+	if (obj->type == IB_OBJECT_INT) return (double)obj->integer;
+	return defval;
+}
+
+int ib_object_as_bool(const ib_object *obj, int defval)
+{
+	if (obj == NULL) return defval;
+	if (obj->type == IB_OBJECT_BOOL) return (int)obj->integer;
+	if (obj->type == IB_OBJECT_INT) return (obj->integer != 0) ? 1 : 0;
+	return defval;
+}
+
+const char *ib_object_as_str(const ib_object *obj, const char *defval)
+{
+	if (obj == NULL) return defval;
+	if (obj->type == IB_OBJECT_STR) return (const char*)obj->str;
+	return defval;
+}
+
+int ib_object_array_find(const ib_object *arr, const ib_object *item)
+{
+	int i;
+	if (arr == NULL) return -1;
+	assert(arr->type == IB_OBJECT_ARRAY);
+	for (i = 0; i < arr->size; i++) {
+		if (ib_object_equal(arr->element[i], item))
+			return i;
+	}
+	return -1;
+}
+
+
+//---------------------------------------------------------------------
+// ib_object - path access (dot-path navigation)
+//---------------------------------------------------------------------
+
+// internal: parse one path segment starting at path[pos].
+// segment types: 0 = MAP key, 1 = ARRAY index.
+// for MAP key: *key_out points into path, *key_len is segment length.
+// for ARRAY index: *idx_out receives the 0-based index.
+// advances *pos past the consumed characters.
+// returns -1 on syntax error, 0 on MAP key, 1 on ARRAY index.
+static int ib_object_path_segment(const char *path, int *pos,
+		const char **key_out, int *key_len, int *idx_out)
+{
+	int p = *pos;
+	if (path[p] == '[') {
+		// array index: [N]
+		int idx = 0, digits = 0;
+		p++;  // skip '['
+		while (path[p] >= '0' && path[p] <= '9') {
+			idx = idx * 10 + (path[p] - '0');
+			digits++;
+			p++;
+		}
+		if (digits == 0 || path[p] != ']') return -1;
+		p++;  // skip ']'
+		if (path[p] == '.') p++;  // skip trailing '.'
+		*idx_out = idx;
+		*pos = p;
+		return 1;
+	}
+	else {
+		// MAP key: read until '.', '[' or end
+		int start = p;
+		while (path[p] != '\0' && path[p] != '.' && path[p] != '[') {
+			p++;
+		}
+		if (p == start) return -1;  // empty key segment
+		*key_out = path + start;
+		*key_len = p - start;
+		if (path[p] == '.') p++;  // skip trailing '.'
+		*pos = p;
+		return 0;
+	}
+}
+
+// internal: navigate one step from 'current' based on segment type.
+// seg_type: 0=MAP key (use key/key_len), 1=ARRAY index (use idx).
+// returns NULL on mismatch or missing element.
+static ib_object *ib_object_path_step(const ib_object *current,
+		int seg_type, const char *key, int key_len, int idx)
+{
+	if (seg_type == 1) {
+		// array index
+		if (current == NULL || current->type != IB_OBJECT_ARRAY) return NULL;
+		if (idx < 0 || idx >= current->size) return NULL;
+		return current->element[idx];
+	}
+	else {
+		// MAP key: use needle on stack for zero-alloc lookup
+		ib_object needle;
+		if (current == NULL || current->type != IB_OBJECT_MAP) return NULL;
+		ib_object_init_str(&needle, key, key_len);
+		return ib_object_map_get(current, &needle);
+	}
+}
+
+ib_object *ib_object_path_get(const ib_object *obj, const char *path)
+{
+	const ib_object *current;
+	int pos, seg_type, idx;
+	const char *key;
+	int key_len;
+	if (obj == NULL || path == NULL) return NULL;
+	if (path[0] == '\0') return (ib_object*)obj;
+	current = obj;
+	pos = 0;
+	while (path[pos] != '\0') {
+		seg_type = ib_object_path_segment(path, &pos, &key, &key_len, &idx);
+		if (seg_type < 0) return NULL;
+		current = ib_object_path_step(current, seg_type, key, key_len, idx);
+		if (current == NULL) return NULL;
+	}
+	return (ib_object*)current;
+}
+
+int ib_object_path_exists(const ib_object *obj, const char *path)
+{
+	return (ib_object_path_get(obj, path) != NULL) ? 1 : 0;
+}
+
+int ib_object_path_set(struct IALLOCATOR *alloc,
+		ib_object *obj, const char *path, ib_object *val)
+{
+	ib_object *current, *next;
+	int pos, seg_type, idx, last_seg_type;
+	const char *key, *last_key;
+	int key_len, last_key_len;
+	int last_idx;
+	int p_next;
+	if (obj == NULL || path == NULL) return -1;
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (path[0] == '\0') return -1;  // empty path: cannot set root
+	// first pass: navigate to parent of the last segment,
+	// auto-creating intermediate MAP nodes as needed
+	current = obj;
+	pos = 0;
+	// parse first segment to see if there's more
+	seg_type = ib_object_path_segment(path, &pos, &key, &key_len, &idx);
+	if (seg_type < 0) return -1;
+	// if this is the only segment, set directly on obj
+	if (path[pos] == '\0') {
+		if (seg_type == 1) {
+			// array index on root
+			if (obj->type != IB_OBJECT_ARRAY) return -1;
+			if (idx < 0 || idx >= obj->size) return -1;
+			ib_object *old = ib_object_array_replace(obj, idx, val);
+			if (old) ib_object_delete(alloc, old);
+			return 0;
+		}
+		else {
+			// MAP key on root
+			if (obj->type != IB_OBJECT_MAP) return -1;
+			return ib_object_map_set_str(alloc, obj, key, val);
+		}
+	}
+	// multi-segment path: navigate and auto-create intermediate MAPs
+	last_seg_type = seg_type;
+	last_key = key;
+	last_key_len = key_len;
+	last_idx = idx;
+	for (;;) {
+		// parse next segment
+		p_next = pos;
+		int next_type = ib_object_path_segment(path, &p_next,
+				&key, &key_len, &idx);
+		if (next_type < 0) return -1;
+		// current segment is not the last one — navigate or create
+		if (last_seg_type == 1) {
+			// array index step: must exist, cannot auto-create
+			if (current->type != IB_OBJECT_ARRAY) return -1;
+			if (last_idx < 0 || last_idx >= current->size) return -1;
+			next = current->element[last_idx];
+		}
+		else {
+			// MAP key step: navigate or auto-create MAP
+			if (current->type != IB_OBJECT_MAP) return -1;
+			ib_object needle;
+			ib_object_init_str(&needle, last_key, last_key_len);
+			next = ib_object_map_get(current, &needle);
+			if (next == NULL) {
+				// auto-create intermediate MAP node
+				next = ib_object_new_map(alloc, 4);
+				if (next == NULL) return -1;
+				ib_object *k = ib_object_new_str(alloc, last_key, last_key_len);
+				if (k == NULL) {
+					ib_object_delete(alloc, next);
+					return -1;
+				}
+				int hr = ib_object_map_add(alloc, current, k, next);
+				if (hr != 0) {
+					ib_object_delete(alloc, k);
+					ib_object_delete(alloc, next);
+					return -1;
+				}
+			}
+		}
+		// check if next segment is the last one
+		if (path[p_next] == '\0') {
+			// 'next' is the parent of the final segment
+			// the final segment info is in (next_type, key, key_len, idx)
+			if (next_type == 1) {
+				if (next->type != IB_OBJECT_ARRAY) return -1;
+				if (idx < 0 || idx >= next->size) return -1;
+				ib_object *old = ib_object_array_replace(next, idx, val);
+				if (old) ib_object_delete(alloc, old);
+				return 0;
+			}
+			else {
+				if (next->type != IB_OBJECT_MAP) return -1;
+				return ib_object_map_set_str(alloc, next, key, val);
+			}
+		}
+		// advance to next
+		current = next;
+		pos = p_next;
+		last_seg_type = next_type;
+		last_key = key;
+		last_key_len = key_len;
+		last_idx = idx;
+	}
+}
+
+int ib_object_path_erase(struct IALLOCATOR *alloc,
+		ib_object *obj, const char *path)
+{
+	ib_object *parent;
+	int pos, seg_type, last_seg_type, idx, last_idx;
+	const char *key, *last_key;
+	int key_len, last_key_len;
+	int p_next;
+	if (obj == NULL || path == NULL) return -1;
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (path[0] == '\0') return -1;  // cannot erase root
+	// single-segment path
+	pos = 0;
+	seg_type = ib_object_path_segment(path, &pos, &key, &key_len, &idx);
+	if (seg_type < 0) return -1;
+	if (path[pos] == '\0') {
+		// erase directly on root
+		if (seg_type == 1) {
+			if (obj->type != IB_OBJECT_ARRAY) return -1;
+			if (idx < 0 || idx >= obj->size) return -1;
+			ib_object_array_erase(alloc, obj, idx);
+			return 0;
+		}
+		else {
+			if (obj->type != IB_OBJECT_MAP) return -1;
+			return ib_object_map_erase_str(alloc, obj, key);
+		}
+	}
+	// multi-segment path: navigate to parent, then erase last segment
+	parent = obj;
+	last_seg_type = seg_type;
+	last_key = key;
+	last_key_len = key_len;
+	last_idx = idx;
+	for (;;) {
+		p_next = pos;
+		int next_type = ib_object_path_segment(path, &p_next,
+				&key, &key_len, &idx);
+		if (next_type < 0) return -1;
+		if (path[p_next] == '\0') {
+			// parent is 'parent', final segment info in
+			// (last_seg_type, last_key, last_key_len, last_idx)
+			if (last_seg_type == 1) {
+				if (parent->type != IB_OBJECT_ARRAY) return -1;
+				if (last_idx < 0 || last_idx >= parent->size) return -1;
+				ib_object_array_erase(alloc, parent, last_idx);
+				return 0;
+			}
+			else {
+				if (parent->type != IB_OBJECT_MAP) return -1;
+				return ib_object_map_erase_str(alloc, parent, last_key);
+			}
+		}
+		// navigate one step
+		ib_object *step = ib_object_path_step(parent,
+				last_seg_type, last_key, last_key_len, last_idx);
+		if (step == NULL) return -1;
+		parent = step;
+		pos = p_next;
+		last_seg_type = next_type;
+		last_key = key;
+		last_key_len = key_len;
+		last_idx = idx;
+	}
+}
 
 
 //=====================================================================

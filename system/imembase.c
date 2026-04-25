@@ -1495,6 +1495,30 @@ void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 /* string                                                             */
 /*--------------------------------------------------------------------*/
 
+/* initialize a string on the stack (no heap allocation for the struct) */
+void ib_string_init(ib_string *str)
+{
+	ASSERTION(str);
+	str->ptr = str->sso;
+	str->size = 0;
+	str->capacity = IB_STRING_SSO;
+	str->ptr[0] = 0;
+}
+
+/* destroy a stack-initialized string (free internal buffer if not SSO) */
+void ib_string_destroy(ib_string *str)
+{
+	ASSERTION(str);
+	if (str) {
+		if (str->ptr && str->ptr != str->sso)
+			ikmem_free(str->ptr);
+		str->ptr = str->sso;
+		str->size = 0;
+		str->capacity = IB_STRING_SSO;
+		str->sso[0] = 0;
+	}
+}
+
 ib_string* ib_string_new(void)
 {
 	struct ib_string* str = (ib_string*)ikmem_malloc(sizeof(ib_string));

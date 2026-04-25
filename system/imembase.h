@@ -420,6 +420,21 @@ typedef struct ILISTHEAD ilist_head;
 #define ilist_foreach_entry(pos, head) \
 	for( (pos) = (head)->next; (pos) != (head) ; (pos) = (pos)->next )
 
+#define ILIST_FOREACH_SAFE(iterator, iterator_next, head, TYPE, MEMBER) \
+	for ((iterator) = ilist_entry((head)->next, TYPE, MEMBER), \
+		(iterator_next) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER); \
+		&((iterator)->MEMBER) != (head); \
+		(iterator) = (iterator_next), \
+		(iterator_next) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER))
+
+#define ilist_foreach_safe(iterator, iterator_next, head, TYPE, MEMBER) \
+	ILIST_FOREACH_SAFE(iterator, iterator_next, head, TYPE, MEMBER)
+
+#define ilist_foreach_entry_safe(pos, n, head) \
+	for ((pos) = (head)->next, (n) = (pos)->next; \
+		(pos) != (head); \
+		(pos) = (n), (n) = (pos)->next)
+
 
 #define __ilist_splice(list, head) do {	\
 		ilist_head *first = (list)->next, *last = (list)->prev; \
@@ -704,6 +719,12 @@ struct ib_string
 #define ib_string_ptr(str) ((str)->ptr)
 #define ib_string_size(str) ((str)->size)
 
+/* initialize a string on the stack (no heap allocation for the struct) */
+void ib_string_init(ib_string *str);
+
+/* destroy a stack-initialized string (free internal buffer if not SSO) */
+void ib_string_destroy(ib_string *str);
+
 ib_string* ib_string_new(void);
 ib_string* ib_string_new_from(const char *text);
 ib_string* ib_string_new_size(const char *text, int size);
@@ -976,6 +997,30 @@ size_t ib_map_count(const struct ib_hash_map *hm);
 			} \
 		} \
 	}	while (0)
+
+
+/*--------------------------------------------------------------------*/
+/* hash map traversal macros                                          */
+/*--------------------------------------------------------------------*/
+
+/* iterate over all entries in a hash map.
+ * entry: struct ib_hash_entry* loop variable
+ * hm:    struct ib_hash_map* to iterate */
+#define ib_map_foreach(entry, hm) \
+	for ((entry) = ib_map_first(hm); \
+		(entry) != NULL; \
+		(entry) = ib_map_next((hm), (entry)))
+
+/* safe iteration: allows ib_map_erase(hm, entry) inside the loop.
+ * entry: struct ib_hash_entry* loop variable
+ * next:  struct ib_hash_entry* temporary variable
+ * hm:    struct ib_hash_map* to iterate */
+#define ib_map_foreach_safe(entry, next, hm) \
+	for ((entry) = ib_map_first(hm), \
+		(next) = (entry) ? ib_map_next((hm), (entry)) : NULL; \
+		(entry) != NULL; \
+		(entry) = (next), \
+		(next) = (entry) ? ib_map_next((hm), (entry)) : NULL)
 
 
 /*--------------------------------------------------------------------*/

@@ -4072,3 +4072,346 @@ void ib_json_reader_set_limits(ib_json_reader *reader,
 }
 
 
+//=====================================================================
+// JSON Pretty Print - serialize ib_object tree to indented JSON
+//=====================================================================
+
+//---------------------------------------------------------------------
+// ib_json_encode_pretty: recursively serialize with indentation
+// indent=0 → compact (same as ib_json_encode)
+// indent>0 → pretty-print, each level indented by indent spaces
+// BIN → "$base64:<base64-string>"
+//---------------------------------------------------------------------
+static int ib_json_encode_pretty_impl(ib_string *out,
+        const ib_object *obj, int indent, int depth)
+{
+    int i;
+    char pad[256];
+    int padlen;
+
+    if (obj == NULL) return -1;
+
+    if (indent > 0) {
+        padlen = indent * depth;
+        if (padlen > 255) padlen = 255;
+        for (i = 0; i < padlen; i++) pad[i] = ' ';
+    }
+
+    switch (obj->type) {
+    case IB_OBJECT_NIL:
+        ib_json_write_nil(out);
+        break;
+
+    case IB_OBJECT_BOOL:
+        ib_json_write_bool(out, (int)obj->integer);
+        break;
+
+    case IB_OBJECT_INT:
+        ib_json_write_int(out, obj->integer);
+        break;
+
+    case IB_OBJECT_DOUBLE:
+        ib_json_write_double(out, obj->dval);
+        break;
+
+    case IB_OBJECT_STR:
+        ib_json_write_str(out, (const char*)obj->str, obj->size);
+        break;
+
+    case IB_OBJECT_BIN:
+    {
+        /* BIN → "$base64:<base64>" */
+        ilong b64len = ibase64_encode(obj->str, obj->size, NULL);
+        ib_string_append_size(out, "\"$base64:", 9);
+        if (b64len > 0) {
+            char *b64buf = (char*)ikmem_malloc((size_t)(b64len + 1));
+            if (b64buf == NULL) return -1;
+            ibase64_encode(obj->str, obj->size, b64buf);
+            ib_string_append_size(out, b64buf, (int)b64len);
+            ikmem_free(b64buf);
+        }
+        ib_string_append_size(out, "\"", 1);
+        break;
+    }
+
+    case IB_OBJECT_ARRAY:
+    {
+        if (obj->size == 0) {
+            ib_string_append_size(out, "[]", 2);
+            break;
+        }
+        ib_string_append_size(out, "[", 1);
+        if (indent > 0) {
+            ib_string_append_c(out, '\n');
+        }
+        for (i = 0; i < obj->size; i++) {
+            if (indent > 0) {
+                ib_string_append_size(out, pad, padlen + indent);
+            }
+            if (ib_json_encode_pretty_impl(out, obj->element[i],
+                    indent, depth + 1) < 0)
+                return -1;
+            if (i + 1 < obj->size) {
+                ib_string_append_size(out, ",", 1);
+            }
+            if (indent > 0) {
+                ib_string_append_c(out, '\n');
+            }
+        }
+        if (indent > 0) {
+            ib_string_append_size(out, pad, padlen);
+        }
+        ib_string_append_size(out, "]", 1);
+        break;
+    }
+
+    case IB_OBJECT_MAP:
+    {
+        if (obj->size == 0) {
+            ib_string_append_size(out, "{}", 2);
+            break;
+        }
+        ib_string_append_size(out, "{", 1);
+        if (indent > 0) {
+            ib_string_append_c(out, '\n');
+        }
+        for (i = 0; i < obj->size; i++) {
+            ib_object *key = ib_object_map_key(obj, i);
+            ib_object *val = ib_object_map_val(obj, i);
+            if (indent > 0) {
+                ib_string_append_size(out, pad, padlen + indent);
+            }
+            if (key && (key->type == IB_OBJECT_STR ||
+                        key->type == IB_OBJECT_BIN)) {
+                ib_json_write_str(out, (const char*)key->str, key->size);
+            }
+            else {
+                ib_string *tmp = ib_string_new();
+                if (tmp) {
+                    ib_json_encode_pretty_impl(tmp, key, 0, 0);
+                    ib_json_write_str(out, ib_string_ptr(tmp),
+                            (int)ib_string_size(tmp));
+                    ib_string_delete(tmp);
+                }
+            }
+            if (indent > 0) {
+                ib_string_append_size(out, ": ", 2);
+            }
+            else {
+                ib_string_append_size(out, ":", 1);
+            }
+            if (ib_json_encode_pretty_impl(out, val,
+                    indent, depth + 1) < 0)
+                return -1;
+            if (i + 1 < obj->size) {
+                ib_string_append_size(out, ",", 1);
+            }
+            if (indent > 0) {
+                ib_string_append_c(out, '\n');
+            }
+        }
+        if (indent > 0) {
+            ib_string_append_size(out, pad, padlen);
+        }
+        ib_string_append_size(out, "}", 1);
+        break;
+    }
+
+    default:
+        return -1;
+    }
+
+    return 0;
+}
+
+int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
+{
+    return ib_json_encode_pretty_impl(out, obj, indent, 0);
+}
+
+
+//=====================================================================
+// Object Dump - human-readable debug representation
+//=====================================================================
+
+//---------------------------------------------------------------------
+// ib_object_dump: recursively serialize for debugging
+// indent=0 → single-line compact (for logs)
+// indent>0 → multi-line indented (for human inspection)
+// BIN → "<size: hex bytes>"
+// STR embedded \0 → escaped as "\0"
+//---------------------------------------------------------------------
+
+#define IB_DUMP_BIN_MAX 64   /* max hex bytes to display for BIN */
+
+static int ib_object_dump_impl(ib_string *out,
+        const ib_object *obj, int indent, int depth)
+{
+    int i;
+    char pad[256];
+    int padlen;
+
+    if (obj == NULL) {
+        ib_string_append_size(out, "null", 4);
+        return 0;
+    }
+
+    if (indent > 0) {
+        padlen = indent * depth;
+        if (padlen > 255) padlen = 255;
+        for (i = 0; i < padlen; i++) pad[i] = ' ';
+    }
+
+    switch (obj->type) {
+    case IB_OBJECT_NIL:
+        ib_string_append_size(out, "null", 4);
+        break;
+
+    case IB_OBJECT_BOOL:
+        if (obj->integer) ib_string_append_size(out, "true", 4);
+        else ib_string_append_size(out, "false", 5);
+        break;
+
+    case IB_OBJECT_INT:
+        ib_string_format(out, "%lld", (IINT64)obj->integer);
+        break;
+
+    case IB_OBJECT_DOUBLE:
+    {
+        ib_string_format(out, "%g", obj->dval);
+        break;
+    }
+
+    case IB_OBJECT_STR:
+    {
+        ib_string_append_c(out, '"');
+        for (i = 0; i < obj->size; i++) {
+            unsigned char c = obj->str[i];
+            switch (c) {
+            case '"':  ib_string_append_size(out, "\\\"", 2); break;
+            case '\\': ib_string_append_size(out, "\\\\", 2); break;
+            case '\b': ib_string_append_size(out, "\\b", 2); break;
+            case '\f': ib_string_append_size(out, "\\f", 2); break;
+            case '\n': ib_string_append_size(out, "\\n", 2); break;
+            case '\r': ib_string_append_size(out, "\\r", 2); break;
+            case '\t': ib_string_append_size(out, "\\t", 2); break;
+            case '\0': ib_string_append_size(out, "\\0", 2); break;
+            default:
+                if (c < 0x20) {
+                    char hex[8];
+                    hex[0] = '\\'; hex[1] = 'u';
+                    hex[2] = '0'; hex[3] = '0';
+                    hex[4] = "0123456789abcdef"[(c >> 4) & 0xf];
+                    hex[5] = "0123456789abcdef"[c & 0xf];
+                    ib_string_append_size(out, hex, 6);
+                }
+                else {
+                    ib_string_append_c(out, (char)c);
+                }
+                break;
+            }
+        }
+        ib_string_append_c(out, '"');
+        break;
+    }
+
+    case IB_OBJECT_BIN:
+    {
+        int show = (obj->size > IB_DUMP_BIN_MAX) ?
+                IB_DUMP_BIN_MAX : obj->size;
+        ib_string_format(out, "<%d:", obj->size);
+        for (i = 0; i < show; i++) {
+            ib_string_format(out, "%02x", obj->str[i]);
+            if (i + 1 < show) ib_string_append_c(out, ' ');
+        }
+        if (obj->size > IB_DUMP_BIN_MAX) {
+            ib_string_append_size(out, " ...", 4);
+        }
+        ib_string_append_c(out, '>');
+        break;
+    }
+
+    case IB_OBJECT_ARRAY:
+    {
+        if (obj->size == 0) {
+            ib_string_append_size(out, "[]", 2);
+            break;
+        }
+        ib_string_append_size(out, "[", 1);
+        if (indent > 0) {
+            ib_string_append_c(out, '\n');
+        }
+        for (i = 0; i < obj->size; i++) {
+            if (indent > 0) {
+                ib_string_append_size(out, pad, padlen + indent);
+            }
+            if (ib_object_dump_impl(out, obj->element[i],
+                    indent, depth + 1) < 0)
+                return -1;
+            if (i + 1 < obj->size) {
+                ib_string_append_size(out, ",", 1);
+            }
+            if (indent > 0) {
+                ib_string_append_c(out, '\n');
+            }
+        }
+        if (indent > 0) {
+            ib_string_append_size(out, pad, padlen);
+        }
+        ib_string_append_size(out, "]", 1);
+        break;
+    }
+
+    case IB_OBJECT_MAP:
+    {
+        if (obj->size == 0) {
+            ib_string_append_size(out, "{}", 2);
+            break;
+        }
+        ib_string_append_size(out, "{", 1);
+        if (indent > 0) {
+            ib_string_append_c(out, '\n');
+        }
+        for (i = 0; i < obj->size; i++) {
+            ib_object *key = ib_object_map_key(obj, i);
+            ib_object *val = ib_object_map_val(obj, i);
+            if (indent > 0) {
+                ib_string_append_size(out, pad, padlen + indent);
+            }
+            if (ib_object_dump_impl(out, key, indent, depth + 1) < 0)
+                return -1;
+            if (indent > 0) {
+                ib_string_append_size(out, ": ", 2);
+            }
+            else {
+                ib_string_append_size(out, ":", 1);
+            }
+            if (ib_object_dump_impl(out, val, indent, depth + 1) < 0)
+                return -1;
+            if (i + 1 < obj->size) {
+                ib_string_append_size(out, ",", 1);
+            }
+            if (indent > 0) {
+                ib_string_append_c(out, '\n');
+            }
+        }
+        if (indent > 0) {
+            ib_string_append_size(out, pad, padlen);
+        }
+        ib_string_append_size(out, "}", 1);
+        break;
+    }
+
+    default:
+        return -1;
+    }
+
+    return 0;
+}
+
+int ib_object_dump(ib_string *out, const ib_object *obj, int indent)
+{
+    return ib_object_dump_impl(out, obj, indent, 0);
+}
+
+

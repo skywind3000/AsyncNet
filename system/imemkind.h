@@ -527,6 +527,21 @@ int ib_json_encode(ib_string *out, const ib_object *obj);
 int ib_json_decode(const char *input, size_t size,
         ib_object **result, struct IALLOCATOR *alloc);
 
+// encode an ib_object tree into JSON format with pretty-printing.
+// indent=0: compact single-line (equivalent to ib_json_encode).
+// indent>0: multi-line output, each nesting level indented by indent spaces.
+// BIN is encoded as "$base64:<base64-string>" to distinguish from STR.
+// nan/inf doubles become null. returns 0 on success, -1 on failure.
+int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent);
+
+// encode an ib_object tree into human-readable debug representation.
+// indent=0: single-line compact (suitable for logs).
+// indent>0: multi-line with indentation (suitable for human inspection).
+// BIN → "<size: hex bytes>", short BIN full display, long BIN truncated.
+// STR with embedded \0 → "\0" escape in output.
+// returns 0 on success, -1 on failure.
+int ib_object_dump(ib_string *out, const ib_object *obj, int indent);
+
 
 #ifdef __cplusplus
 }
