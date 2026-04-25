@@ -256,6 +256,14 @@ int ib_resp_write_push(ib_string *out, int count);
 // returns 0 on success, -1 on failure (NULL or unknown type).
 int ib_resp_encode(ib_string *out, const ib_object *obj);
 
+// decode a complete RESP message from a buffer into an ib_object tree.
+// internally constructs a temporary ib_resp_reader (feed + read + delete).
+// returns: 1=success (*result receives the object), 0=incomplete, -1=error.
+// alloc: optional IALLOCATOR; NULL uses default allocator.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_resp_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc);
+
 
 //---------------------------------------------------------------------
 // ib_msgpack_reader - incremental MessagePack decoder
@@ -375,6 +383,14 @@ int ib_msgpack_write_ext(ib_string *out, int type,
 // BIN with FLAG_EXT is encoded as ext type (type from FLAG_EXT_MASK bits).
 // returns 0 on success, -1 on failure (NULL or unknown type).
 int ib_msgpack_encode(ib_string *out, const ib_object *obj);
+
+// decode a complete msgpack message from a buffer into an ib_object tree.
+// internally constructs a temporary ib_msgpack_reader (feed + read + delete).
+// returns: 1=success (*result receives the object), 0=incomplete, -1=error.
+// alloc: optional IALLOCATOR; NULL uses default allocator.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_msgpack_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc);
 
 
 //---------------------------------------------------------------------
@@ -502,6 +518,14 @@ int ib_json_write_key(ib_string *out, const char *key, int len);
 // BIN is encoded as a JSON string. nan/inf doubles become null.
 // returns 0 on success, -1 on failure (NULL or unknown type).
 int ib_json_encode(ib_string *out, const ib_object *obj);
+
+// decode a complete JSON value from a buffer into an ib_object tree.
+// internally constructs a temporary ib_json_reader (feed + finish + read + delete).
+// returns: 1=success (*result receives the object), 0=incomplete, -1=error.
+// alloc: optional IALLOCATOR; NULL uses default allocator.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_json_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc);
 
 
 #ifdef __cplusplus

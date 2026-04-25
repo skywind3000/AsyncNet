@@ -1476,6 +1476,36 @@ int ib_resp_encode(ib_string *out, const ib_object *obj)
 }
 
 
+//---------------------------------------------------------------------
+// ib_resp_decode: decode a complete RESP message from a buffer.
+// constructs a temporary ib_resp_reader, feeds the data, reads one
+// message, and destroys the reader.
+// returns: 1=success, 0=incomplete, -1=error
+//---------------------------------------------------------------------
+int ib_resp_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc)
+{
+    ib_resp_reader *reader;
+    int rc;
+
+    if (input == NULL || size == 0 || result == NULL)
+        return -1;
+
+    reader = ib_resp_reader_new();
+    if (reader == NULL)
+        return -1;
+
+    if (ib_resp_reader_feed(reader, input, (long)size) != 0) {
+        ib_resp_reader_delete(reader);
+        return -1;
+    }
+
+    rc = ib_resp_reader_read(reader, result, alloc);
+    ib_resp_reader_delete(reader);
+    return rc;
+}
+
+
 //=====================================================================
 // Msgpack Writer - stateless MessagePack binary serialization
 // Each function appends one msgpack element to the ib_string output.
@@ -2834,6 +2864,36 @@ int ib_msgpack_encode(ib_string *out, const ib_object *obj)
 }
 
 
+//---------------------------------------------------------------------
+// ib_msgpack_decode: decode a complete msgpack message from a buffer.
+// constructs a temporary ib_msgpack_reader, feeds the data, reads one
+// message, and destroys the reader.
+// returns: 1=success, 0=incomplete, -1=error
+//---------------------------------------------------------------------
+int ib_msgpack_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc)
+{
+    ib_msgpack_reader *reader;
+    int rc;
+
+    if (input == NULL || size == 0 || result == NULL)
+        return -1;
+
+    reader = ib_msgpack_reader_new();
+    if (reader == NULL)
+        return -1;
+
+    if (ib_msgpack_reader_feed(reader, input, (long)size) != 0) {
+        ib_msgpack_reader_delete(reader);
+        return -1;
+    }
+
+    rc = ib_msgpack_reader_read(reader, result, alloc);
+    ib_msgpack_reader_delete(reader);
+    return rc;
+}
+
+
 
 //=====================================================================
 // JSON Writer - stateless JSON text serialization
@@ -3099,6 +3159,38 @@ int ib_json_encode(ib_string *out, const ib_object *obj)
     }
 
     return 0;
+}
+
+
+//---------------------------------------------------------------------
+// ib_json_decode: decode a complete JSON value from a buffer.
+// constructs a temporary ib_json_reader, feeds the data, signals
+// end-of-input (finish), reads one value, and destroys the reader.
+// returns: 1=success, 0=incomplete, -1=error
+//---------------------------------------------------------------------
+int ib_json_decode(const char *input, size_t size,
+        ib_object **result, struct IALLOCATOR *alloc)
+{
+    ib_json_reader *reader;
+    int rc;
+
+    if (input == NULL || size == 0 || result == NULL)
+        return -1;
+
+    reader = ib_json_reader_new();
+    if (reader == NULL)
+        return -1;
+
+    if (ib_json_reader_feed(reader, input, (long)size) != 0) {
+        ib_json_reader_delete(reader);
+        return -1;
+    }
+
+    ib_json_reader_finish(reader);
+
+    rc = ib_json_reader_read(reader, result, alloc);
+    ib_json_reader_delete(reader);
+    return rc;
 }
 
 
