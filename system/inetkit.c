@@ -540,6 +540,8 @@ int async_stream_pair_new(CAsyncLoop *loop, CAsyncStream *pair[2])
 	p2->partner = s1;
 	s1->state = ASYNC_STREAM_ESTAB;
 	s2->state = ASYNC_STREAM_ESTAB;
+	async_pair_notify(s1, ASYNC_STREAM_EVT_ESTAB, 0);
+	async_pair_notify(s2, ASYNC_STREAM_EVT_ESTAB, 0);
 	if (pair) {
 		pair[0] = s1;
 		pair[1] = s2;
@@ -1115,7 +1117,7 @@ long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
 	long total = 0;
 	if (tcp->prewrite == NULL) {
-		total = ims_write(&tcp->sendbuf, ptr, size);
+		total = (long)ims_write(&tcp->sendbuf, ptr, size);
 	}
 	else {
 		const char *lptr = (const char*)ptr;

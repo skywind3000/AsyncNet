@@ -1,18 +1,19 @@
-/**********************************************************************
- *
- * imemdata.h - basic data structures and algorithms
- * skywind3000 (at) gmail.com, 2006-2016
- *
- * VALUE INTERFACE:
- * type independance value classes
- *
- * DICTIONARY INTERFACE:
- * feature: 2.1-2.2 times faster than std::map (string or integer key)
- * feature: 1.3-1.5 times faster than stdext::hash_map 
- *
- * for more information, please see the readme file
- *
- **********************************************************************/
+//=====================================================================
+//
+// imemdata.h - dynamic objects and data encoding/decoding utilities
+// skywind3000 (at) gmail.com, 2006-2016
+//
+// FEATURES:
+//
+// - ib_object: dynamic typed container (NIL/BOOL/INT/DOUBLE/STR/
+//   BIN/ARRAY/MAP) with 3-layer API (init / new / mutation)
+// - IRING / IMSTREAM: ring buffer and growable memory stream
+// - Integer codec (8~64 bit, LSB/MSB, varint), Base64/32/16
+// - String helpers, RC4, UTF conversion, incremental hash
+//
+// For more information, please see the readme file.
+//
+//=====================================================================
 
 #ifndef _IMEMDATA_H_
 #define _IMEMDATA_H_
@@ -26,9 +27,9 @@
 #include <assert.h>
 
 
-/**********************************************************************
- * INTEGER DEFINITION
- **********************************************************************/
+//=====================================================================
+// INTEGER DEFINITION
+//=====================================================================
 #ifndef __IINT64_DEFINED
 #define __IINT64_DEFINED
 #if defined(_MSC_VER) || defined(__BORLANDC__)
@@ -48,9 +49,9 @@ typedef unsigned long long IUINT64;
 #endif
 
 
-/**********************************************************************
- * DETECT BYTE ORDER & ALIGN
- **********************************************************************/
+//---------------------------------------------------------------------
+// DETECT BYTE ORDER & ALIGN
+//---------------------------------------------------------------------
 #ifndef IWORDS_BIG_ENDIAN
     #ifdef _BIG_ENDIAN_
         #if _BIG_ENDIAN_
@@ -97,43 +98,355 @@ extern "C" {
 #endif
 
 
-/*====================================================================*/
-/* IRING: The struct definition of the ring buffer                    */
-/*====================================================================*/
-struct IRING			/* ci-buffer type */
+
+//=====================================================================
+// ib_object - generic object structure
+//=====================================================================
+typedef struct ib_object {
+	int type;              // IB_OBJECT_*
+	int size;              // STR/BIN: byte length, ARRAY: count, MAP: pairs
+	int capacity;          // STR/BIN: byte length, ARRAY: count, MAP: pairs
+	int flags;             // IB_OBJECT_FLAG_DYNAMIC/OWNED/SORTED
+	union {
+		IINT64 integer;                // IB_OBJECT_INT/BOOL
+		double dval;                   // IB_OBJECT_DOUBLE
+		unsigned char *str;            // IB_OBJECT_STR/BIN
+		struct ib_object **element;    // IB_OBJECT_ARRAY/MAP
+	};
+}   ib_object;
+
+#define IB_OBJECT_NIL     0
+#define IB_OBJECT_BOOL    1
+#define IB_OBJECT_INT     2
+#define IB_OBJECT_DOUBLE  3
+#define IB_OBJECT_STR     4
+#define IB_OBJECT_BIN     5
+#define IB_OBJECT_ARRAY   6
+#define IB_OBJECT_MAP     7
+
+//---------------------------------------------------------------------
+// ib_object - L1: init functions (no allocation, flags = 0)
+//---------------------------------------------------------------------
+
+// initialize ib_object to nil type
+void ib_object_init_nil(ib_object *obj);
+
+// initialize ib_object to bool type
+void ib_object_init_bool(ib_object *obj, int val);
+
+// initialize ib_object to int type
+void ib_object_init_int(ib_object *obj, IINT64 val);
+
+// initialize ib_object to double type
+void ib_object_init_double(ib_object *obj, double val);
+
+// initialize ib_object to string type, won't involve any
+// memory allocation, just set obj->str to str pointer.
+// Negative size is clamped to 0; NULL with positive size is clamped to 0.
+void ib_object_init_str(ib_object *obj, const char *str, int size);
+
+// initialize ib_object to binary type, won't involve any
+// memory allocation, just set obj->str to bin pointer.
+// Negative size is clamped to 0; NULL with positive size is clamped to 0.
+void ib_object_init_bin(ib_object *obj, const void *bin, int size);
+
+// initialize ib_object to array type, won't involve any
+// memory allocation, just set obj->element to element pointer.
+// Negative size is clamped to 0.
+void ib_object_init_array(ib_object *obj, ib_object **element, int size);
+
+// initialize ib_object to map type, won't involve any
+// memory allocation, just set obj->element to element pointer.
+// Negative size is clamped to 0.
+void ib_object_init_map(ib_object *obj, ib_object **element, int size);
+
+
+//---------------------------------------------------------------------
+// ib_object - L2: dynamic allocation (flags include DYNAMIC)
+//
+// FLAG_DYNAMIC: shell was malloc'd — ib_object_delete may free it.
+// FLAG_OWNED:   data (STR/BIN buffer) or children (ARRAY/MAP elements)
+//               are owned — delete frees them, mutation is allowed.
+//               Without OWNED, data/children are external references.
+// FLAG_SORTED:  MAP keys are sorted for binary search.
+//
+// init_* (L1) functions set flags = 0 (no allocation at all).
+// new_* (L2) functions set DYNAMIC, and also OWNED for STR/BIN/ARRAY/MAP.
+//---------------------------------------------------------------------
+#define IB_OBJECT_FLAG_DYNAMIC   1
+#define IB_OBJECT_FLAG_OWNED     2
+#define IB_OBJECT_FLAG_SORTED    4
+
+// create a new nil object
+ib_object *ib_object_new_nil(struct IALLOCATOR *alloc);
+
+// create a new bool object
+ib_object *ib_object_new_bool(struct IALLOCATOR *alloc, int val);
+
+// create a new int object
+ib_object *ib_object_new_int(struct IALLOCATOR *alloc, IINT64 val);
+
+// create a new double object
+ib_object *ib_object_new_double(struct IALLOCATOR *alloc, double val);
+
+// create a new string object, data is copied, null-terminated.
+// returns NULL if len < 0 or allocation fails.
+// When str is NULL and len > 0, buffer is allocated and zero-filled
+// (plus trailing '\0').
+ib_object *ib_object_new_str(struct IALLOCATOR *alloc,
+        const char *str, int len);
+
+// create a new binary object, data is copied, null-terminated.
+// returns NULL if len < 0 or allocation fails.
+// When bin is NULL and len > 0, buffer is allocated and zero-filled
+// (plus trailing '\0').
+// the buffer afterwards via obj->str.
+ib_object *ib_object_new_bin(struct IALLOCATOR *alloc,
+        const void *bin, int len);
+
+// create a new array object with initial capacity
+ib_object *ib_object_new_array(struct IALLOCATOR *alloc, int capacity);
+
+// create a new map object with initial capacity (in pairs)
+ib_object *ib_object_new_map(struct IALLOCATOR *alloc, int capacity);
+
+// recursive delete: asserts DYNAMIC. If OWNED, frees STR/BIN buffer
+// and recursively deletes ARRAY/MAP children + frees element array.
+// Without OWNED, data/children are external references and are not freed.
+// Only the shell itself is always freed (since DYNAMIC is asserted).
+void ib_object_delete(struct IALLOCATOR *alloc, ib_object *obj);
+
+// deep copy an object tree, result is always DYNAMIC|OWNED
+ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
+        const ib_object *obj);
+
+// compare two objects. Returns -1, 0, or 1.
+// NULL sorts before non-NULL. Different types compare by type value.
+// Same-type rules: NIL=0, BOOL/INT compare integer, DOUBLE compare dval,
+// STR/BIN compare bytes then length, ARRAY/MAP return 0.
+int ib_object_compare(const ib_object *a, const ib_object *b);
+
+
+//---------------------------------------------------------------------
+// ib_object - L3: mutation operations (require FLAG_OWNED)
+//
+// All mutation APIs below assert FLAG_OWNED. Without OWNED, use
+// ib_object_duplicate to get a mutable copy first.
+// Array/Map: arr must be ARRAY, map must be MAP (debug assert).
+// Array/Map mutation transfers ownership of inserted items to container.
+// STR/BIN mutation auto-grows buffer (doubling strategy), null-terminated.
+//---------------------------------------------------------------------
+
+// array mutation
+// Read-only get() returns NULL if arr is NULL or out of range.
+
+// append item to array, returns 0 on success, -1 on failure.
+// asserts arr has FLAG_OWNED.
+int ib_object_array_push(struct IALLOCATOR *alloc,
+        ib_object *arr, ib_object *item);
+
+// insert item at index, returns 0 on success, -1 on failure.
+// asserts arr has FLAG_OWNED.
+int ib_object_array_insert(struct IALLOCATOR *alloc,
+        ib_object *arr, int index, ib_object *item);
+
+// get item at index (read-only), returns NULL if arr is NULL or out of range
+ib_object *ib_object_array_get(const ib_object *arr, int index);
+
+// detach item at index (remove without freeing), returns NULL if arr is NULL.
+// asserts arr has FLAG_OWNED.
+ib_object *ib_object_array_detach(ib_object *arr, int index);
+
+// remove and delete item at index. asserts arr has FLAG_OWNED.
+void ib_object_array_erase(struct IALLOCATOR *alloc,
+        ib_object *arr, int index);
+
+// replace item at index, returns old item (detached, not freed).
+// returns NULL if arr is NULL or out of range. asserts arr has FLAG_OWNED.
+ib_object *ib_object_array_replace(ib_object *arr,
+        int index, ib_object *item);
+
+// clear all items (recursive delete each), size resets to 0.
+// preserves element buffer and capacity. asserts arr has FLAG_OWNED.
+void ib_object_array_clear(struct IALLOCATOR *alloc, ib_object *arr);
+
+
+// map mutation (ib_object *key)
+// Supported key types: NIL, BOOL, INT, STR, BIN.
+// DOUBLE, ARRAY, MAP are NOT allowed as keys (assert in debug mode).
+// When FLAG_SORTED is set, get/set/erase/detach use binary search.
+
+// append key-value pair (no duplicate check), returns 0 on success.
+// key/val ownership transfers to map. clears FLAG_SORTED.
+// asserts map has FLAG_OWNED and key type is valid.
+int ib_object_map_add(struct IALLOCATOR *alloc,
+        ib_object *map, ib_object *key, ib_object *val);
+
+// find value by key, returns NULL if not found, map is NULL, or key is NULL.
+// key is a read-only needle (not consumed).
+ib_object *ib_object_map_get(const ib_object *map, const ib_object *key);
+
+// upsert: if key exists, keep old key, delete new key and old value,
+// store new value (SORTED unchanged). If key not found, append pair
+// and clear SORTED. key/val ownership transfers on success.
+// On failure (grow fails, key not found) returns -1, key/val NOT consumed.
+// asserts map has FLAG_OWNED and key type is valid.
+int ib_object_map_set(struct IALLOCATOR *alloc,
+        ib_object *map, ib_object *key, ib_object *val);
+
+// remove pair by key and delete both key and value.
+// key is a read-only needle (not consumed).
+// returns 0 if found, -1 if not found. asserts map has FLAG_OWNED.
+int ib_object_map_erase(struct IALLOCATOR *alloc,
+        ib_object *map, const ib_object *key);
+
+// detach pair by key (remove, delete original key, return value).
+// key is a read-only needle (not consumed). Caller owns returned value.
+// Returns NULL if not found or map is NULL. asserts map has FLAG_OWNED.
+ib_object *ib_object_map_detach(struct IALLOCATOR *alloc,
+        ib_object *map, const ib_object *key);
+
+// sort map keys by ib_object_compare order for binary search.
+// Order: NIL < BOOL < INT < STR < BIN (by type, then by value).
+// asserts map has FLAG_OWNED.
+// Sets FLAG_SORTED on success. Returns 0 on success.
+int ib_object_map_sort(ib_object *map);
+
+// clear all pairs (recursive delete each key and value), size resets to 0.
+// preserves element buffer and capacity. asserts map has FLAG_OWNED.
+void ib_object_map_clear(struct IALLOCATOR *alloc, ib_object *map);
+
+// indexed access to key-value pairs
+#define ib_object_map_key(map, i)  ((map)->element[(i) * 2])
+#define ib_object_map_val(map, i)  ((map)->element[(i) * 2 + 1])
+
+
+// map mutation (const char *key convenience)
+// Suffix _str means the key parameter is const char *.
+// val ownership transfers on add/set. On failure val is NOT freed.
+
+int ib_object_map_add_str(struct IALLOCATOR *alloc,
+        ib_object *map, const char *key, ib_object *val);
+
+ib_object *ib_object_map_get_str(const ib_object *map, const char *key);
+
+int ib_object_map_set_str(struct IALLOCATOR *alloc,
+        ib_object *map, const char *key, ib_object *val);
+
+int ib_object_map_erase_str(struct IALLOCATOR *alloc,
+        ib_object *map, const char *key);
+
+ib_object *ib_object_map_detach_str(struct IALLOCATOR *alloc,
+        ib_object *map, const char *key);
+
+
+// map mutation (IINT64 key convenience)
+// Suffix _int means the key parameter is IINT64.
+// val ownership transfers on add/set. On failure val is NOT freed.
+
+int ib_object_map_add_int(struct IALLOCATOR *alloc,
+        ib_object *map, IINT64 key, ib_object *val);
+
+ib_object *ib_object_map_get_int(const ib_object *map, IINT64 key);
+
+int ib_object_map_set_int(struct IALLOCATOR *alloc,
+        ib_object *map, IINT64 key, ib_object *val);
+
+int ib_object_map_erase_int(struct IALLOCATOR *alloc,
+        ib_object *map, IINT64 key);
+
+ib_object *ib_object_map_detach_int(struct IALLOCATOR *alloc,
+        ib_object *map, IINT64 key);
+
+
+// str/bin mutation
+// len < 0 returns -1.
+
+// replace STR content. If len <= capacity, overwrite in place;
+// otherwise realloc. Null-terminated. Returns 0 on success, -1 on failure.
+int ib_object_str_set(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *str, int len);
+
+// append to STR content. Auto-grows buffer (doubling strategy).
+// Null-terminated. Returns 0 on success, -1 on failure.
+int ib_object_str_append(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *str, int len);
+
+// replace BIN content. Same logic as str_set for BIN type.
+int ib_object_bin_set(struct IALLOCATOR *alloc,
+        ib_object *obj, const void *bin, int len);
+
+// append to BIN content. Same logic as str_append for BIN type.
+int ib_object_bin_append(struct IALLOCATOR *alloc,
+        ib_object *obj, const void *bin, int len);
+
+// resize STR to newsize bytes. If newsize > capacity, grows buffer;
+// if newsize <= capacity, only changes size (capacity unchanged).
+// Null-terminated. asserts DYNAMIC|OWNED. Returns 0 on success, -1 on failure.
+int ib_object_str_resize(struct IALLOCATOR *alloc,
+        ib_object *obj, int newsize);
+
+// shrink STR capacity to fit current size. Reallocs buffer to size+1.
+// asserts DYNAMIC|OWNED. Returns 0 on success, -1 on failure.
+int ib_object_str_shrink(struct IALLOCATOR *alloc, ib_object *obj);
+
+// resize BIN to newsize bytes. Same logic as str_resize for BIN type.
+int ib_object_bin_resize(struct IALLOCATOR *alloc,
+        ib_object *obj, int newsize);
+
+// shrink BIN capacity to fit current size. Same logic as str_shrink for BIN.
+int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj);
+
+
+//---------------------------------------------------------------------
+// ib_object - type check macros
+//---------------------------------------------------------------------
+#define ib_object_is_nil(o)     ((o)->type == IB_OBJECT_NIL)
+#define ib_object_is_bool(o)    ((o)->type == IB_OBJECT_BOOL)
+#define ib_object_is_int(o)     ((o)->type == IB_OBJECT_INT)
+#define ib_object_is_double(o)  ((o)->type == IB_OBJECT_DOUBLE)
+#define ib_object_is_str(o)     ((o)->type == IB_OBJECT_STR)
+#define ib_object_is_bin(o)     ((o)->type == IB_OBJECT_BIN)
+#define ib_object_is_array(o)   ((o)->type == IB_OBJECT_ARRAY)
+#define ib_object_is_map(o)     ((o)->type == IB_OBJECT_MAP)
+
+
+//=====================================================================
+// IRING: The struct definition of the ring buffer
+//=====================================================================
+struct IRING			// ci-buffer type
 {
-	char *data;			/* buffer ptr */
-	ilong capacity;		/* buffer capacity */
-	ilong head;			/* read ptr */
+	char *data;			// buffer ptr
+	ilong capacity;		// buffer capacity
+	ilong head;			// read ptr
 };
 
 
-/* init circle cache */
+// init circle cache
 void iring_init(struct IRING *ring, void *buffer, ilong capacity);
 
-/* move head forward */
+// move head forward
 ilong iring_advance(struct IRING *ring, ilong offset);
 
-/* fetch data from given position */
+// fetch data from given position
 ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len);
 
-/* store data to certain position */
+// store data to certain position
 ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len);
 
-/* get flat ptr and returns flat size */
+// get flat ptr and returns flat size
 ilong iring_flat(const struct IRING *ring, void **pointer);
 
-/* fill data into position */
+// fill data into position
 ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len);
 
-/* swap internal buffer */
+// swap internal buffer
 void iring_swap(struct IRING *ring, void *buffer, ilong capacity);
 
 
-
-/*====================================================================*/
-/* IMSTREAM: In-Memory FIFO Buffer                                    */
-/*====================================================================*/
+//=====================================================================
+// IMSTREAM: In-Memory FIFO Buffer
+//=====================================================================
 struct IMSTREAM
 {
 	struct IMEMNODE *fixed_pages;
@@ -147,40 +460,40 @@ struct IMSTREAM
 	ilong lowater; 
 };
 
-/* init memory stream */
+// init memory stream
 void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high);
 
-/* destroy memory stream */
+// destroy memory stream
 void ims_destroy(struct IMSTREAM *s);
 
-/* get data size */
+// get data size
 ilong ims_dsize(const struct IMSTREAM *s);
 
-/* write data into memory stream */
+// write data into memory stream
 ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size);
 
-/* read (and drop) data from memory stream */
+// read (and drop) data from memory stream
 ilong ims_read(struct IMSTREAM *s, void *ptr, ilong size);
 
-/* peek (no drop) data from memory stream */
+// peek (no drop) data from memory stream
 ilong ims_peek(const struct IMSTREAM *s, void *ptr, ilong size);
 
-/* drop data from memory stream */
+// drop data from memory stream
 ilong ims_drop(struct IMSTREAM *s, ilong size);
 
-/* clear stream */
+// clear stream
 void ims_clear(struct IMSTREAM *s);
 
-/* get flat ptr and size */
+// get flat ptr and size
 ilong ims_flat(const struct IMSTREAM *s, void **pointer);
 
-/* move data from source to destination */
+// move data from source to destination
 ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
 
 
-/*====================================================================*/
-/* Common string operation (not be defined in some compiler)          */
-/*====================================================================*/
+//=====================================================================
+// Common string operation (not be defined in some compiler)
+//=====================================================================
 #define ITOUPPER(a) (((a) >= 97 && (a) <= 122) ? ((a) - 32) : (a))
 
 #define ILONG_MAX	((ilong)((~(iulong)0) >> 1))
@@ -190,64 +503,64 @@ ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
 #define IINT64_MIN	(-IINT64_MAX - 1)
 
 
-/* strcasestr implementation */
-char* istrcasestr(char* s1, char* s2);  
+// strcasestr implementation
+const char* istrcasestr(const char* s1, const char* s2);  
 
-/* strncasecmp implementation */
-int istrncasecmp(char* s1, char* s2, size_t num);
+// strncasecmp implementation
+int istrncasecmp(const char* s1, const char* s2, size_t num);
 
-/* strsep implementation */
+// strsep implementation
 char *istrsep(char **stringp, const char *delim);
 
-/* strtol implementation */
+// strtol implementation
 long istrtol(const char *nptr, const char **endptr, int ibase);
 
-/* strtoul implementation */
+// strtoul implementation
 unsigned long istrtoul(const char *nptr, const char **endptr, int ibase);
 
-/* istrtoll implementation */
+// istrtoll implementation
 IINT64 istrtoll(const char *nptr, const char **endptr, int ibase);
 
-/* istrtoull implementation */
+// istrtoull implementation
 IUINT64 istrtoull(const char *nptr, const char **endptr, int ibase);
 
-/* iltoa implementation */
+// iltoa implementation
 int iltoa(long val, char *buf, int radix);
 
-/* iultoa implementation */
+// iultoa implementation
 int iultoa(unsigned long val, char *buf, int radix);
 
-/* iltoa implementation */
+// iltoa implementation
 int illtoa(IINT64 val, char *buf, int radix);
 
-/* iultoa implementation */
+// iultoa implementation
 int iulltoa(IUINT64 val, char *buf, int radix);
 
-/* istrstrip implementation */
+// istrstrip implementation
 char *istrstrip(char *ptr, const char *delim);
 
-/* string escape */
+// string escape
 ilong istrsave(const char *src, ilong size, char *out);
 
-/* string un-escape */
+// string un-escape
 ilong istrload(const char *src, ilong size, char *out);
 
-/* csv tokenizer */
+// csv tokenizer
 const char *istrcsvtok(const char *text, ilong *next, ilong *size);
 
-/* string duplication with ikmem_malloc, use ikmem_free to free */
+// string duplication with ikmem_malloc, use ikmem_free to free
 char *istrdup(const char *text);
 
-/* string duplication with size, use ikmem_free to free */
+// string duplication with size, use ikmem_free to free
 char *istrndup(const char *text, ilong size);
 
-/* optional string duplication, use ikmem_free to free */
+// optional string duplication, use ikmem_free to free
 char *istrdupopt(const char *text);
 
 
-/*====================================================================*/
-/* BASE64 / BASE32 / BASE16                                           */
-/*====================================================================*/
+//=====================================================================
+// BASE64 / BASE32 / BASE16
+//=====================================================================
 
 /* encode data as a base64 string, returns string size,
    if dst == NULL, returns how many bytes needed for encode (>=real) */
@@ -274,22 +587,22 @@ ilong ibase16_encode(const void *src, ilong size, char *dst);
 ilong ibase16_decode(const char *src, ilong size, void *dst);
 
 
-/*====================================================================*/
-/* RC4                                                                */
-/*====================================================================*/
+//====================================================================
+// RC4
+//====================================================================
 
-/* rc4 init */
+// rc4 init
 void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
 	const unsigned char *key, int keylen);
 
-/* rc4_crypt */
+// rc4_crypt
 void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
 	const unsigned char *src, unsigned char *dst, ilong size);
 
 
-/*====================================================================*/
-/* UTF-8/16/32 conversion                                             */
-/*====================================================================*/
+//=====================================================================
+// UTF-8/16/32 conversion
+//=====================================================================
 
 /* returns 0 for success, -1 for source exhausted,
  * -2 for target exhausted, -3 for invalid character */
@@ -321,33 +634,33 @@ int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		IUINT16 **targetStart, IUINT16 *targetEnd, int strict);
 
-/* check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal */
+// check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal
 int iposix_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd);
 
-/* count characters in UTF-8 string, returns -1 for illegal sequence */
+// count characters in UTF-8 string, returns -1 for illegal sequence
 int iposix_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd);
 
-/* count characters in UTF-16 string, returns -1 for illegal sequence */
+// count characters in UTF-16 string, returns -1 for illegal sequence
 int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd);
 
 
-/*====================================================================*/
-/* INTEGER ENCODING/DECODING                                          */
-/*====================================================================*/
+//=====================================================================
+// INTEGER ENCODING/DECODING
+//=====================================================================
 
-/* encode 8 bits unsigned int */
+// encode 8 bits unsigned int
 static inline char *iencode8u(char *p, unsigned char c) {
 	*(unsigned char*)p++ = c;
 	return p;
 }
 
-/* decode 8 bits unsigned int */
+// decode 8 bits unsigned int
 static inline const char *idecode8u(const char *p, unsigned char *c) {
 	*c = *(unsigned char*)p++;
 	return p;
 }
 
-/* encode 16 bits unsigned int (lsb) */
+// encode 16 bits unsigned int (lsb)
 static inline char *iencode16u_lsb(char *p, unsigned short w) {
 #if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*(unsigned char*)(p + 0) = (w & 255);
@@ -359,7 +672,7 @@ static inline char *iencode16u_lsb(char *p, unsigned short w) {
 	return p;
 }
 
-/* decode 16 bits unsigned int (lsb) */
+// decode 16 bits unsigned int (lsb)
 static inline const char *idecode16u_lsb(const char *p, unsigned short *w) {
 #if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*w = *(const unsigned char*)(p + 1);
@@ -371,7 +684,7 @@ static inline const char *idecode16u_lsb(const char *p, unsigned short *w) {
 	return p;
 }
 
-/* encode 16 bits unsigned int (msb) */
+// encode 16 bits unsigned int (msb)
 static inline char *iencode16u_msb(char *p, unsigned short w) {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	memcpy(p, &w, 2);
@@ -383,7 +696,7 @@ static inline char *iencode16u_msb(char *p, unsigned short w) {
 	return p;
 }
 
-/* decode 16 bits unsigned int (msb) */
+// decode 16 bits unsigned int (msb)
 static inline const char *idecode16u_msb(const char *p, unsigned short *w) {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	memcpy(w, p, 2);
@@ -395,7 +708,7 @@ static inline const char *idecode16u_msb(const char *p, unsigned short *w) {
 	return p;
 }
 
-/* encode 32 bits unsigned int (lsb) */
+// encode 32 bits unsigned int (lsb)
 static inline char *iencode32u_lsb(char *p, IUINT32 l) {
 #if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*(unsigned char*)(p + 0) = (unsigned char)((l >>  0) & 0xff);
@@ -409,7 +722,7 @@ static inline char *iencode32u_lsb(char *p, IUINT32 l) {
 	return p;
 }
 
-/* decode 32 bits unsigned int (lsb) */
+// decode 32 bits unsigned int (lsb)
 static inline const char *idecode32u_lsb(const char *p, IUINT32 *l) {
 #if IWORDS_BIG_ENDIAN || IWORDS_MUST_ALIGN
 	*l = *(const unsigned char*)(p + 3);
@@ -423,7 +736,7 @@ static inline const char *idecode32u_lsb(const char *p, IUINT32 *l) {
 	return p;
 }
 
-/* encode 32 bits unsigned int (msb) */
+// encode 32 bits unsigned int (msb)
 static inline char *iencode32u_msb(char *p, IUINT32 l) {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	memcpy(p, &l, 4);
@@ -437,7 +750,7 @@ static inline char *iencode32u_msb(char *p, IUINT32 l) {
 	return p;
 }
 
-/* decode 32 bits unsigned int (msb) */
+// decode 32 bits unsigned int (msb)
 static inline const char *idecode32u_msb(const char *p, IUINT32 *l) {
 #if IWORDS_BIG_ENDIAN && (!IWORDS_MUST_ALIGN)
 	memcpy(l, p, 4);
@@ -451,49 +764,49 @@ static inline const char *idecode32u_msb(const char *p, IUINT32 *l) {
 	return p;
 }
 
-/* encode 8 bits int */
+// encode 8 bits int
 static inline char *iencode8i(char *p, char c) {
 	iencode8u(p, (unsigned char)c);
 	return p + 1;
 }
 
-/* decode 8 bits int */
+// decode 8 bits int
 static inline const char *idecode8i(const char *p, char *c) {
 	idecode8u(p, (unsigned char*)c);
 	return p + 1;
 }
 
-/* encode 16 bits int */
+// encode 16 bits int
 static inline char *iencode16i_lsb(char *p, short w) {
 	iencode16u_lsb(p, (unsigned short)w);
 	return p + 2;
 }
 
-/* decode 16 bits int */
+// decode 16 bits int
 static inline const char *idecode16i_lsb(const char *p, short *w) {
 	idecode16u_lsb(p, (unsigned short*)w);
 	return p + 2;
 }
 
-/* encode 16 bits int */
+// encode 16 bits int
 static inline char *iencode16i_msb(char *p, short w) {
 	iencode16u_msb(p, (unsigned short)w);
 	return p + 2;
 }
 
-/* decode 16 bits int */
+// decode 16 bits int
 static inline const char *idecode16i_msb(const char *p, short *w) {
 	idecode16u_msb(p, (unsigned short*)w);
 	return p + 2;
 }
 
-/* encode 32 bits int */
+// encode 32 bits int
 static inline char *iencode32i_lsb(char *p, IINT32 l) {
 	iencode32u_lsb(p, (IUINT32)l);
 	return p + 4;
 }
 
-/* decode 32 bits int */
+// decode 32 bits int
 static inline const char *idecode32i_lsb(const char *p, IINT32 *w) {
 	IUINT32 x;
 	idecode32u_lsb(p, &x);
@@ -501,13 +814,13 @@ static inline const char *idecode32i_lsb(const char *p, IINT32 *w) {
 	return p + 4;
 }
 
-/* encode 32 bits int */
+// encode 32 bits int
 static inline char *iencode32i_msb(char *p, IINT32 l) {
 	iencode32u_msb(p, (IUINT32)l);
 	return p + 4;
 }
 
-/* decode 32 bits int */
+// decode 32 bits int
 static inline const char *idecode32i_msb(const char *p, IINT32 *w) {
 	IUINT32 x;
 	idecode32u_msb(p, &x);
@@ -515,7 +828,7 @@ static inline const char *idecode32i_msb(const char *p, IINT32 *w) {
 	return p + 4;
 }
 
-/* encode 64 bits unsigned int (lsb) */
+// encode 64 bits unsigned int (lsb)
 static inline char *iencode64u_lsb(char *p, IUINT64 v) {
 #if IWORDS_BIG_ENDIAN
 	iencode32u_lsb((char*)p + 0, (IUINT32)(v >> 0));
@@ -526,7 +839,7 @@ static inline char *iencode64u_lsb(char *p, IUINT64 v) {
 	return (char*)p + 8;
 }
 
-/* encode 64 bits unsigned int (msb) */
+// encode 64 bits unsigned int (msb)
 static inline char *iencode64u_msb(char *p, IUINT64 v) {
 #if IWORDS_BIG_ENDIAN
 	memcpy((void*)p, &v, sizeof(IUINT64));
@@ -537,7 +850,7 @@ static inline char *iencode64u_msb(char *p, IUINT64 v) {
 	return (char*)p + 8;
 }
 
-/* decode 64 bits unsigned int (lsb) */
+// decode 64 bits unsigned int (lsb)
 static inline const char *idecode64u_lsb(const char *p, IUINT64 *v) {
 #if IWORDS_BIG_ENDIAN
 	IUINT32 low, high;
@@ -550,7 +863,7 @@ static inline const char *idecode64u_lsb(const char *p, IUINT64 *v) {
 	return (const char*)p + 8;
 }
 
-/* decode 64 bits unsigned int (msb) */
+// decode 64 bits unsigned int (msb)
 static inline const char *idecode64u_msb(const char *p, IUINT64 *v) {
 #if IWORDS_BIG_ENDIAN
 	memcpy(v, p, sizeof(IUINT64));
@@ -563,17 +876,17 @@ static inline const char *idecode64u_msb(const char *p, IUINT64 *v) {
 	return (const char*)p + 8;
 }
 
-/* encode 64 bits int (lsb) */
+// encode 64 bits int (lsb)
 static inline char *iencode64i_lsb(char *p, IINT64 v) {
 	return iencode64u_lsb(p, (IUINT64)v);
 }
 
-/* encode 64 bits int (msb) */
+// encode 64 bits int (msb)
 static inline char *iencode64i_msb(char *p, IINT64 v) {
 	return iencode64u_msb(p, (IUINT64)v);
 }
 
-/* decode 64 bits int (lsb) */
+// decode 64 bits int (lsb)
 static inline const char *idecode64i_lsb(const char *p, IINT64 *v) {
 	IUINT64 uv;
 	p = idecode64u_lsb(p, &uv);
@@ -581,7 +894,7 @@ static inline const char *idecode64i_lsb(const char *p, IINT64 *v) {
 	return p;
 }
 
-/* decode 64 bits int (msb) */
+// decode 64 bits int (msb)
 static inline const char *idecode64i_msb(const char *p, IINT64 *v) {
 	IUINT64 uv;
 	p = idecode64u_msb(p, &uv);
@@ -589,14 +902,14 @@ static inline const char *idecode64i_msb(const char *p, IINT64 *v) {
 	return p;
 }
 
-/* encode float */
+// encode float
 static inline char *iencodef_lsb(char *p, float f) {
 	union { IUINT32 intpart; float floatpart; } vv;
 	vv.floatpart = f;
 	return iencode32u_lsb(p, vv.intpart);
 }
 
-/* decode float */
+// decode float
 static inline const char *idecodef_lsb(const char *p, float *f) {
 	union { IUINT32 intpart; float floatpart; } vv;
 	p = idecode32u_lsb(p, &vv.intpart);
@@ -604,14 +917,14 @@ static inline const char *idecodef_lsb(const char *p, float *f) {
 	return p;
 }
 
-/* encode float */
+// encode float
 static inline char *iencodef_msb(char *p, float f) {
 	union { IUINT32 intpart; float floatpart; } vv;
 	vv.floatpart = f;
 	return iencode32u_msb(p, vv.intpart);
 }
 
-/* decode float */
+// decode float
 static inline const char *idecodef_msb(const char *p, float *f) {
 	union { IUINT32 intpart; float floatpart; } vv;
 	p = idecode32u_msb(p, &vv.intpart);
@@ -620,14 +933,14 @@ static inline const char *idecodef_msb(const char *p, float *f) {
 }
 
 
-/* encode string (string = ptr + size) */
+// encode string (string = ptr + size)
 static inline char *iencodes(char *p, const void *ptr, ilong size) {
 	p = iencode32u_lsb(p, (IUINT32)size);
 	if (ptr) memcpy(p, ptr, size);
 	return p + size;
 }
 
-/* decode string (string = ptr + size) */
+// decode string (string = ptr + size)
 static inline const char *idecodes(const char *p, void *ptr, ilong *size) {
 	IUINT32 length;
 	ilong min = 0xffff;
@@ -643,13 +956,13 @@ static inline const char *idecodes(const char *p, void *ptr, ilong *size) {
 	return p + length;
 }
 
-/* encode c-string (endup with zero) */
+// encode c-string (endup with zero)
 static inline char *iencodestr(char *p, const char *str) {
 	IUINT32 len = (IUINT32)strlen(str) + 1;
 	return iencodes(p, str, len);
 }
 
-/* decode c-string (endup with zero) */
+// decode c-string (endup with zero)
 static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
 	IUINT32 size;
 	const char *ret;
@@ -662,9 +975,9 @@ static inline const char *idecodestr(const char *p, char *str, ilong maxlen) {
 
 
 
-/*====================================================================*/
-/* POINTER READER                                                     */
-/*====================================================================*/
+//=====================================================================
+// POINTER READER
+//=====================================================================
 
 static inline IUINT8 ipointer_read8u(const char *ptr) {
 	return *(const IUINT8*)ptr;
@@ -732,23 +1045,23 @@ static inline void ipointer_writeptr(char *ptr, void *v) {
 
 
 
-/*====================================================================*/
-/* EXTENSION FUNCTIONS                                                */
-/*====================================================================*/
+//=====================================================================
+// EXTENSION FUNCTIONS
+//=====================================================================
 
-/* push message into stream */
+// push message into stream
 void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
 		IINT32 lparam, const void *data, IINT32 size);
 
-/* read message from stream */
+// read message from stream
 IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg, 
 		IINT32 *wparam, IINT32 *lparam, void *data, IINT32 maxsize);
 
 
 
-/*====================================================================*/
-/* Cross-Platform Data Encode / Decode                                */
-/*====================================================================*/
+//=====================================================================
+// Cross-Platform Data Encode / Decode
+//=====================================================================
 
 #ifndef _MSC_VER
 	#define IUINT64_CONST(__immediate) (__immediate ## ULL)
@@ -758,7 +1071,7 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 
 #define IUINT64_MASK(__bits) ((((IUINT64)1) << (__bits)) - 1)
 
-/* encode auto size unsigned integer */
+// encode auto size unsigned integer
 static inline char *iencodeu(char *ptr, IUINT64 v)
 {
 	unsigned char *p = (unsigned char*)ptr;
@@ -803,7 +1116,7 @@ static inline char *iencodeu(char *ptr, IUINT64 v)
 }
 
 
-/* decode auto size unsigned integer */
+// decode auto size unsigned integer
 static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
 	const unsigned char *p = (const unsigned char*)ptr;
 	IUINT64 x = 0;
@@ -868,7 +1181,7 @@ static inline const char *idecodeu(const char *ptr, IUINT64 *v) {
 	return ptr + 10;
 }
 
-/* encode auto size integer */
+// encode auto size integer
 static inline char *iencodei(char *p, IINT64 value) {
 	IUINT64 x, y;
 	memcpy(&y, &value, sizeof(y));
@@ -877,7 +1190,7 @@ static inline char *iencodei(char *p, IINT64 value) {
 	return iencodeu(p, x);
 }
 
-/* decode auto size integer */
+// decode auto size integer
 static inline const char *idecodei(const char *p, IINT64 *value) {
 	IUINT64 x, y;
 	p = idecodeu(p, &x);
@@ -887,12 +1200,12 @@ static inline const char *idecodei(const char *p, IINT64 *value) {
 	return p;
 }
 
-/* swap byte order of int16 */
+// swap byte order of int16
 static inline unsigned short iexbyte16(unsigned short word) {
 	return ((word & 0xff) << 8) | ((word >> 8) & 0xff);
 }
 
-/* swap byte order of int32 */
+// swap byte order of int32
 static inline IUINT32 iexbyte32(IUINT32 dword) {
 	IUINT32 b1 = (dword >>  0) & 0xff;
 	IUINT32 b2 = (dword >>  8) & 0xff;
@@ -902,9 +1215,9 @@ static inline IUINT32 iexbyte32(IUINT32 dword) {
 }
 
 
-/**********************************************************************
- * 32 bits unsigned integer operation
- **********************************************************************/
+//=====================================================================
+// 32 bits unsigned integer operation
+//=====================================================================
 static inline IUINT32 _imin(IUINT32 a, IUINT32 b) {
   return a <= b ? a : b;
 }
@@ -922,24 +1235,24 @@ static inline long itimediff(IUINT32 later, IUINT32 earlier) {
 }
 
 
-/**********************************************************************
- * 32 bits incremental hash functions
- **********************************************************************/
+//=====================================================================
+// 32 bits incremental hash functions
+//=====================================================================
 
-/* 32 bits fnv1a hash update */
+// 32 bits fnv1a hash update
 static inline IUINT32 inc_hash_fnv1a(IUINT32 h, IUINT32 x) {
 	const IUINT32 FNV1A_32_PRIME = 0x01000193;
 	h = (h ^ x) * FNV1A_32_PRIME;
 	return h;
 }
 
-/* 32 bits boost hash update */
+// 32 bits boost hash update
 static inline IUINT32 inc_hash_boost(IUINT32 h, IUINT32 x) {
 	h ^= x + 0x9e3779b9 + (h << 6) + (h >> 2);
 	return h;
 }
 
-/* 32 bits xxhash update */
+// 32 bits xxhash update
 static inline IUINT32 inc_hash_xxhash(IUINT32 h, IUINT32 x) {
 	const IUINT32 PRIME32_2 = 0x85ebca77;
 	const IUINT32 PRIME32_3 = 0xc2b2ae3d;
@@ -948,7 +1261,7 @@ static inline IUINT32 inc_hash_xxhash(IUINT32 h, IUINT32 x) {
 	return h;
 }
 
-/* 32 bits murmur hash update */
+// 32 bits murmur hash update
 static inline IUINT32 inc_hash_murmur(IUINT32 h, IUINT32 x) {
 	x = x * 0xcc9e2d51;
 	x = ((x << 15) | (x >> 17));
@@ -958,21 +1271,21 @@ static inline IUINT32 inc_hash_murmur(IUINT32 h, IUINT32 x) {
 	return h;
 }
 
-/* 32 bits crc32 hash update */
+// 32 bits crc32 hash update
 extern IUINT32 inc_hash_crc32_table[256];
 
-/* CRC32 hash table initialize */
+// CRC32 hash table initialize
 void inc_hash_crc32_initialize(void);
 
-/* CRC32 hash update for 8 bits input */
+// CRC32 hash update for 8 bits input
 static inline IUINT32 inc_hash_crc32(IUINT32 crc, IUINT8 b) {
 	return (crc >> 8) ^ inc_hash_crc32_table[(crc & 0xff) ^ b];
 }
 
 
-/**********************************************************************
- * misc operation
- **********************************************************************/
+//=====================================================================
+// misc operation
+//=====================================================================
 static inline int _ibit_chk(const void *data, ilong index)
 {
 	unsigned char *ptr = (unsigned char*)data + (index >> 3);
@@ -991,9 +1304,9 @@ static inline void _ibit_set(void *data, ilong index, int value)
 }
 
 
-/**********************************************************************
- * XOR crypt
- **********************************************************************/
+//=====================================================================
+// XOR crypt
+//=====================================================================
 static inline void icrypt_xor(const void *s, void *d, ilong c, IUINT32 m) {
 	const unsigned char *ptr = (const unsigned char*)s;
 	unsigned char *out = (unsigned char*)d;

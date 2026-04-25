@@ -69,7 +69,7 @@ struct CAsyncNotify
 	struct ib_hash_map allowip;		// ip white list (key: ib_string*)
 	struct ib_hash_map sidblack;	// black list 
 	IUINT32 current;			// current millisec
-	ivalue_t token;				// authentication token
+	ib_string *token;			// authentication token
 	IINT64 seconds;				// seconds since UTC 1970.1.1 00:00:00
 	IINT64 lastsec;				// variable to trigger timer
 	long msgcnt;				// message count
@@ -405,7 +405,7 @@ CAsyncNotify* async_notify_new(CAsyncLoop *loop, int serverid)
 	
 	ilist_init(&notify->ping);
 	ilist_init(&notify->idle);
-	it_init(&notify->token, ITYPE_STR);
+	notify->token = ib_string_new();
 
 	IMUTEX_INIT(&notify->lock);
 
@@ -463,7 +463,10 @@ void async_notify_delete(CAsyncNotify *notify)
 
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
 
-	it_destroy(&notify->token);
+	if (notify->token) {
+		ib_string_delete(notify->token);
+		notify->token = NULL;
+	}
 
 	if (notify->core) {
 		async_core_delete(notify->core);
@@ -1143,8 +1146,8 @@ static void async_notify_cmd_login(CAsyncNotify *notify, CAsyncNode *node)
 	md5src[32] = 0;
 	seconds = ts;
 
-	size = (int)it_size(&notify->token);
-	memcpy(data + 20, it_str(&notify->token), size);
+	size = ib_string_size(notify->token);
+	memcpy(data + 20, ib_string_ptr(notify->token), size);
 	
 	memset(md5dst, 0, 33);
 	async_notify_hash(data, 20 + size, md5dst);
@@ -1503,8 +1506,8 @@ static long async_notify_get_connection(CAsyncNotify *notify, int sid)
 	itimeofday(&seconds, NULL);
 	async_notify_encode_64(data + 12, (IINT64)seconds);
 
-	keysize = (int)it_size(&notify->token);
-	memcpy(data + 20, it_str(&notify->token), keysize);
+	keysize = ib_string_size(notify->token);
+	memcpy(data + 20, ib_string_ptr(notify->token), keysize);
 
 	// calculate hash signature
 	memset(signature, 0, 32);
@@ -1764,9 +1767,9 @@ void async_notify_token(CAsyncNotify *notify, const char *token, int size)
 {
 	ASYNC_NOTIFY_CRITICAL_BEGIN(notify);
 	if (token == NULL || size <= 0) {
-		it_strcpyc(&notify->token, "", 0);
+		ib_string_clear(notify->token);
 	}	else {
-		it_strcpyc(&notify->token, (const char*)token, size);
+		ib_string_assign_size(notify->token, (const char*)token, size);
 	}
 	ASYNC_NOTIFY_CRITICAL_END(notify);
 }

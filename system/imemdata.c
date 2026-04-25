@@ -1,33 +1,1058 @@
-/**********************************************************************
- *
- * imemdata.c - basic data structures and algorithms
- * skywind3000 (at) gmail.com, 2006-2016
- *
- * ISTREAM - definition of the basic stream interface
- *
- * VALUE OPERATION
- * type independance value classes
- *
- * DICTIONARY OPERATION
- *
- * feature: 2.1-2.2 times faster than std::map (string or integer key)
- * feature: 1.3-1.5 times faster than stdext::hash_map 
- *
- * for more information, please see the readme file
- *
- **********************************************************************/
+//=====================================================================
+//
+// imemdata.c - dynamic objects and data encoding/decoding utilities
+// skywind3000 (at) gmail.com, 2006-2016
+//
+// FEATURES:
+//
+// - ib_object: dynamic typed container (NIL/BOOL/INT/DOUBLE/STR/
+//   BIN/ARRAY/MAP) with 3-layer API (init / new / mutation)
+// - IRING / IMSTREAM: ring buffer and growable memory stream
+// - Integer codec (8~64 bit, LSB/MSB, varint), Base64/32/16
+// - String helpers, RC4, UTF conversion, incremental hash
+//
+// For more information, please see the readme file.
+//
+//=====================================================================
 #include "imemdata.h"
 
 #include <ctype.h>
 #include <assert.h>
 
 
-/*====================================================================*/
-/* IRING: The struct definition of the ring buffer                    */
-/*====================================================================*/
+//=====================================================================
+// ib_object - L1: init functions (no allocation, flags = 0)
+//=====================================================================
+
+// initialize ib_object to nil type
+void ib_object_init_nil(ib_object *obj)
+{
+	obj->type = IB_OBJECT_NIL;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->flags = 0;
+	obj->integer = 0;
+}
+
+// initialize ib_object to bool type
+void ib_object_init_bool(ib_object *obj, int val)
+{
+	obj->type = IB_OBJECT_BOOL;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->flags = 0;
+	obj->integer = (val) ? 1 : 0;
+}
+
+// initialize ib_object to int type
+void ib_object_init_int(ib_object *obj, IINT64 val)
+{
+	obj->type = IB_OBJECT_INT;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->flags = 0;
+	obj->integer = val;
+}
+
+// initialize ib_object to double type
+void ib_object_init_double(ib_object *obj, double val)
+{
+	obj->type = IB_OBJECT_DOUBLE;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->flags = 0;
+	obj->dval = val;
+}
+
+// initialize ib_object to string type, won't involve any memory
+// allocation, just set obj->str to str pointer. Negative size and
+// NULL with positive size are clamped to 0.
+void ib_object_init_str(ib_object *obj, const char *str, int size)
+{
+	obj->type = IB_OBJECT_STR;
+	obj->flags = 0;
+	if (size < 0) size = 0;
+	if (str == NULL && size > 0) size = 0;
+	obj->str = (unsigned char*)str;
+	obj->size = size;
+	obj->capacity = 0;
+}
+
+// initialize ib_object to binary type, won't involve any memory
+// allocation, just set obj->str to bin pointer. Negative size and
+// NULL with positive size are clamped to 0.
+void ib_object_init_bin(ib_object *obj, const void *bin, int size)
+{
+	obj->type = IB_OBJECT_BIN;
+	obj->flags = 0;
+	if (size < 0) size = 0;
+	if (bin == NULL && size > 0) size = 0;
+	obj->str = (unsigned char*)bin;
+	obj->size = size;
+	obj->capacity = 0;
+}
+
+// initialize ib_object to array type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_array(ib_object *obj, ib_object **element, int size)
+{
+	obj->type = IB_OBJECT_ARRAY;
+	obj->flags = 0;
+	if (size < 0) size = 0;
+	obj->element = element;
+	obj->size = size;
+	obj->capacity = 0;
+}
+
+// initialize ib_object to map type, won't involve any memory
+// allocation, just set obj->element to element pointer.
+void ib_object_init_map(ib_object *obj, ib_object **element, int size)
+{
+	obj->type = IB_OBJECT_MAP;
+	obj->flags = 0;
+	if (size < 0) size = 0;
+	obj->element = element;
+	obj->size = size;
+	obj->capacity = 0;
+}
 
 
-/* init circle cache */
+//=====================================================================
+// ib_object - L2: dynamic allocation (DYNAMIC|OWNED flags)
+//=====================================================================
+
+// ensure element array has room for at least 'need' more slots
+static int ib_object_element_grow(struct IALLOCATOR *alloc,
+		ib_object *obj, int need)
+{
+	int total = 0, newcap = 0, slots;
+	size_t bytes;
+	ib_object **newarr;
+	if (need <= 0) return (need == 0) ? 0 : -1;
+	if (obj->size > 0x7fffffff - need) return -1;  // overflow guard
+	if (obj->type == IB_OBJECT_MAP && obj->size > 0x3fffffff) return -1;
+	total = obj->size + need;
+	if (total <= obj->capacity) return 0;
+	newcap = (obj->capacity < 4) ? 4 : obj->capacity;
+	while (newcap < total) {
+		if (newcap > 0x3fffffff) return -1;  // overflow guard
+		newcap = newcap * 2;
+	}
+	// for MAP, element array length = capacity * 2
+	slots = newcap;
+	if (obj->type == IB_OBJECT_MAP) {
+		if (newcap > 0x3fffffff) return -1;  // slots = newcap*2 guard
+		slots = newcap * 2;
+	}
+	bytes = (size_t)slots * sizeof(ib_object*);
+	if (obj->element == NULL) {
+		newarr = (ib_object**)internal_malloc(alloc, bytes);
+		if (newarr == NULL) return -1;
+	}
+	else {
+		newarr = (ib_object**)internal_realloc(alloc, obj->element, bytes);
+		if (newarr == NULL) return -1;
+	}
+	obj->element = newarr;
+	obj->capacity = newcap;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// ib_object_new_*
+//---------------------------------------------------------------------
+ib_object *ib_object_new_nil(struct IALLOCATOR *alloc)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	ib_object_init_nil(obj);
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC;
+	return obj;
+}
+
+ib_object *ib_object_new_bool(struct IALLOCATOR *alloc, int val)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	ib_object_init_bool(obj, val);
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC;
+	return obj;
+}
+
+ib_object *ib_object_new_int(struct IALLOCATOR *alloc, IINT64 val)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	ib_object_init_int(obj, val);
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC;
+	return obj;
+}
+
+ib_object *ib_object_new_double(struct IALLOCATOR *alloc, double val)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	ib_object_init_double(obj, val);
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC;
+	return obj;
+}
+
+// When str is NULL and len > 0, buffer is allocated and zero-filled.
+ib_object *ib_object_new_str(struct IALLOCATOR *alloc,
+		const char *str, int len)
+{
+	unsigned char *buf;
+	ib_object *obj;
+	if (len < 0) return NULL;
+	obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	buf = (unsigned char*)internal_malloc(alloc, (size_t)len + 1);
+	if (buf == NULL) {
+		internal_free(alloc, obj);
+		return NULL;
+	}
+	if (len > 0 && str != NULL) {
+		memcpy(buf, str, (size_t)len);
+	}
+	else if (len > 0) {
+		memset(buf, 0, (size_t)len);
+	}
+	buf[len] = '\0';
+	obj->type = IB_OBJECT_STR;
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC | IB_OBJECT_FLAG_OWNED;
+	obj->str = buf;
+	obj->size = len;
+	obj->capacity = len;
+	return obj;
+}
+
+// When bin is NULL and len > 0, buffer is allocated and zero-filled.
+ib_object *ib_object_new_bin(struct IALLOCATOR *alloc,
+		const void *bin, int len)
+{
+	unsigned char *buf;
+	ib_object *obj;
+	if (len < 0) return NULL;
+	obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	buf = (unsigned char*)internal_malloc(alloc, (size_t)len + 1);
+	if (buf == NULL) {
+		internal_free(alloc, obj);
+		return NULL;
+	}
+	if (len > 0 && bin != NULL) {
+		memcpy(buf, bin, (size_t)len);
+	}
+	else if (len > 0) {
+		memset(buf, 0, (size_t)len);
+	}
+	buf[len] = '\0';
+	obj->type = IB_OBJECT_BIN;
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC | IB_OBJECT_FLAG_OWNED;
+	obj->str = buf;
+	obj->size = len;
+	obj->capacity = len;
+	return obj;
+}
+
+ib_object *ib_object_new_array(struct IALLOCATOR *alloc, int capacity)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	obj->type = IB_OBJECT_ARRAY;
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC | IB_OBJECT_FLAG_OWNED;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->element = NULL;
+	if (capacity > 0) {
+		if (ib_object_element_grow(alloc, obj, capacity) != 0) {
+			internal_free(alloc, obj);
+			return NULL;
+		}
+	}
+	return obj;
+}
+
+ib_object *ib_object_new_map(struct IALLOCATOR *alloc, int capacity)
+{
+	ib_object *obj = (ib_object*)internal_malloc(alloc, sizeof(ib_object));
+	if (obj == NULL) return NULL;
+	obj->type = IB_OBJECT_MAP;
+	obj->flags = IB_OBJECT_FLAG_DYNAMIC | IB_OBJECT_FLAG_OWNED;
+	obj->size = 0;
+	obj->capacity = 0;
+	obj->element = NULL;
+	if (capacity > 0) {
+		if (ib_object_element_grow(alloc, obj, capacity) != 0) {
+			internal_free(alloc, obj);
+			return NULL;
+		}
+	}
+	return obj;
+}
+
+
+//---------------------------------------------------------------------
+// ib_object_delete - recursive delete
+// Asserts DYNAMIC (shell was malloc'd). If OWNED, frees STR/BIN buffer
+// or recursively deletes ARRAY/MAP children + frees element array.
+// Without OWNED, data/children are external references — not freed.
+//---------------------------------------------------------------------
+void ib_object_delete(struct IALLOCATOR *alloc, ib_object *obj)
+{
+	if (obj == NULL) return;
+	assert(obj->flags & IB_OBJECT_FLAG_DYNAMIC);
+	if (!(obj->flags & IB_OBJECT_FLAG_DYNAMIC)) return;
+	switch (obj->type) {
+	case IB_OBJECT_STR:
+	case IB_OBJECT_BIN:
+		if ((obj->flags & IB_OBJECT_FLAG_OWNED) && obj->str != NULL) {
+			internal_free(alloc, obj->str);
+		}
+		break;
+	case IB_OBJECT_ARRAY:
+		if (obj->flags & IB_OBJECT_FLAG_OWNED) {
+			if (obj->element != NULL) {
+				int i;
+				for (i = 0; i < obj->size; i++) {
+					ib_object_delete(alloc, obj->element[i]);
+				}
+				internal_free(alloc, obj->element);
+			}
+		}
+		break;
+	case IB_OBJECT_MAP:
+		if (obj->flags & IB_OBJECT_FLAG_OWNED) {
+			if (obj->element != NULL) {
+				int i;
+				for (i = 0; i < obj->size; i++) {
+					ib_object_delete(alloc, obj->element[i * 2]);
+					ib_object_delete(alloc, obj->element[i * 2 + 1]);
+				}
+				internal_free(alloc, obj->element);
+			}
+		}
+		break;
+	}
+	internal_free(alloc, obj);
+}
+
+
+//---------------------------------------------------------------------
+// ib_object_duplicate - deep copy
+//---------------------------------------------------------------------
+ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
+		const ib_object *obj)
+{
+	int i;
+	if (obj == NULL) return NULL;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		return ib_object_new_nil(alloc);
+	case IB_OBJECT_BOOL:
+		return ib_object_new_bool(alloc, (int)obj->integer);
+	case IB_OBJECT_INT:
+		return ib_object_new_int(alloc, obj->integer);
+	case IB_OBJECT_DOUBLE:
+		return ib_object_new_double(alloc, obj->dval);
+	case IB_OBJECT_STR:
+		return ib_object_new_str(alloc, (const char*)obj->str, obj->size);
+	case IB_OBJECT_BIN:
+		return ib_object_new_bin(alloc, obj->str, obj->size);
+	case IB_OBJECT_ARRAY: {
+		ib_object *arr = ib_object_new_array(alloc, obj->size);
+		if (arr == NULL) return NULL;
+		for (i = 0; i < obj->size; i++) {
+			ib_object *child = ib_object_duplicate(alloc, obj->element[i]);
+			if (child == NULL) {
+				ib_object_delete(alloc, arr);
+				return NULL;
+			}
+			arr->element[i] = child;
+			arr->size++;
+		}
+		return arr;
+	}
+	case IB_OBJECT_MAP: {
+		ib_object *map = ib_object_new_map(alloc, obj->size);
+		if (map == NULL) return NULL;
+		for (i = 0; i < obj->size; i++) {
+			ib_object *k = ib_object_duplicate(alloc, obj->element[i * 2]);
+			ib_object *v = ib_object_duplicate(alloc,
+					obj->element[i * 2 + 1]);
+			if (k == NULL || v == NULL) {
+				if (k) ib_object_delete(alloc, k);
+				if (v) ib_object_delete(alloc, v);
+				ib_object_delete(alloc, map);
+				return NULL;
+			}
+			map->element[i * 2] = k;
+			map->element[i * 2 + 1] = v;
+			map->size++;
+		}
+		if (obj->flags & IB_OBJECT_FLAG_SORTED)
+			map->flags |= IB_OBJECT_FLAG_SORTED;
+		return map;
+	}
+	default:
+		break;
+	}
+	return NULL;
+}
+
+
+//---------------------------------------------------------------------
+// ib_object_compare - compare two objects
+//---------------------------------------------------------------------
+int ib_object_compare(const ib_object *a, const ib_object *b)
+{
+	if (a == NULL && b == NULL) return 0;
+	if (a == NULL) return -1;
+	if (b == NULL) return 1;
+	if (a->type != b->type) {
+		return (a->type > b->type) - (a->type < b->type);
+	}
+	switch (a->type) {
+	case IB_OBJECT_NIL:
+		return 0;
+	case IB_OBJECT_BOOL:
+	case IB_OBJECT_INT:
+		return (a->integer > b->integer) - (a->integer < b->integer);
+	case IB_OBJECT_DOUBLE:
+		{
+			int a_nan = (a->dval != a->dval);
+			int b_nan = (b->dval != b->dval);
+			if (a_nan || b_nan) {
+				if (a_nan && b_nan) return 0;
+				return a_nan ? -1 : 1;
+			}
+			if (a->dval < b->dval) return -1;
+			if (a->dval > b->dval) return 1;
+			return 0;
+		}
+	case IB_OBJECT_STR:
+	case IB_OBJECT_BIN:
+	{
+		int minlen = (a->size < b->size) ? a->size : b->size;
+		int cmp = (minlen > 0) ? memcmp(a->str, b->str, (size_t)minlen) : 0;
+		if (cmp != 0) return (cmp > 0) - (cmp < 0);
+		return (a->size > b->size) - (a->size < b->size);
+	}
+	case IB_OBJECT_ARRAY:
+	case IB_OBJECT_MAP:
+		return 0;
+	default:
+		return 0;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// ib_object - L3: mutation operations (require FLAG_OWNED)
+//---------------------------------------------------------------------
+
+// array mutation
+int ib_object_array_push(struct IALLOCATOR *alloc,
+		ib_object *arr, ib_object *item)
+{
+	assert(arr != NULL && arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	assert(item == NULL || (item->flags & IB_OBJECT_FLAG_DYNAMIC));
+	if (ib_object_element_grow(alloc, arr, 1) != 0) return -1;
+	arr->element[arr->size] = item;
+	arr->size++;
+	return 0;
+}
+
+int ib_object_array_insert(struct IALLOCATOR *alloc,
+		ib_object *arr, int index, ib_object *item)
+{
+	int i;
+	assert(arr != NULL && arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	assert(item == NULL || (item->flags & IB_OBJECT_FLAG_DYNAMIC));
+	if (index < 0 || index > arr->size) return -1;
+	if (ib_object_element_grow(alloc, arr, 1) != 0) return -1;
+	for (i = arr->size; i > index; i--) {
+		arr->element[i] = arr->element[i - 1];
+	}
+	arr->element[index] = item;
+	arr->size++;
+	return 0;
+}
+
+ib_object *ib_object_array_get(const ib_object *arr, int index)
+{
+	if (arr == NULL) return NULL;
+	assert(arr->type == IB_OBJECT_ARRAY);
+	if (index < 0 || index >= arr->size) return NULL;
+	return arr->element[index];
+}
+
+ib_object *ib_object_array_detach(ib_object *arr, int index)
+{
+	ib_object *item;
+	int i;
+	if (arr == NULL) return NULL;
+	assert(arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	if (index < 0 || index >= arr->size) return NULL;
+	item = arr->element[index];
+	for (i = index; i < arr->size - 1; i++) {
+		arr->element[i] = arr->element[i + 1];
+	}
+	arr->element[arr->size - 1] = NULL;
+	arr->size--;
+	return item;
+}
+
+void ib_object_array_erase(struct IALLOCATOR *alloc,
+		ib_object *arr, int index)
+{
+	ib_object *item = ib_object_array_detach(arr, index);
+	if (item != NULL) {
+		ib_object_delete(alloc, item);
+	}
+}
+
+ib_object *ib_object_array_replace(ib_object *arr,
+		int index, ib_object *item)
+{
+	ib_object *old = NULL;
+	if (arr == NULL) return NULL;
+	assert(arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	assert(item == NULL || (item->flags & IB_OBJECT_FLAG_DYNAMIC));
+	if (index < 0 || index >= arr->size) return NULL;
+	old = arr->element[index];
+	arr->element[index] = item;
+	return old;
+}
+
+void ib_object_array_clear(struct IALLOCATOR *alloc, ib_object *arr)
+{
+	assert(arr != NULL && arr->type == IB_OBJECT_ARRAY);
+	assert(arr->flags & IB_OBJECT_FLAG_OWNED);
+	if (arr->element != NULL) {
+		int i;
+		for (i = 0; i < arr->size; i++) {
+			ib_object_delete(alloc, arr->element[i]);
+			arr->element[i] = NULL;
+		}
+	}
+	arr->size = 0;
+}
+
+
+// map mutation (ib_object *key)
+// Supported key types: NIL, BOOL, INT, STR, BIN.
+// DOUBLE, ARRAY, MAP are NOT allowed as keys (assert in debug mode).
+// When FLAG_SORTED is set, get/set/erase/detach use binary search.
+
+// validate key type: returns non-zero if key is a valid map key
+static inline int ib_object_key_valid(const ib_object *key)
+{
+	return key != NULL &&
+	       key->type != IB_OBJECT_DOUBLE &&
+	       key->type != IB_OBJECT_ARRAY &&
+	       key->type != IB_OBJECT_MAP;
+}
+
+// comparison for qsort: ordered by ib_object_compare.
+// NULL keys sort to the very end.
+static int ib_object_map_pair_compare(const void *a, const void *b)
+{
+	const ib_object *ka = *(const ib_object * const *)a;
+	const ib_object *kb = *(const ib_object * const *)b;
+	if (ka == NULL && kb == NULL) return 0;
+	if (ka == NULL) return 1;
+	if (kb == NULL) return -1;
+	return ib_object_compare(ka, kb);
+}
+
+// sort map keys. Requires FLAG_OWNED.
+// Sets FLAG_SORTED on success. Returns 0 on success.
+int ib_object_map_sort(ib_object *map)
+{
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	if (map->size <= 1) {
+		map->flags |= IB_OBJECT_FLAG_SORTED;
+		return 0;
+	}
+	qsort(map->element, (size_t)map->size,
+			2 * sizeof(ib_object*), ib_object_map_pair_compare);
+	map->flags |= IB_OBJECT_FLAG_SORTED;
+	return 0;
+}
+
+// internal: find key index using ib_object_compare, returns -1 if not found
+static int ib_object_map_find(const ib_object *map, const ib_object *key)
+{
+	int i;
+	if (key == NULL) return -1;
+	// binary search path when keys are sorted
+	if (map->flags & IB_OBJECT_FLAG_SORTED) {
+		int lo = 0, hi = map->size - 1;
+		while (lo <= hi) {
+			int mid = lo + ((hi - lo) >> 1);
+			ib_object *k = map->element[mid * 2];
+			int cmp = ib_object_compare(k, key);
+			if (cmp == 0) return mid;
+			if (cmp < 0) lo = mid + 1;
+			else hi = mid - 1;
+		}
+		return -1;
+	}
+	// linear search fallback
+	for (i = 0; i < map->size; i++) {
+		ib_object *k = map->element[i * 2];
+		if (ib_object_compare(k, key) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+int ib_object_map_add(struct IALLOCATOR *alloc,
+		ib_object *map, ib_object *key, ib_object *val)
+{
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	assert(ib_object_key_valid(key));
+	assert(key->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	if (ib_object_element_grow(alloc, map, 1) != 0) return -1;
+	map->element[map->size * 2] = key;
+	map->element[map->size * 2 + 1] = val;
+	map->size++;
+	map->flags &= ~IB_OBJECT_FLAG_SORTED;
+	return 0;
+}
+
+ib_object *ib_object_map_get(const ib_object *map, const ib_object *key)
+{
+	int idx;
+	if (map == NULL || key == NULL) return NULL;
+	assert(map->type == IB_OBJECT_MAP);
+	idx = ib_object_map_find(map, key);
+	if (idx < 0) return NULL;
+	return map->element[idx * 2 + 1];
+}
+
+int ib_object_map_erase(struct IALLOCATOR *alloc,
+		ib_object *map, const ib_object *key)
+{
+	ib_object *k, *v;
+	int idx, i;
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	idx = ib_object_map_find(map, key);
+	if (idx < 0) return -1;
+	k = map->element[idx * 2];
+	v = map->element[idx * 2 + 1];
+	// shift remaining pairs left
+	for (i = idx; i < map->size - 1; i++) {
+		map->element[i * 2] = map->element[(i + 1) * 2];
+		map->element[i * 2 + 1] = map->element[(i + 1) * 2 + 1];
+	}
+	map->element[(map->size - 1) * 2] = NULL;
+	map->element[(map->size - 1) * 2 + 1] = NULL;
+	map->size--;
+	ib_object_delete(alloc, k);
+	ib_object_delete(alloc, v);
+	return 0;
+}
+
+
+// detach pair by key — deletes key, returns value object.
+ib_object *ib_object_map_detach(struct IALLOCATOR *alloc,
+        ib_object *map, const ib_object *key)
+{
+	ib_object *k, *v;
+	int idx, i;
+	if (map == NULL) return NULL;
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	idx = ib_object_map_find(map, key);
+	if (idx < 0) return NULL;
+	k = map->element[idx * 2];
+	v = map->element[idx * 2 + 1];
+	for (i = idx; i < map->size - 1; i++) {
+		map->element[i * 2] = map->element[(i + 1) * 2];
+		map->element[i * 2 + 1] = map->element[(i + 1) * 2 + 1];
+	}
+	map->element[(map->size - 1) * 2] = NULL;
+	map->element[(map->size - 1) * 2 + 1] = NULL;
+	map->size--;
+	ib_object_delete(alloc, k);
+	return v;
+}
+
+// upsert: if key exists, keep old key, delete new key and old value,
+// store new value. If key not found, append new pair.
+// On success key/val ownership transfers. On failure (grow fails when
+// key not found) key/val are NOT consumed — caller still owns them.
+int ib_object_map_set(struct IALLOCATOR *alloc,
+		ib_object *map, ib_object *key, ib_object *val)
+{
+	int idx;
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	assert(ib_object_key_valid(key));
+	assert(key->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	idx = ib_object_map_find(map, key);
+	if (idx >= 0) {
+		ib_object *old_val = map->element[idx * 2 + 1];
+		map->element[idx * 2 + 1] = val;
+		ib_object_delete(alloc, key);
+		ib_object_delete(alloc, old_val);
+		return 0;
+	}
+	if (ib_object_element_grow(alloc, map, 1) != 0) return -1;
+	map->element[map->size * 2] = key;
+	map->element[map->size * 2 + 1] = val;
+	map->size++;
+	map->flags &= ~IB_OBJECT_FLAG_SORTED;
+	return 0;
+}
+
+void ib_object_map_clear(struct IALLOCATOR *alloc, ib_object *map)
+{
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	if (map->element != NULL) {
+		int i;
+		for (i = 0; i < map->size; i++) {
+			ib_object_delete(alloc, map->element[i * 2]);
+			ib_object_delete(alloc, map->element[i * 2 + 1]);
+			map->element[i * 2] = NULL;
+			map->element[i * 2 + 1] = NULL;
+		}
+	}
+	map->size = 0;
+	map->flags &= ~IB_OBJECT_FLAG_SORTED;
+}
+
+
+// str/bin mutation
+
+// ensure STR/BIN buffer has room for at least 'need' more bytes beyond size
+static int ib_object_str_grow(struct IALLOCATOR *alloc,
+        ib_object *obj, int need)
+{
+	unsigned char *newbuf;
+	int total, newcap;
+	size_t bytes;
+	if (need <= 0) return (need == 0) ? 0 : -1;
+	if (obj->size > 0x7fffffff - need) return -1;  // overflow guard
+	total = obj->size + need;
+	if (total <= obj->capacity) return 0;
+	newcap = (obj->capacity < 16) ? 16 : obj->capacity;
+	while (newcap < total) {
+		if (newcap > 0x3fffffff) return -1;  // overflow guard
+		newcap = newcap * 2;
+	}
+	bytes = (size_t)newcap + 1;  // +1 for null terminator
+	if (obj->str == NULL) {
+		newbuf = (unsigned char*)internal_malloc(alloc, bytes);
+		if (newbuf == NULL) return -1;
+	}
+	else {
+		newbuf = (unsigned char*)internal_realloc(alloc, obj->str, bytes);
+		if (newbuf == NULL) return -1;
+	}
+	obj->str = newbuf;
+	obj->capacity = newcap;
+	return 0;
+}
+
+int ib_object_str_set(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *str, int len)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_STR);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (len < 0) return -1;
+	if (len > obj->capacity) {
+		if (ib_object_str_grow(alloc, obj, len - obj->size) != 0)
+			return -1;
+	}
+	if (len > 0 && str != NULL) {
+		memcpy(obj->str, str, (size_t)len);
+	}
+	else if (len > 0) {
+		// str=NULL with len>0: buffer reserved but not initialized
+	}
+	obj->size = len;
+	obj->str[len] = '\0';
+	return 0;
+}
+
+int ib_object_str_append(struct IALLOCATOR *alloc,
+        ib_object *obj, const char *str, int len)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_STR);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (len < 0) return -1;
+	if (ib_object_str_grow(alloc, obj, len) != 0) return -1;
+	if (len > 0 && str != NULL) {
+		memcpy(obj->str + obj->size, str, (size_t)len);
+	}
+	obj->size += len;
+	obj->str[obj->size] = '\0';
+	return 0;
+}
+
+int ib_object_bin_set(struct IALLOCATOR *alloc,
+        ib_object *obj, const void *bin, int len)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_BIN);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (len < 0) return -1;
+	if (len > obj->capacity) {
+		if (ib_object_str_grow(alloc, obj, len - obj->size) != 0)
+			return -1;
+	}
+	if (len > 0 && bin != NULL) {
+		memcpy(obj->str, bin, (size_t)len);
+	}
+	obj->size = len;
+	obj->str[len] = '\0';
+	return 0;
+}
+
+int ib_object_bin_append(struct IALLOCATOR *alloc,
+        ib_object *obj, const void *bin, int len)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_BIN);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (len < 0) return -1;
+	if (ib_object_str_grow(alloc, obj, len) != 0) return -1;
+	if (len > 0 && bin != NULL) {
+		memcpy(obj->str + obj->size, bin, (size_t)len);
+	}
+	obj->size += len;
+	obj->str[obj->size] = '\0';
+	return 0;
+}
+
+int ib_object_str_resize(struct IALLOCATOR *alloc,
+        ib_object *obj, int newsize)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_STR);
+	assert(obj->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (newsize < 0) return -1;
+	if (newsize > obj->capacity) {
+		if (ib_object_str_grow(alloc, obj, newsize - obj->size) != 0)
+			return -1;
+	}
+	obj->size = newsize;
+	obj->str[newsize] = '\0';
+	return 0;
+}
+
+int ib_object_str_shrink(struct IALLOCATOR *alloc, ib_object *obj)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_STR);
+	assert(obj->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (obj->size >= obj->capacity) return 0;
+	{
+		size_t bytes = (size_t)obj->size + 1;
+		unsigned char *newbuf;
+		if (obj->str == NULL) return 0;
+		newbuf = (unsigned char*)internal_realloc(alloc, obj->str, bytes);
+		if (newbuf == NULL) return -1;
+		obj->str = newbuf;
+		obj->capacity = obj->size;
+	}
+	return 0;
+}
+
+int ib_object_bin_resize(struct IALLOCATOR *alloc,
+        ib_object *obj, int newsize)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_BIN);
+	assert(obj->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (newsize < 0) return -1;
+	if (newsize > obj->capacity) {
+		if (ib_object_str_grow(alloc, obj, newsize - obj->size) != 0)
+			return -1;
+	}
+	obj->size = newsize;
+	obj->str[newsize] = '\0';
+	return 0;
+}
+
+int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj)
+{
+	assert(obj != NULL && obj->type == IB_OBJECT_BIN);
+	assert(obj->flags & IB_OBJECT_FLAG_DYNAMIC);
+	assert(obj->flags & IB_OBJECT_FLAG_OWNED);
+	if (obj->size >= obj->capacity) return 0;
+	{
+		size_t bytes = (size_t)obj->size + 1;
+		unsigned char *newbuf;
+		if (obj->str == NULL) return 0;
+		newbuf = (unsigned char*)internal_realloc(alloc, obj->str, bytes);
+		if (newbuf == NULL) return -1;
+		obj->str = newbuf;
+		obj->capacity = obj->size;
+	}
+	return 0;
+}
+
+
+// map mutation (const char *key convenience)
+int ib_object_map_add_str(struct IALLOCATOR *alloc,
+		ib_object *map, const char *key, ib_object *val)
+{
+	ib_object *k;
+	if (key == NULL) return -1;
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	k = ib_object_new_str(alloc, key, (int)strlen(key));
+	if (k == NULL) return -1;
+	{
+		int hr = ib_object_map_add(alloc, map, k, val);
+		if (hr != 0) {
+			ib_object_delete(alloc, k);
+		}
+		return hr;
+	}
+}
+
+ib_object *ib_object_map_get_str(const ib_object *map, const char *key)
+{
+	ib_object needle;
+	if (map == NULL || key == NULL) return NULL;
+	ib_object_init_str(&needle, key, (int)strlen(key));
+	return ib_object_map_get(map, &needle);
+}
+
+int ib_object_map_set_str(struct IALLOCATOR *alloc,
+		ib_object *map, const char *key, ib_object *val)
+{
+	ib_object needle;
+	int idx, hr = 0;
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	if (key == NULL) return -1;
+	ib_object_init_str(&needle, key, (int)strlen(key));
+	idx = ib_object_map_find(map, &needle);
+	if (idx >= 0) {
+		ib_object *old_val = map->element[idx * 2 + 1];
+		map->element[idx * 2 + 1] = val;
+		ib_object_delete(alloc, old_val);
+	}
+	else {
+		ib_object *k = ib_object_new_str(alloc, key, (int)strlen(key));
+		if (k == NULL) return -1;
+		hr = ib_object_map_add(alloc, map, k, val);
+		if (hr != 0) {
+			ib_object_delete(alloc, k);
+		}
+	}
+	return hr;
+}
+
+int ib_object_map_erase_str(struct IALLOCATOR *alloc,
+		ib_object *map, const char *key)
+{
+	ib_object needle;
+	if (key == NULL) return -1;
+	ib_object_init_str(&needle, key, (int)strlen(key));
+	return ib_object_map_erase(alloc, map, &needle);
+}
+
+ib_object *ib_object_map_detach_str(struct IALLOCATOR *alloc,
+		ib_object *map, const char *key)
+{
+	ib_object needle;
+	if (key == NULL) return NULL;
+	ib_object_init_str(&needle, key, (int)strlen(key));
+	return ib_object_map_detach(alloc, map, &needle);
+}
+
+
+// map mutation (IINT64 key convenience)
+int ib_object_map_add_int(struct IALLOCATOR *alloc,
+		ib_object *map, IINT64 key, ib_object *val)
+{
+	ib_object *k;
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	k = ib_object_new_int(alloc, key);
+	if (k == NULL) return -1;
+	{
+		int hr = ib_object_map_add(alloc, map, k, val);
+		if (hr != 0) {
+			ib_object_delete(alloc, k);
+		}
+		return hr;
+	}
+}
+
+ib_object *ib_object_map_get_int(const ib_object *map, IINT64 key)
+{
+	ib_object needle;
+	if (map == NULL) return NULL;
+	ib_object_init_int(&needle, key);
+	return ib_object_map_get(map, &needle);
+}
+
+int ib_object_map_set_int(struct IALLOCATOR *alloc,
+		ib_object *map, IINT64 key, ib_object *val)
+{
+	ib_object needle, *k;
+	int idx, hr;
+	assert(map != NULL && map->type == IB_OBJECT_MAP);
+	assert(map->flags & IB_OBJECT_FLAG_OWNED);
+	assert(val == NULL || (val->flags & IB_OBJECT_FLAG_DYNAMIC));
+	ib_object_init_int(&needle, key);
+	idx = ib_object_map_find(map, &needle);
+	if (idx >= 0) {
+		ib_object *old_val = map->element[idx * 2 + 1];
+		map->element[idx * 2 + 1] = val;
+		ib_object_delete(alloc, old_val);
+		return 0;
+	}
+	k = ib_object_new_int(alloc, key);
+	if (k == NULL) return -1;
+	hr = ib_object_map_add(alloc, map, k, val);
+	if (hr != 0) {
+		ib_object_delete(alloc, k);
+	}
+	return hr;
+}
+
+int ib_object_map_erase_int(struct IALLOCATOR *alloc,
+		ib_object *map, IINT64 key)
+{
+	ib_object needle;
+	ib_object_init_int(&needle, key);
+	return ib_object_map_erase(alloc, map, &needle);
+}
+
+ib_object *ib_object_map_detach_int(struct IALLOCATOR *alloc,
+		ib_object *map, IINT64 key)
+{
+	ib_object needle;
+	if (map == NULL) return NULL;
+	ib_object_init_int(&needle, key);
+	return ib_object_map_detach(alloc, map, &needle);
+}
+
+
+
+//=====================================================================
+// IRING: The struct definition of the ring buffer
+//=====================================================================
+
+// init circle cache
 void iring_init(struct IRING *ring, void *buffer, ilong capacity)
 {
 	ring->data = (char*)buffer;
@@ -35,14 +1060,14 @@ void iring_init(struct IRING *ring, void *buffer, ilong capacity)
 	ring->head = 0;
 }
 
-/* return head position */
+// return head position
 ilong iring_head(const struct IRING *ring)
 {
 	assert(ring);
 	return ring->head;
 }
 
-/* calculate new position within the range of [0, capacity) */
+// calculate new position within the range of [0, capacity)
 ilong iring_modulo(const struct IRING *ring, ilong offset)
 {
 	ilong cap = ring->capacity;
@@ -67,7 +1092,7 @@ ilong iring_modulo(const struct IRING *ring, ilong offset)
 	}
 }
 
-/* move head forward */
+// move head forward
 ilong iring_advance(struct IRING *ring, ilong offset)
 {
 	ilong cap = ring->capacity;
@@ -78,7 +1103,7 @@ ilong iring_advance(struct IRING *ring, ilong offset)
 	return ring->head;
 }
 
-/* fetch data from position */
+// fetch data from position
 ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len)
 {
 	char *lptr = (char*)ptr;
@@ -98,7 +1123,7 @@ ilong iring_read(const struct IRING *ring, ilong pos, void *ptr, ilong len)
 	return len;
 }
 
-/* store data to position */
+// store data to position
 ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len)
 {
 	const char *lptr = (const char*)ptr;
@@ -118,7 +1143,7 @@ ilong iring_write(struct IRING *ring, ilong pos, const void *ptr, ilong len)
 	return len;
 }
 
-/* fill data into position */
+// fill data into position
 ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len)
 {
 	ilong cap = ring->capacity;
@@ -137,14 +1162,14 @@ ilong iring_fill(struct IRING *ring, ilong pos, unsigned char ch, ilong len)
 	return len;
 }
 
-/* flat memory */
+// flat memory
 ilong iring_flat(const struct IRING *ring, void **pointer)
 {
 	if (pointer) pointer[0] = (void*)(ring->data + ring->head);
 	return ring->capacity - ring->head;
 }
 
-/* swap internal buffer */
+// swap internal buffer
 void iring_swap(struct IRING *ring, void *buffer, ilong capacity)
 {
 	ilong size = (ring->capacity < capacity)? ring->capacity : capacity;
@@ -154,7 +1179,7 @@ void iring_swap(struct IRING *ring, void *buffer, ilong capacity)
 	ring->head = 0;
 }
 
-/* get two pointers and sizes */
+// get two pointers and sizes
 void iring_ptrs(struct IRING *ring, void **p1, ilong *s1, 
 	void **p2, ilong *s2)
 {
@@ -167,9 +1192,9 @@ void iring_ptrs(struct IRING *ring, void **p1, ilong *s1,
 
 
 
-/*====================================================================*/
-/* IMSTREAM: In-Memory FIFO Buffer                                    */
-/*====================================================================*/
+//=====================================================================
+// IMSTREAM: In-Memory FIFO Buffer
+//=====================================================================
 struct IMSPAGE
 {
 	struct ILISTHEAD head;
@@ -180,7 +1205,7 @@ struct IMSPAGE
 
 #define IMSPAGE_LRU_SIZE	2
 
-/* init memory stream */
+// init memory stream
 void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high)
 {
 	ilong swap;
@@ -202,7 +1227,7 @@ void ims_init(struct IMSTREAM *s, ib_memnode *fnode, ilong low, ilong high)
 	s->lrusize = 0;
 }
 
-/* alloc new page from kmem-system or IMEMNODE */
+// alloc new page from kmem-system or IMEMNODE
 static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 {
 	struct IMSPAGE *page;
@@ -231,7 +1256,7 @@ static struct IMSPAGE *ims_page_new(struct IMSTREAM *s)
 	return page;
 }
 
-/* free page into kmem-system or IMEMNODE */
+// free page into kmem-system or IMEMNODE
 static void ims_page_del(struct IMSTREAM *s, struct IMSPAGE *page)
 {
 	if (s->fixed_pages != NULL) {
@@ -243,7 +1268,7 @@ static void ims_page_del(struct IMSTREAM *s, struct IMSPAGE *page)
 	}
 }
 
-/* destroy memory stream */
+// destroy memory stream
 void ims_destroy(struct IMSTREAM *s)
 {
 	struct IMSPAGE *current;
@@ -267,7 +1292,7 @@ void ims_destroy(struct IMSTREAM *s)
 	s->lrusize = 0;
 }
 
-/* get page from lru cache */
+// get page from lru cache
 static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 {
 	struct IMSPAGE *page;
@@ -294,7 +1319,7 @@ static struct IMSPAGE *ims_page_cache_get(struct IMSTREAM *s)
 	return page;
 }
 
-/* give page back to lru cache */
+// give page back to lru cache
 static void ims_page_cache_release(struct IMSTREAM *s, struct IMSPAGE *page)
 {
 	ilist_add_tail(&page->head, &s->lru);
@@ -307,13 +1332,13 @@ static void ims_page_cache_release(struct IMSTREAM *s, struct IMSPAGE *page)
 	}
 }
 
-/* get data size */
+// get data size
 ilong ims_dsize(const struct IMSTREAM *s)
 {
 	return s->size;
 }
 
-/* write data into memory stream */
+// write data into memory stream
 ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 {
 	ilong total, canwrite, towrite;
@@ -354,7 +1379,7 @@ ilong ims_write(struct IMSTREAM *s, const void *ptr, ilong size)
 	return total;
 }
 
-/* memory stream main read routine */
+// memory stream main read routine
 ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 {
 	ilong total, canread, toread, posread;
@@ -402,35 +1427,35 @@ ilong ims_read_sub(struct IMSTREAM *s, void *ptr, ilong size, int nodrop)
 	return total;
 }
 
-/* read (and drop) data from memory stream */
+// read (and drop) data from memory stream
 ilong ims_read(struct IMSTREAM *s, void *ptr, ilong size)
 {
 	assert(s && ptr);
 	return ims_read_sub(s, ptr, size, 0);
 }
 
-/* peek (no drop) data from memory stream */
+// peek (no drop) data from memory stream
 ilong ims_peek(const struct IMSTREAM *s, void *ptr, ilong size)
 {
 	assert(s && ptr);
 	return ims_read_sub((struct IMSTREAM*)s, ptr, size, 1);
 }
 
-/* drop data from memory stream */
+// drop data from memory stream
 ilong ims_drop(struct IMSTREAM *s, ilong size)
 {
 	assert(s);
 	return ims_read_sub(s, NULL, size, 0);
 }
 
-/* clear stream */
+// clear stream
 void ims_clear(struct IMSTREAM *s)
 {
 	assert(s);
 	ims_drop(s, s->size);
 }
 
-/* get flat ptr and size */
+// get flat ptr and size
 ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 {
 	struct IMSPAGE *current;
@@ -447,7 +1472,7 @@ ilong ims_flat(const struct IMSTREAM *s, void **pointer)
 	return s->pos_write - s->pos_read;
 }
 
-/* move data from source to destination */
+// move data from source to destination
 ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size)
 {
 	ilong total = 0;
@@ -468,20 +1493,20 @@ ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size)
 
 
 
-/*====================================================================*/
-/* Common string operation (not be defined in some compiler)          */
-/*====================================================================*/
+//=====================================================================
+// Common string operation (not be defined in some compiler)
+//=====================================================================
 
-/* strcasestr */
-char* istrcasestr(char* s1, char* s2)  
+// strcasestr
+const char* istrcasestr(const char* s1, const char* s2)  
 {  
-	char* ptr = s1;  
+	const char* ptr = s1;  
 	if (!s1 || !s2 || !*s2) return s1;  
 	   
 	while (*ptr) {  
 		if (ITOUPPER(*ptr) == ITOUPPER(*s2)) {  
-			char* cur1 = ptr + 1;  
-			char* cur2 = s2 + 1;  
+			const char* cur1 = ptr + 1;  
+			const char* cur2 = s2 + 1;  
 			while (*cur1 && *cur2 && ITOUPPER(*cur1) == ITOUPPER(*cur2)) {  
 				cur1++;  
 				cur2++;  
@@ -493,16 +1518,16 @@ char* istrcasestr(char* s1, char* s2)
 	return   NULL;  
 }
 
-/* strncasecmp */
-int istrncasecmp(char* s1, char* s2, size_t num)
+// strncasecmp
+int istrncasecmp(const char* s1, const char* s2, size_t num)
 {
 	char c1, c2;
-	assert(s1 && s2);
-	if(!s1|| !s2 || num == 0) return 0;
+	if (!s1 || !s2 || num == 0) return 0;
 	while(num > 0){
 		c1 = ITOUPPER(*s1);
 		c2 = ITOUPPER(*s2);
-		if (c1 - c2) return c1 - c2;
+		if (c1 != c2) return c1 - c2;
+		if (c1 == 0) return 0;
 		num--;
 		s1++;
 		s2++;
@@ -510,7 +1535,7 @@ int istrncasecmp(char* s1, char* s2, size_t num)
 	return 0;
 }
 
-/* strsep */
+// strsep
 char *istrsep(char **stringp, const char *delim)
 {
 	char *s;
@@ -534,13 +1559,13 @@ char *istrsep(char **stringp, const char *delim)
 	}
 }
 
-/* istrtoxl macro */
+// istrtoxl macro
 #define IFL_NEG			1
 #define IFL_READDIGIT	2
 #define IFL_OVERFLOW	4
 #define IFL_UNSIGNED	8
 
-/* istrtoxl */
+// istrtoxl
 static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	int ibase, int flags)
 {
@@ -646,7 +1671,7 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	return number;
 }
 
-/* istrtoxl */
+// istrtoxl
 static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	int ibase, int flags)
 {
@@ -742,7 +1767,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	return number;
 }
 
-/* ixtoa */
+// ixtoa
 static int ixtoa(IUINT64 val, char *buf, unsigned radix, int is_neg)
 {
 	IUINT64 digval;
@@ -780,61 +1805,61 @@ static int ixtoa(IUINT64 val, char *buf, unsigned radix, int is_neg)
 		++firstdig;
 	}	while (firstdig < p);
 
-	return 0;
+	return size;
 }
 
-/* istrtol */
+// istrtol
 long istrtol(const char *nptr, const char **endptr, int ibase)
 {
 	return (long)istrtoxl(nptr, endptr, ibase, 0);
 }
 
-/* istrtoul */
+// istrtoul
 unsigned long istrtoul(const char *nptr, const char **endptr, int ibase)
 {
 	return istrtoxl(nptr, endptr, ibase, IFL_UNSIGNED);
 }
 
-/* istrtoll */
+// istrtoll
 IINT64 istrtoll(const char *nptr, const char **endptr, int ibase)
 {
 	return (IINT64)istrtoxll(nptr, endptr, ibase, 0);
 }
 
-/* istrtoull */
+// istrtoull
 IUINT64 istrtoull(const char *nptr, const char **endptr, int ibase)
 {
 	return istrtoxll(nptr, endptr, ibase, IFL_UNSIGNED);
 }
 
-/* iltoa */
+// iltoa
 int iltoa(long val, char *buf, int radix)
 {
 	IINT64 mval = val;
 	return ixtoa((IUINT64)mval, buf, (unsigned)radix, (val < 0)? 1 : 0);
 }
 
-/* iultoa */
+// iultoa
 int iultoa(unsigned long val, char *buf, int radix)
 {
 	IUINT64 mval = (IUINT64)val;
 	return ixtoa(mval, buf, (unsigned)radix, 0);
 }
 
-/* iltoa */
+// iltoa
 int illtoa(IINT64 val, char *buf, int radix)
 {
 	IUINT64 mval = (IUINT64)val;
 	return ixtoa(mval, buf, (unsigned)radix, (val < 0)? 1 : 0);
 }
 
-/* iultoa */
+// iultoa
 int iulltoa(IUINT64 val, char *buf, int radix)
 {
 	return ixtoa(val, buf, (unsigned)radix, 0);
 }
 
-/* istrstrip */
+// istrstrip
 char *istrstrip(char *ptr, const char *delim)
 {
 	size_t size, i;
@@ -870,7 +1895,7 @@ char *istrstrip(char *ptr, const char *delim)
 	return ptr;
 }
 
-/* str escape */
+// str escape
 ilong istrsave(const char *src, ilong size, char *out)
 {
 	const IUINT8 *ptr = (const IUINT8*)src;
@@ -916,7 +1941,7 @@ ilong istrsave(const char *src, ilong size, char *out)
 	}
 }
 
-/* str un-escape */
+// str un-escape
 ilong istrload(const char *src, ilong size, char *out)
 {
 	const IUINT8 *ptr = (const IUINT8*)src;
@@ -989,7 +2014,7 @@ ilong istrload(const char *src, ilong size, char *out)
 	return size;
 }
 
-/* csv tokenizer */
+// csv tokenizer
 const char *istrcsvtok(const char *text, ilong *next, ilong *size)
 {
 	ilong begin = 0, endup = 0, i;
@@ -1033,7 +2058,7 @@ const char *istrcsvtok(const char *text, ilong *next, ilong *size)
 }
 
 
-/* string duplication with ikmem_malloc */
+// string duplication with ikmem_malloc
 char *istrdup(const char *text)
 {
     size_t length;
@@ -1052,7 +2077,7 @@ char *istrdup(const char *text)
 }
 
 
-/* string duplication with size and ikmem_malloc */
+// string duplication with size and ikmem_malloc
 char *istrndup(const char *text, ilong size)
 {
 	char *str;
@@ -1076,7 +2101,7 @@ char *istrndup(const char *text, ilong size)
 }
 
 
-/* optional string duplication */
+// optional string duplication
 char *istrdupopt(const char *text)
 {
     if (text == NULL || text[0] == '\0') {
@@ -1087,9 +2112,9 @@ char *istrdupopt(const char *text)
 
 
 
-/*====================================================================*/
-/* BASE64 / BASE32 / BASE16                                           */
-/*====================================================================*/
+//=====================================================================
+// BASE64 / BASE32 / BASE16
+//=====================================================================
 
 /* encode data as a base64 string, returns string size,
    if dst == 0, returns how many bytes needed for encode (>=real) */
@@ -1104,7 +2129,7 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 
 	if (size == 0) return 0;
 
-	/* returns nbytes needed */
+	// returns nbytes needed
 	if (src == NULL || dst == NULL) {
 		ilong nchars, result;
 		nchars = ((size + 2) / 3) * 4;
@@ -1131,7 +2156,7 @@ ilong ibase64_encode(const void *src, ilong size, char *dst)
 	return (ilong)(d - dst);
 }
 
-/* decode a base64 string into data, returns data size */
+// decode a base64 string into data, returns data size
 ilong ibase64_decode(const char *src, ilong size, void *dst)
 {
 	static iulong decode[256] = { 0xff };
@@ -1208,7 +2233,7 @@ ilong ibase64_decode(const char *src, ilong size, void *dst)
 	return (ilong)k;
 }
 
-/* encode data as a base32 string, returns string size */
+// encode data as a base32 string, returns string size
 ilong ibase32_encode(const void *src, ilong size, char *dst)
 {
 	static const char encode[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -1252,7 +2277,7 @@ ilong ibase32_encode(const void *src, ilong size, char *dst)
 	return (ilong)(dst - ptr);
 }
 
-/* decode a base32 string into data, returns data size */
+// decode a base32 string into data, returns data size
 ilong ibase32_decode(const char *src, ilong size, void *dst)
 {
 	const IUINT8 *lptr = (const IUINT8*)src;
@@ -1300,7 +2325,7 @@ ilong ibase32_decode(const char *src, ilong size, void *dst)
 	return offset;
 }
 
-/* encode data as a base16 string, returns string size */
+// encode data as a base16 string, returns string size
 ilong ibase16_encode(const void *src, ilong size, char *dst)
 {
 	static const char encode[] = "0123456789ABCDEF";
@@ -1315,7 +2340,7 @@ ilong ibase16_encode(const void *src, ilong size, char *dst)
 	return (ilong)(output - dst);
 }
 
-/* decode a base16 string into data, returns data size */
+// decode a base16 string into data, returns data size
 ilong ibase16_decode(const char *src, ilong size, void *dst)
 {
 	const IUINT8 *in = (const IUINT8*)src;
@@ -1342,11 +2367,11 @@ ilong ibase16_decode(const char *src, ilong size, void *dst)
 }
 
 
-/*====================================================================*/
-/* RC4                                                                */
-/*====================================================================*/
+//====================================================================
+// RC4
+//====================================================================
 
-/* rc4 init */
+// rc4 init
 void icrypt_rc4_init(unsigned char *box, int *x, int *y, 
 	const unsigned char *key, int keylen)
 {
@@ -1370,16 +2395,16 @@ void icrypt_rc4_init(unsigned char *box, int *x, int *y,
 	y[0] = Y;
 }
 
-/* rc4_crypt */
+// rc4_crypt
 void icrypt_rc4_crypt(unsigned char *box, int *x, int *y, 
 	const unsigned char *src, unsigned char *dst, ilong size)
 {
 	int X = x[0];
 	int Y = y[0];
-	if (X < 0 || Y < 0) {			/* no crypt */
+	if (X < 0 || Y < 0) {			// no crypt
 		if (src != dst) 
 			memmove(dst, src, size);
-	}	else {						/* crypt */
+	}	else {						// crypt
 		int a, b; 
 		for (; size > 0; src++, dst++, size--) {
 			X = (unsigned char)(X + 1);
@@ -1396,9 +2421,9 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 }
 
 
-/*====================================================================*/
-/* UTF-8/16/32 conversion                                             */
-/*====================================================================*/
+//=====================================================================
+// UTF-8/16/32 conversion
+//=====================================================================
 
 #define ICONV_REPLACEMENT_CHAR  ((IUINT32)0x0000FFFD)
 #define ICONV_MAX_BMP           ((IUINT32)0x0000FFFF)
@@ -1416,7 +2441,7 @@ void icrypt_rc4_crypt(unsigned char *box, int *x, int *y,
 #define ICONV_TARGET_EXHAUSTED  (-2)
 #define ICONV_INVALID_CHAR      (-3)
 
-static const int ihalfShift  = 10; /* used for shifting by 10 bits */
+static const int ihalfShift  = 10; // used for shifting by 10 bits
 static const IUINT32 ihalfBase = 0x0010000UL;
 static const IUINT32 ihalfMask = 0x3FFUL;
 
@@ -1438,34 +2463,34 @@ static const IUINT32 iconv_utf8_offset[6] = { 0x00000000UL,
 static const IUINT32 iconv_first_mark[7] = { 0x00, 0x00, 0xC0,
 	0xE0, 0xF0, 0xF8, 0xFC };
 
-/* check if a UTF-8 character is legal */
+// check if a UTF-8 character is legal
 static inline int iposix_utf8_legal(const IUINT8 *source, int length) {
 	const IUINT8 *srcptr = source + length;
 	IUINT8 a;
 	switch (length) {
 		default: return 0;
-				 /* Everything else falls through when "true"... */
+				 // Everything else falls through when "true"...
 		case 4: if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-				/* fall through */
+				// fall through
 		case 3: if ((a = (*--srcptr)) < 0x80 || a > 0xBF) return 0;
-				/* fall through */
+				// fall through
 		case 2: if ((a = (*--srcptr)) > 0xBF) return 0;
 					switch (*source) {
-						/* no fall-through in this inner switch */
+						// no fall-through in this inner switch
 						case 0xE0: if (a < 0xA0) return 0; break;
 						case 0xED: if (a > 0x9F) return 0; break;
 						case 0xF0: if (a < 0x90) return 0; break;
 						case 0xF4: if (a > 0x8F) return 0; break;
 						default:   if (a < 0x80) return 0;
 					}
-				/* fall through */
+				// fall through
 		case 1: if (*source >= 0x80 && *source < 0xC2) return 0;
 	}
 	if (*source > 0xF4) return 0;
 	return 1;
 }
 
-/* check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal */
+// check if a UTF-8 character is legal, returns 1 for legal, 0 for illegal
 int iposix_utf_check8(const IUINT8 *source, const IUINT8 *srcEnd) {
 	int length = iconv_utf8_trailing[*source] + 1;
 	if (source + length > srcEnd) {
@@ -1488,7 +2513,7 @@ int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		if (source + extraBytesToRead >= srcEnd) {
 			result = ICONV_SRC_EXHAUSTED; break;
 		}
-		/* Do this check whether lenient or strict */
+		// Do this check whether lenient or strict
 		if (! iposix_utf8_legal(source, extraBytesToRead+1)) {
 			result = ICONV_INVALID_CHAR;
 			break;
@@ -1497,23 +2522,23 @@ int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		 * The cases all fall through. See "Note A" below.
 		 */
 		switch (extraBytesToRead) {
-			case 5: ch += *source++; ch <<= 6; /* fall through */
-			case 4: ch += *source++; ch <<= 6; /* fall through */
-			case 3: ch += *source++; ch <<= 6; /* fall through */
-			case 2: ch += *source++; ch <<= 6; /* fall through */
-			case 1: ch += *source++; ch <<= 6; /* fall through */
+			case 5: ch += *source++; ch <<= 6; // fall through
+			case 4: ch += *source++; ch <<= 6; // fall through
+			case 3: ch += *source++; ch <<= 6; // fall through
+			case 2: ch += *source++; ch <<= 6; // fall through
+			case 1: ch += *source++; ch <<= 6; // fall through
 			case 0: ch += *source++;
 		}
 		ch -= iconv_utf8_offset[extraBytesToRead];
 		if (target >= targetEnd) {
-			source -= (extraBytesToRead+1); /* Back up source pointer! */
+			source -= (extraBytesToRead+1); // Back up source pointer!
 			result = ICONV_TARGET_EXHAUSTED; break;
 		}
-		if (ch <= ICONV_MAX_BMP) { /* Target is a character <= 0xFFFF */
-			/* UTF-16 surrogate values are illegal in UTF-32 */
+		if (ch <= ICONV_MAX_BMP) { // Target is a character <= 0xFFFF
+			// UTF-16 surrogate values are illegal in UTF-32
 			if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_LOW_END) {
 				if (strict) {
-					/* return to the illegal value itself */
+					// return to the illegal value itself
 					source -= (extraBytesToRead+1);
 					result = ICONV_INVALID_CHAR;
 					break;
@@ -1521,20 +2546,20 @@ int iposix_utf_8to16(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 					*target++ = ICONV_REPLACEMENT_CHAR;
 				}
 			} else {
-				*target++ = (IUINT16)ch; /* normal case */
+				*target++ = (IUINT16)ch; // normal case
 			}
 		} else if (ch > ICONV_MAX_UTF16) {
 			if (strict) {
 				result = ICONV_INVALID_CHAR;
-				source -= (extraBytesToRead+1); /* return to the start */
-				break; /* Bail out; shouldn't continue */
+				source -= (extraBytesToRead+1); // return to the start
+				break; // Bail out; shouldn't continue
 			} else {
 				*target++ = ICONV_REPLACEMENT_CHAR;
 			}
 		} else {
-			/* target is a character in range 0xFFFF - 0x10FFFF. */
+			// target is a character in range 0xFFFF - 0x10FFFF.
 			if (target + 1 >= targetEnd) {
-				/* Back up source pointer! */
+				// Back up source pointer!
 				source -= (extraBytesToRead+1);
 				result = ICONV_TARGET_EXHAUSTED; break;
 			}
@@ -1563,7 +2588,7 @@ int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		if (source + extraBytesToRead >= srcEnd) {
 			result = ICONV_SRC_EXHAUSTED; break;
 		}
-		/* Do this check whether lenient or strict */
+		// Do this check whether lenient or strict
 		if (! iposix_utf8_legal(source, extraBytesToRead+1)) {
 			result = ICONV_INVALID_CHAR;
 			break;
@@ -1572,16 +2597,16 @@ int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 		 * The cases all fall through. See "Note A" below.
 		 */
 		switch (extraBytesToRead) {
-			case 5: ch += *source++; ch <<= 6; /* fall through */
-			case 4: ch += *source++; ch <<= 6; /* fall through */
-			case 3: ch += *source++; ch <<= 6; /* fall through */
-			case 2: ch += *source++; ch <<= 6; /* fall through */
-			case 1: ch += *source++; ch <<= 6; /* fall through */
+			case 5: ch += *source++; ch <<= 6; // fall through
+			case 4: ch += *source++; ch <<= 6; // fall through
+			case 3: ch += *source++; ch <<= 6; // fall through
+			case 2: ch += *source++; ch <<= 6; // fall through
+			case 1: ch += *source++; ch <<= 6; // fall through
 			case 0: ch += *source++;
 		}
 		ch -= iconv_utf8_offset[extraBytesToRead];
 		if (target >= targetEnd) {
-			/* Back up the source pointer! */
+			// Back up the source pointer!
 			source -= (extraBytesToRead+1); 
 			result = ICONV_TARGET_EXHAUSTED; break;
 		}
@@ -1592,7 +2617,7 @@ int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 			 */
 			if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_LOW_END) {
 				if (strict) {
-					/* return to the illegal value itself */
+					// return to the illegal value itself
 					source -= (extraBytesToRead+1); 
 					result = ICONV_INVALID_CHAR;
 					break;
@@ -1602,7 +2627,7 @@ int iposix_utf_8to32(const IUINT8 **srcStart, const IUINT8 *srcEnd,
 			} else {
 				*target++ = ch;
 			}
-		} else { /* i.e., ch > ICONV_MAX_LEGAL_UTF32 */
+		} else { // i.e., ch > ICONV_MAX_LEGAL_UTF32
 			result = ICONV_INVALID_CHAR;
 			*target++ = ICONV_REPLACEMENT_CHAR;
 		}
@@ -1625,40 +2650,40 @@ int iposix_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		unsigned short bytesToWrite = 0;
 		const IUINT32 byteMask = 0xBF;
 		const IUINT32 byteMark = 0x80; 
-		/* In case we have to back up because of target overflow. */
+		// In case we have to back up because of target overflow.
 		const IUINT16* oldSource = source; 
 		ch = *source++;
-		/* If we have a surrogate pair, convert to IUINT32 first. */
+		// If we have a surrogate pair, convert to IUINT32 first.
 		if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_HIGH_END) {
 			/* If the 16 bits following the high surrogate are in 
 			 * the source buffer... */
 			if (source < srcEnd) {
 				IUINT32 ch2 = *source;
-				/* If it's a low surrogate, convert to IUINT32. */
+				// If it's a low surrogate, convert to IUINT32.
 				if (ch2 >= ICONV_SUR_LOW_START && ch2 <= ICONV_SUR_LOW_END) {
 					ch = ((ch - ICONV_SUR_HIGH_START) << ihalfShift)
 						+ (ch2 - ICONV_SUR_LOW_START) + ihalfBase;
 					++source;
-				} else if (strict) { /* it's an unpaired high surrogate */
-					--source; /* return to the illegal value itself */
+				} else if (strict) { // it's an unpaired high surrogate
+					--source; // return to the illegal value itself
 					result = ICONV_INVALID_CHAR;
 					break;
 				}
 			} else { 
-				/* We don't have the 16 bits following the high surrogate. */
-				--source; /* return to the high surrogate */
+				// We don't have the 16 bits following the high surrogate.
+				--source; // return to the high surrogate
 				result = ICONV_SRC_EXHAUSTED;
 				break;
 			}
 		} else if (strict) {
-			/* UTF-16 surrogate values are illegal in UTF-32 */
+			// UTF-16 surrogate values are illegal in UTF-32
 			if (ch >= ICONV_SUR_LOW_START && ch <= ICONV_SUR_LOW_END) {
-				--source; /* return to the illegal value itself */
+				--source; // return to the illegal value itself
 				result = ICONV_INVALID_CHAR;
 				break;
 			}
 		}
-		/* Figure out how many bytes the result will require */
+		// Figure out how many bytes the result will require
 		if (ch < (IUINT32)0x80) {
 			bytesToWrite = 1;
 		} 
@@ -1677,16 +2702,16 @@ int iposix_utf_16to8(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 		}
 		target += bytesToWrite;
 		if (target > targetEnd) {
-			source = oldSource; /* Back up source pointer! */
+			source = oldSource; // Back up source pointer!
 			target -= bytesToWrite; result = ICONV_TARGET_EXHAUSTED; break;
 		}
-		switch (bytesToWrite) { /* note: everything falls through. */
+		switch (bytesToWrite) { // note: everything falls through.
 		case 4: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 3: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 2: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 1: *--target = (IUINT8)(ch | iconv_first_mark[bytesToWrite]);
 		}
 		target += bytesToWrite;
@@ -1706,41 +2731,41 @@ int iposix_utf_16to32(const IUINT16 **srcStart, const IUINT16 *srcEnd,
 	IUINT32* target = *targetStart;
 	IUINT32 ch = 0, ch2 = 0;
 	while (source < srcEnd) {
-		/*  In case we have to back up because of target overflow. */
+		// In case we have to back up because of target overflow.
 		const IUINT16* oldSource = source;
 		ch = *source++;
-		/* If we have a surrogate pair, convert to IUINT32 first. */
+		// If we have a surrogate pair, convert to IUINT32 first.
 		if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_HIGH_END) {
 			/* If the 16 bits following the high surrogate are in 
 			 * the source buffer... */
 			if (source < srcEnd) {
 				ch2 = *source;
-				/* If it's a low surrogate, convert to IUINT32. */
+				// If it's a low surrogate, convert to IUINT32.
 				if (ch2 >= ICONV_SUR_LOW_START && ch2 <= ICONV_SUR_LOW_END) {
 					ch = ((ch - ICONV_SUR_HIGH_START) << ihalfShift)
 						+ (ch2 - ICONV_SUR_LOW_START) + ihalfBase;
 					++source;
-				} else if (strict) { /* it's an unpaired high surrogate */
-					--source; /* return to the illegal value itself */
+				} else if (strict) { // it's an unpaired high surrogate
+					--source; // return to the illegal value itself
 					result = ICONV_INVALID_CHAR;
 					break;
 				}
 			} else {
-				/* We don't have the 16 bits following the high surrogate. */
-				--source; /* return to the high surrogate */
+				// We don't have the 16 bits following the high surrogate.
+				--source; // return to the high surrogate
 				result = ICONV_SRC_EXHAUSTED;
 				break;
 			}
 		} else if (strict) {
-			/* UTF-16 surrogate values are illegal in UTF-32 */
+			// UTF-16 surrogate values are illegal in UTF-32
 			if (ch >= ICONV_SUR_LOW_START && ch <= ICONV_SUR_LOW_END) {
-				--source; /* return to the illegal value itself */
+				--source; // return to the illegal value itself
 				result = ICONV_INVALID_CHAR;
 				break;
 			}
 		}
 		if (target >= targetEnd) {
-			source = oldSource; /* Back up source pointer! */
+			source = oldSource; // Back up source pointer!
 			result = ICONV_TARGET_EXHAUSTED; break;
 		}
 		*target++ = ch;
@@ -1771,9 +2796,9 @@ int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 		const IUINT32 byteMark = 0x80; 
 		ch = *source++;
 		if (strict) {
-			/* UTF-16 surrogate values are illegal in UTF-32 */
+			// UTF-16 surrogate values are illegal in UTF-32
 			if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_LOW_END) {
-				--source; /* return to the illegal value itself */
+				--source; // return to the illegal value itself
 				result = ICONV_INVALID_CHAR;
 				break;
 			}
@@ -1802,16 +2827,16 @@ int iposix_utf_32to8(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 
 		target += bytesToWrite;
 		if (target > targetEnd) {
-			--source; /* Back up source pointer! */
+			--source; // Back up source pointer!
 			target -= bytesToWrite; result = ICONV_TARGET_EXHAUSTED; break;
 		}
-		switch (bytesToWrite) { /* note: everything falls through. */
+		switch (bytesToWrite) { // note: everything falls through.
 		case 4: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 3: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 2: *--target = (IUINT8)((ch | byteMark) & byteMask); ch >>= 6;
-				/* fall through */
+				// fall through
 		case 1: *--target = (IUINT8) (ch | iconv_first_mark[bytesToWrite]);
 		}
 		target += bytesToWrite;
@@ -1835,19 +2860,19 @@ int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 			result = ICONV_TARGET_EXHAUSTED; break;
 		}
 		ch = *source++;
-		if (ch <= ICONV_MAX_BMP) { /* Target is a character <= 0xFFFF */
+		if (ch <= ICONV_MAX_BMP) { // Target is a character <= 0xFFFF
 			/* UTF-16 surrogate values are illegal in UTF-32; 
 			 * 0xffff or 0xfffe are both reserved values */
 			if (ch >= ICONV_SUR_HIGH_START && ch <= ICONV_SUR_LOW_END) {
 				if (strict) {
-					--source; /* return to the illegal value itself */
+					--source; // return to the illegal value itself
 					result = ICONV_INVALID_CHAR;
 					break;
 				} else {
 					*target++ = ICONV_REPLACEMENT_CHAR;
 				}
 			} else {
-				*target++ = (IUINT16)ch; /* normal case */
+				*target++ = (IUINT16)ch; // normal case
 			}
 		} else if (ch > ICONV_MAX_LEGAL_UTF32) {
 			if (strict) {
@@ -1856,9 +2881,9 @@ int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 				*target++ = ICONV_REPLACEMENT_CHAR;
 			}
 		} else {
-			/* target is a character in range 0xFFFF - 0x10FFFF. */
+			// target is a character in range 0xFFFF - 0x10FFFF.
 			if (target + 1 >= targetEnd) {
-				--source; /* Back up source pointer! */
+				--source; // Back up source pointer!
 				result = ICONV_TARGET_EXHAUSTED; 
 				break;
 			}
@@ -1873,14 +2898,14 @@ int iposix_utf_32to16(const IUINT32 **srcStart, const IUINT32 *srcEnd,
 }
 
 
-/* count characters in UTF-8 string, returns -1 for illegal sequence */
+// count characters in UTF-8 string, returns -1 for illegal sequence
 int iposix_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd)
 {
 	int count = 0;
 	while (source < srcEnd) {
 		unsigned short extraBytesToRead = iconv_utf8_trailing[*source];
 		if (source + extraBytesToRead >= srcEnd) {
-			return -1; /* source exhausted */
+			return -1; // source exhausted
 		}
 		source += extraBytesToRead + 1;
 		count++;
@@ -1888,7 +2913,7 @@ int iposix_utf_count8(const IUINT8 *source, const IUINT8 *srcEnd)
 	return count;
 }
 
-/* count characters in UTF-16 string, returns -1 for illegal sequence */
+// count characters in UTF-16 string, returns -1 for illegal sequence
 int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
 {
 	int count = 0;
@@ -1898,15 +2923,15 @@ int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
 			if (source < srcEnd) {
 				IUINT32 ch2 = *source;
 				if (ch2 >= ICONV_SUR_LOW_START && ch2 <= ICONV_SUR_LOW_END) {
-					source++; /* valid surrogate pair */
+					source++; // valid surrogate pair
 				} else {
-					return -1; /* illegal sequence */
+					return -1; // illegal sequence
 				}
 			} else {
-				return -1; /* source exhausted */
+				return -1; // source exhausted
 			}
 		} else if (ch >= ICONV_SUR_LOW_START && ch <= ICONV_SUR_LOW_END) {
-			return -1; /* illegal sequence */
+			return -1; // illegal sequence
 		}
 		count++;
 	}
@@ -1914,11 +2939,11 @@ int iposix_utf_count16(const IUINT16 *source, const IUINT16 *srcEnd)
 }
 
 
-/*====================================================================*/
-/* EXTENSION FUNCTIONS                                                */
-/*====================================================================*/
+//=====================================================================
+// EXTENSION FUNCTIONS
+//=====================================================================
 
-/* push message into stream */
+// push message into stream
 void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
 		IINT32 lparam, const void *data, IINT32 size)
 {
@@ -1932,7 +2957,7 @@ void iposix_msg_push(struct IMSTREAM *queue, IINT32 msg, IINT32 wparam,
 }
 
 
-/* read message from stream */
+// read message from stream
 IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg, 
 		IINT32 *wparam, IINT32 *lparam, void *data, IINT32 maxsize)
 {
@@ -1962,12 +2987,12 @@ IINT32 iposix_msg_read(struct IMSTREAM *queue, IINT32 *msg,
 }
 
 
-/**********************************************************************
- * 32 bits incremental hash functions
- **********************************************************************/
+//=====================================================================
+// 32 bits incremental hash functions
+//=====================================================================
 IUINT32 inc_hash_crc32_table[256];
 
-/* CRC32 hash table initialize */
+// CRC32 hash table initialize
 void inc_hash_crc32_initialize(void)
 {
 	static int initialized = 0;

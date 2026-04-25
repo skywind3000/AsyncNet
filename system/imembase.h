@@ -64,7 +64,10 @@
 	typedef int32_t ISTDINT32;
 #else
 #include <limits.h>
-#if ULONG_MAX == 0xFFFFU
+#if UINT_MAX == 0xFFFFFFFFUL
+	typedef unsigned int ISTDUINT32;
+	typedef int ISTDINT32;
+#elif ULONG_MAX == 0xFFFFFFFFUL
 	typedef unsigned long ISTDUINT32;
 	typedef long ISTDINT32;
 #else
@@ -219,6 +222,9 @@ int iv_capacity(struct IVECTOR *v, size_t newcap);
 /* change capacity without affecting size */
 int iv_reserve(struct IVECTOR *v, size_t newsize);
 
+/* shrink capacity to size */
+int iv_shrink(struct IVECTOR *v);
+
 /* remove bytes from the end of the buffer */
 size_t iv_pop(struct IVECTOR *v, void *data, size_t size);
 
@@ -237,16 +243,20 @@ int iv_clear(struct IVECTOR *v);
 /* fast access */
 #define iv_size(v) ((v)->size)
 #define iv_data(v) ((v)->data)
+#define iv_empty(v) ((v)->size == 0)
 
 #define iv_entry(v, type) ((type*)iv_data(v))
 
 #define iv_obj_index(v, type, index) (iv_entry(v, type)[index])
 #define iv_obj_push(v, type, objptr) iv_push(v, objptr, sizeof(type))
 #define iv_obj_pop(v, type, objptr) iv_pop(v, objptr, sizeof(type))
+#define iv_obj_top(v, type) iv_obj_index(v, type, iv_obj_size(v, type) - 1)
 #define iv_obj_size(v, type) (((v)->size) / sizeof(type))
 #define iv_obj_capacity(v, type) (((v)->capacity) / sizeof(type))
 #define iv_obj_resize(v, type, count) iv_resize(v, (count) * sizeof(type))
 #define iv_obj_reserve(v, type, count) iv_reserve(v, (count) * sizeof(type))
+#define iv_obj_shrink(v, type) iv_shrink(v)
+#define iv_obj_empty(v, type) iv_empty(v)
 
 #define iv_obj_insert(v, type, pos, objptr) \
 	iv_insert(v, (pos) * sizeof(type), objptr, sizeof(type))
@@ -525,8 +535,8 @@ struct ib_root
 #define IB_OFFSET(TYPE, MEMBER) offsetof(TYPE, MEMBER)
 #endif
 
-#define IB_NODE2DATA(n, o)    ((void *)((size_t)(n) - (o)))
-#define IB_DATA2NODE(d, o)    ((struct ib_node*)((size_t)(d) + (o)))
+#define IB_NODE2DATA(n, o)    ((void *)((char*)(n) - (o)))
+#define IB_DATA2NODE(d, o)    ((struct ib_node*)((char*)(d) + (o)))
 
 #define IB_ENTRY(ptr, type, member) \
 	((type*)IB_NODE2DATA(ptr, IB_OFFSET(type, member)))
@@ -868,10 +878,10 @@ struct ib_hash_map
 	int insert;                      /* internal: last add was new insert */
 	int fixed;                       /* 1 = disable auto rehash */
 	int builtin;                     /* internal flag */
-	void* (*key_copy)(void *key);    /* deep-copy callback for keys */
-	void (*key_destroy)(void *key);  /* destructor callback for keys */
-	void* (*value_copy)(void *value);   /* deep-copy callback for values */
-	void (*value_destroy)(void *value); /* destructor callback for values */
+	void* (*key_copy)(const void *key);      /* deep-copy callback for keys */
+	void (*key_destroy)(void *key);          /* dtor callback for keys */
+	void* (*value_copy)(const void *value);  /* deep-copy for values */
+	void (*value_destroy)(void *value);      /* dtor callback for values */
 	struct ib_fastbin fb;            /* entry allocator (slab) */
 	struct ib_hash_table ht;         /* underlying hash table */
 };
@@ -983,9 +993,9 @@ int ib_hash_compare_str(const void *key1, const void *key2);
 size_t ib_hash_func_cstr(const void *key);
 int ib_hash_compare_cstr(const void *key1, const void *key2);
 
-void* ib_hash_str_copy(void *str);
+void* ib_hash_str_copy(const void *str);
 void ib_hash_str_destroy(void *str);
-void* ib_hash_cstr_copy(void *cstr);
+void* ib_hash_cstr_copy(const void *cstr);
 void ib_hash_cstr_destroy(void *cstr);
 
 struct ib_hash_entry *ib_map_find_uint(struct ib_hash_map *hm, iulong key);
@@ -1049,14 +1059,14 @@ static inline void* ib_zone_malloc(struct ib_zone *zone, size_t size) {
 /* fast allocate aligned memory */
 static inline void*
 ib_zone_malloc_aligned(struct ib_zone *zone, size_t size, size_t align) {
-	size_t offset = ((size_t)(zone->ptr)) & (align - 1);
+	char *ptr = (char*)ib_zone_malloc(zone, size + align - 1);
+	size_t offset;
+	if (ptr == NULL) return NULL;
+	offset = ((size_t)ptr) & (align - 1);
 	if (offset != 0) {
-		size_t adjust = align - offset;
-		char *ptr = (char*)ib_zone_malloc(zone, size + adjust);
-		return ptr + adjust;
-	} else {
-		return ib_zone_malloc(zone, size);
+		ptr += align - offset;
 	}
+	return ptr;
 }
 
 

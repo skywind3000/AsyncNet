@@ -47,26 +47,26 @@
 #endif
 
 
-/*===================================================================*/
-/* Network Information                                               */
-/*===================================================================*/
+//---------------------------------------------------------------------
+// Network Information
+//---------------------------------------------------------------------
 
-/* host name */
+// host name
 char ihostname[IMAX_HOSTNAME];
 
-/* host address list */
+// host address list
 struct in_addr ihost_addr[IMAX_ADDRESS];
 
-/* host ip address string list */
+// host ip address string list
 char *ihost_ipstr[IMAX_ADDRESS];
 
-/* host names */
+// host names
 char *ihost_names[IMAX_ADDRESS];
 
-/* host address count */
+// host address count
 int ihost_addr_num = 0;	
 
-/* refresh address list */
+// refresh address list
 int isocket_update_address(int resolvname)
 {
 	static int inited = 0;
@@ -137,7 +137,7 @@ int isocket_update_address(int resolvname)
 #endif
 
 
-/* create a new asyncsock */
+// create a new asyncsock
 void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 {
 	if (asyncsock == NULL) {
@@ -182,7 +182,7 @@ void async_sock_init(CAsyncSock *asyncsock, struct IMEMNODE *nodes)
 	ims_init(&asyncsock->recvmsg, nodes, 0, 0);
 }
 
-/* delete asyncsock */
+// delete asyncsock
 void async_sock_destroy(CAsyncSock *asyncsock)
 {
 	assert(asyncsock);
@@ -221,7 +221,7 @@ void async_sock_destroy(CAsyncSock *asyncsock)
 }
 
 
-/* connect to remote address */
+// connect to remote address
 int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 	int addrlen, int header)
 {
@@ -351,7 +351,7 @@ int async_sock_connect(CAsyncSock *asyncsock, const struct sockaddr *remote,
 	return 0;
 }
 
-/* assign a new socket */
+// assign a new socket
 int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab)
 {
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
@@ -409,7 +409,7 @@ int async_sock_assign(CAsyncSock *asyncsock, int sock, int header, int estab)
 	return 0;
 }
 
-/* close socket */
+// close socket
 void async_sock_close(CAsyncSock *asyncsock)
 {
 	if (asyncsock->fd >= 0) iclose(asyncsock->fd);
@@ -421,7 +421,7 @@ void async_sock_close(CAsyncSock *asyncsock)
 	asyncsock->rc4_recv_y = -1;
 }
 
-/* try connect */
+// try connect
 static int async_sock_try_connect(CAsyncSock *asyncsock)
 {
 	int event;
@@ -442,7 +442,7 @@ static int async_sock_try_connect(CAsyncSock *asyncsock)
 	return 0;
 }
 
-/* try send */
+// try send
 static int async_sock_try_send(CAsyncSock *asyncsock)
 {
 	void *ptr;
@@ -471,7 +471,7 @@ static int async_sock_try_send(CAsyncSock *asyncsock)
 	return 0;
 }
 
-/* try receive */
+// try receive
 static int async_sock_try_recv(CAsyncSock *asyncsock)
 {
 	unsigned char *buffer = (unsigned char*)asyncsock->buffer;
@@ -539,7 +539,7 @@ static int async_sock_try_recv(CAsyncSock *asyncsock)
 	return 0;
 }
 
-/* update */
+// update
 int async_sock_update(CAsyncSock *asyncsock, int what)
 {
 	int hr = 0;
@@ -558,7 +558,7 @@ int async_sock_update(CAsyncSock *asyncsock, int what)
 	return hr;
 }
 
-/* process */
+// process
 void async_sock_process(CAsyncSock *asyncsock)
 {
 	if (asyncsock->state != ASYNC_SOCK_STATE_CLOSED) {
@@ -581,40 +581,40 @@ void async_sock_process(CAsyncSock *asyncsock)
 	}
 }
 
-/* get state */
+// get state
 int async_sock_state(const CAsyncSock *asyncsock)
 {
 	return asyncsock->state;
 }
 
-/* get fd */
+// get fd
 int async_sock_fd(const CAsyncSock *asyncsock)
 {
 	return asyncsock->fd;
 }
 
-/* get how many bytes remain in the recv buffer */
+// get how many bytes remain in the recv buffer
 long async_sock_remain(const CAsyncSock *asyncsock)
 {
 	return (long)asyncsock->recvmsg.size;
 }
 
-/* get how many bytes remain in the send buffer */
+// get how many bytes remain in the send buffer
 long async_sock_pending(const CAsyncSock *asyncsock)
 {
 	return (long)asyncsock->sendmsg.size;
 }
 
 
-/* header size */
+// header size
 static const int async_sock_head_len[16] = 
 	{ 2, 2, 4, 4, 1, 1, 2, 2, 4, 4, 1, 1, 4, 0, 4, 0 };
 
-/* header increasement */
+// header increasement
 static const int async_sock_head_inc[16] = 
 	{ 0, 0, 0, 0, 0, 0, 2, 2, 4, 4, 1, 1, 0, 0, 0, 0 };
 
-/* peek size */
+// peek size
 static inline long
 async_sock_read_size(const CAsyncSock *asyncsock)
 {
@@ -691,7 +691,7 @@ async_sock_read_size(const CAsyncSock *asyncsock)
 	return len;
 }
 
-/* write size */
+// write size
 static inline int 
 async_sock_write_size(const CAsyncSock *asyncsock, long size,
 	long mask, char *out)
@@ -740,7 +740,7 @@ async_sock_write_size(const CAsyncSock *asyncsock, long size,
 	return hdrlen;
 }
 
-/* send vector */
+// send vector
 long async_sock_send_vector(CAsyncSock *asyncsock, 
 	const void * const vecptr[],
 	const long veclen[], int count, int mask)
@@ -789,11 +789,9 @@ long async_sock_send_vector(CAsyncSock *asyncsock,
 	return size;
 }
 
-/**
- * recv vector: returns packet size, -1 for not enough data, -2 for 
- * buffer size too small, -3 for packet size error, -4 for size over limit,
- * returns packet size if vecptr equals NULL.
- */
+// recv vector: returns packet size, -1 for not enough data, -2 for
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if vecptr equals NULL.
 long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[], 
 	const long veclen[], int count)
 {
@@ -842,7 +840,7 @@ long async_sock_recv_vector(CAsyncSock *asyncsock, void* const vecptr[],
 	return len;
 }
 
-/* send */
+// send
 long async_sock_send(CAsyncSock *asyncsock, const void *ptr, long size, 
 	int mask)
 {
@@ -854,11 +852,9 @@ long async_sock_send(CAsyncSock *asyncsock, const void *ptr, long size,
 	return async_sock_send_vector(asyncsock, vecptr, veclen, 1, mask);
 }
 
-/**
- * recv vector: returns packet size, -1 for not enough data, -2 for 
- * buffer size too small, -3 for packet size error, -4 for size over limit,
- * returns packet size if ptr equals NULL.
- */
+// recv vector: returns packet size, -1 for not enough data, -2 for
+// buffer size too small, -3 for packet size error, -4 for size over limit,
+// returns packet size if ptr equals NULL.
 long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size)
 {
 	void*vecptr[1];
@@ -889,7 +885,7 @@ long async_sock_recv(CAsyncSock *asyncsock, void *ptr, int size)
 	return async_sock_recv_vector(asyncsock, vecptr, veclen, 1);
 }
 
-/* set send cryption key */
+// set send cryption key
 void async_sock_rc4_set_skey(CAsyncSock *asyncsock, 
 	const unsigned char *key, int keylen)
 {
@@ -898,7 +894,7 @@ void async_sock_rc4_set_skey(CAsyncSock *asyncsock,
 			&asyncsock->rc4_send_y, key, keylen);
 }
 
-/* set recv cryption key */
+// set recv cryption key
 void async_sock_rc4_set_rkey(CAsyncSock *asyncsock, 
 	const unsigned char *key, int keylen)
 {
@@ -907,7 +903,7 @@ void async_sock_rc4_set_rkey(CAsyncSock *asyncsock,
 			&asyncsock->rc4_recv_y, key, keylen);
 }
 
-/* set nodelay */
+// set nodelay
 int async_sock_nodelay(CAsyncSock *asyncsock, int nodelay)
 {
 	assert(asyncsock);
@@ -917,7 +913,7 @@ int async_sock_nodelay(CAsyncSock *asyncsock, int nodelay)
 	return 0;
 }
 
-/* set buf size */
+// set buf size
 int async_sock_sys_buffer(CAsyncSock *asyncsock, long rcvbuf, long sndbuf)
 {
 	if (asyncsock == NULL) return -10;
@@ -925,7 +921,7 @@ int async_sock_sys_buffer(CAsyncSock *asyncsock, long rcvbuf, long sndbuf)
 	return isocket_set_buffer(asyncsock->fd, rcvbuf, sndbuf);
 }
 
-/* set keepalive */
+// set keepalive
 int async_sock_keepalive(CAsyncSock *asyncsock, int keepcnt, int keepidle,
 	int keepintvl)
 {
@@ -982,9 +978,9 @@ struct CAsyncCore
 };
 
 
-/*-------------------------------------------------------------------*/
-/* async core definition                                             */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// async core definition
+// -------------------------------------------------------------------
 #define ASYNC_CORE_PIPE_READ        0
 #define ASYNC_CORE_PIPE_WRITE       1
 #define ASYNC_CORE_PIPE_FLAG        2
@@ -996,7 +992,7 @@ struct CAsyncCore
 #define ASYNC_CORE_HID_SALT        ((1 << (31 - ASYNC_CORE_HID_BITS)) - 1)
 
 
-/* used to monitor self-pipe trick */
+// used to monitor self-pipe trick
 unsigned int async_core_monitor = 0; 
 
 #define ASYNC_CORE_CRITICAL_BEGIN(c)	\
@@ -1589,7 +1585,7 @@ static void _async_core_on_post(CAsyncLoop *loop, CAsyncPostpone *post)
 	CAsyncCore *core = (CAsyncCore*)post->user;
 	(void)loop;
 
-	/* process pending close */
+	// process pending close
 	while (!ilist_is_empty(&core->pending)) {
 		CAsyncSock *sock;
 		sock = ilist_entry(core->pending.next, CAsyncSock, pending);
@@ -1655,9 +1651,9 @@ static int async_core_node_mask(CAsyncCore *core, CAsyncSock *sock,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* new accept                                                        */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// new accept
+// -------------------------------------------------------------------
 static void _async_core_filter(CAsyncCore *core, long hid, 
 	CAsyncFilter filter, void *object);
 
@@ -1760,7 +1756,7 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 	sock->socket_init_user = core->socket_init_user;
 	sock->socket_init_code = ASYNC_CORE_NODE_IN;
 
-	/* assign fd to CAsyncSock */
+	// assign fd to CAsyncSock
 	if (async_sock_assign(sock, fd, head, 1) != 0) {
 		async_core_node_delete(core, hid);
 		return -7;
@@ -1796,9 +1792,9 @@ static long async_core_accept(CAsyncCore *core, long listen_hid)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* new connection to the target address, returns hid                 */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// new connection to the target address, returns hid
+// -------------------------------------------------------------------
 static long _async_core_new_connect(CAsyncCore *core, 
 	const struct sockaddr *addr, int addrlen, int header)
 {
@@ -1839,9 +1835,9 @@ static long _async_core_new_connect(CAsyncCore *core,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* new assign to a existing socket, returns hid                      */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// new assign to a existing socket, returns hid
+// -------------------------------------------------------------------
 static long _async_core_new_assign(CAsyncCore *core, int fd, 
 	int header, int estab)
 {
@@ -1931,9 +1927,9 @@ static long _async_core_new_assign(CAsyncCore *core, int fd,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* new listener, returns hid                                         */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// new listener, returns hid
+// -------------------------------------------------------------------
 static long _async_core_new_listen(CAsyncCore *core, 
 	const struct sockaddr *addr, int addrlen, int header)
 {
@@ -2054,9 +2050,9 @@ static long _async_core_new_listen(CAsyncCore *core,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* new dgram fd                                                      */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// new dgram fd
+// -------------------------------------------------------------------
 static long _async_core_new_dgram(CAsyncCore *core,
 	const struct sockaddr *addr, int addrlen, int mode)
 {
@@ -2149,9 +2145,9 @@ static long _async_core_new_dgram(CAsyncCore *core,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* thread safe                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// thread safe
+// -------------------------------------------------------------------
 long async_core_new_connect(CAsyncCore *core, 
 	const struct sockaddr *addr, int addrlen, int header)
 {
@@ -2162,9 +2158,9 @@ long async_core_new_connect(CAsyncCore *core,
 	return hr;
 }
 
-/*-------------------------------------------------------------------*/
-/* thread safe                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// thread safe
+// -------------------------------------------------------------------
 long async_core_new_listen(CAsyncCore *core, 
 	const struct sockaddr *addr, int addrlen, int header)
 {
@@ -2175,9 +2171,9 @@ long async_core_new_listen(CAsyncCore *core,
 	return hr;
 }
 
-/*-------------------------------------------------------------------*/
-/* thread safe                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// thread safe
+// -------------------------------------------------------------------
 long async_core_new_assign(CAsyncCore *core, int fd, 
 	int header, int estab)
 {
@@ -2188,9 +2184,9 @@ long async_core_new_assign(CAsyncCore *core, int fd,
 	return hr;
 }
 
-/*-------------------------------------------------------------------*/
-/* thread safe                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// thread safe
+// -------------------------------------------------------------------
 long async_core_new_dgram(CAsyncCore *core, 
 	const struct sockaddr *addr, int addrlen, int mode)
 {
@@ -2202,9 +2198,9 @@ long async_core_new_dgram(CAsyncCore *core,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* process close                                                     */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// process close
+// -------------------------------------------------------------------
 static void async_core_event_close(CAsyncCore *core, 
 	CAsyncSock *sock, int code)
 {
@@ -2298,14 +2294,14 @@ static int async_core_handle(CAsyncCore *core, CAsyncSock *sock, int event)
 			}
 			while (needclose == 0 && sock->header != ITMH_MANUAL) {
 				long size = async_sock_recv(sock, NULL, 0);
-				if (size < 0) {	/* not enough data or size error */
-					if (size == -3 || size == -4) {	/* size error */
+				if (size < 0) {	// not enough data or size error
+					if (size == -3 || size == -4) {	// size error
 						needclose = 1;
 						code = (size == -3)? 2001 : 2002;
 					}
 					break;
 				}
-				else if (size > core->bufsize) {	/* buffer resize */
+				else if (size > core->bufsize) {	// buffer resize
 					if (async_core_buffer_resize(core, size) != 0) {
 						needclose = 1;
 						code = 2003;
@@ -2396,9 +2392,9 @@ static int async_core_handle(CAsyncCore *core, CAsyncSock *sock, int event)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* close given hid                                                   */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// close given hid
+// -------------------------------------------------------------------
 static int _async_core_close(CAsyncCore *core, long hid, int code)
 {
 	CAsyncSock *sock;
@@ -2424,9 +2420,9 @@ static int _async_core_close(CAsyncCore *core, long hid, int code)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* close given hid                                                   */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// close given hid
+// -------------------------------------------------------------------
 int async_core_close(CAsyncCore *core, long hid, int code)
 {
 	int hr = -1;
@@ -2437,9 +2433,9 @@ int async_core_close(CAsyncCore *core, long hid, int code)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* send vector                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// send vector
+// -------------------------------------------------------------------
 static long _async_core_send_vector(CAsyncCore *core, long hid,
 	const void * const vecptr[],
 	const long veclen[], int count, int mask)
@@ -2469,9 +2465,9 @@ static long _async_core_send_vector(CAsyncCore *core, long hid,
 	return hr;
 }
 
-/*-------------------------------------------------------------------*/
-/* send vector                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// send vector
+// -------------------------------------------------------------------
 long async_core_send_vector(CAsyncCore *core, long hid,
 	const void * const vecptr[],
 	const long veclen[], int count, int mask)
@@ -2515,9 +2511,9 @@ long async_core_send_vector(CAsyncCore *core, long hid,
 	return hr;
 }
 
-/*-------------------------------------------------------------------*/
-/* send data to given hid                                            */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// send data to given hid
+// -------------------------------------------------------------------
 long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
 {
 	CAsyncSock *sock = NULL;
@@ -2545,10 +2541,10 @@ long async_core_send(CAsyncCore *core, long hid, const void *ptr, long len)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* wait for events for millisec ms. and process events,              */
-/* if millisec equals zero, no wait.                                 */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// wait for events for millisec ms. and process events,
+// if millisec equals zero, no wait.
+// -------------------------------------------------------------------
 void async_core_wait(CAsyncCore *core, IUINT32 millisec)
 {
 	ASYNC_CORE_CRITICAL_BEGIN(core);
@@ -2557,18 +2553,18 @@ void async_core_wait(CAsyncCore *core, IUINT32 millisec)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* old interface compatible                                          */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// old interface compatible
+// -------------------------------------------------------------------
 void async_core_process(CAsyncCore *core, IUINT32 millisec)
 {
 	async_core_wait(core, millisec);
 }
 
 
-/*-------------------------------------------------------------------*/
-/* wake-up async_core_wait                                           */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// wake-up async_core_wait
+// -------------------------------------------------------------------
 int async_core_notify(CAsyncCore *core)
 {
 	int hr = 0;
@@ -2590,9 +2586,9 @@ CAsyncLoop* async_core_loop(CAsyncCore *core)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* get message                                                       */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// get message
+// -------------------------------------------------------------------
 long async_core_read(CAsyncCore *core, int *event, long *wparam,
 	long *lparam, void *data, long size)
 {
@@ -2600,9 +2596,9 @@ long async_core_read(CAsyncCore *core, int *event, long *wparam,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* push message to msg queue                                         */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// push message to msg queue
+// -------------------------------------------------------------------
 int async_core_push(CAsyncCore *core, int event, long wparam, long lparam, 
 	const void *data, long size)
 {
@@ -2611,9 +2607,9 @@ int async_core_push(CAsyncCore *core, int event, long wparam, long lparam,
 }
 
 
-/*-------------------------------------------------------------------*/
-/* queue an ASYNC_CORE_EVT_POST event and wake async_core_wait up    */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// queue an ASYNC_CORE_EVT_POST event and wake async_core_wait up
+// -------------------------------------------------------------------
 int async_core_post(CAsyncCore *core, long wparam, long lparam, 
 	const void *data, long size)
 {
@@ -2622,10 +2618,10 @@ int async_core_post(CAsyncCore *core, long wparam, long lparam,
 	return 0;
 }
 
-/*-------------------------------------------------------------------*/
-/* fetch data in manual mode (head is ITMH_MANUAL), size < 0 for     */
-/* peek, returns remain data size only if data == NULL.              */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// fetch data in manual mode (head is ITMH_MANUAL), size < 0 for
+// peek, returns remain data size only if data == NULL.
+// -------------------------------------------------------------------
 static long _async_core_fetch(CAsyncCore *core, long hid, 
 	void *data, long size)
 {
@@ -2640,7 +2636,7 @@ static long _async_core_fetch(CAsyncCore *core, long hid,
 		long remain = (long)sock->recvmsg.size;
 		if (remain <= sock->manual_lowater) {
 			if (remain < sock->manual_hiwater) {
-				/* event recover */
+				// event recover
 				async_core_node_mask(core, sock, 
 						IPOLL_IN | IPOLL_ERR, 0);
 			}
@@ -2670,10 +2666,10 @@ long async_core_fetch(CAsyncCore *core, long hid, void *data, long size)
 }
 
 
-/*-------------------------------------------------------------------*/
-/* get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN      */
-/* returns -1 for not exists                                         */
-/*-------------------------------------------------------------------*/
+// -------------------------------------------------------------------
+// get node mode: ASYNC_CORE_NODE_IN/OUT/LISTEN4/LISTEN6/ASSIGN
+// returns -1 for not exists
+// -------------------------------------------------------------------
 int async_core_get_mode(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock;
@@ -2685,7 +2681,7 @@ int async_core_get_mode(const CAsyncCore *core, long hid)
 	return mode;
 }
 
-/* get tag */
+// get tag
 long async_core_get_tag(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock;
@@ -2697,7 +2693,7 @@ long async_core_get_tag(const CAsyncCore *core, long hid)
 	return tag;
 }
 
-/* set tag */
+// set tag
 void async_core_set_tag(CAsyncCore *core, long hid, long tag)
 {
 	CAsyncSock *sock;
@@ -2709,7 +2705,7 @@ void async_core_set_tag(CAsyncCore *core, long hid, long tag)
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL) */
+// get recv queue size: how many bytes needs to fetch (for ITMH_MANUAL)
 long async_core_remain(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock;
@@ -2721,7 +2717,7 @@ long async_core_remain(const CAsyncCore *core, long hid)
 	return size;
 }
 
-/* get send queue size: how many bytes are waiting to be sent */
+// get send queue size: how many bytes are waiting to be sent
 long async_core_pending(const CAsyncCore *core, long hid)
 {
 	const CAsyncSock *sock;
@@ -2733,7 +2729,7 @@ long async_core_pending(const CAsyncCore *core, long hid)
 	return size;
 }
 
-/* setup filter */
+// setup filter
 static void _async_core_filter(CAsyncCore *core, long hid, 
 	CAsyncFilter filter, void *object)
 {
@@ -2762,7 +2758,7 @@ static void _async_core_filter(CAsyncCore *core, long hid,
 	}
 }
 
-/* setup filter */
+// setup filter
 void async_core_filter(CAsyncCore *core, long hid, 
 	CAsyncFilter filter, void *object)
 {
@@ -2771,7 +2767,7 @@ void async_core_filter(CAsyncCore *core, long hid,
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* dispatch: for filter only, don't call outside the filter */
+// dispatch: for filter only, don't call outside the filter
 int async_core_dispatch(CAsyncCore *core, long hid, int cmd, 
 	const void *ptr, long size)
 {
@@ -2806,7 +2802,7 @@ int async_core_dispatch(CAsyncCore *core, long hid, int cmd,
 	return 0;
 }
 
-/* read/write registry */
+// read/write registry
 void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr)
 {
 	void *hr = NULL;
@@ -2830,7 +2826,7 @@ void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr)
 	return hr;
 }
 
-/* setup protocol */
+// setup protocol
 static int _async_core_protocol(CAsyncCore *core, long hid, int protocol)
 {
 	CAsyncSock *sock;
@@ -2850,7 +2846,7 @@ static int _async_core_protocol(CAsyncCore *core, long hid, int protocol)
 	return 0;
 }
 
-/* setup protocol */
+// setup protocol
 int async_core_protocol(CAsyncCore *core, long hid, int protocol)
 {
 	int hr = -1;
@@ -2860,7 +2856,7 @@ int async_core_protocol(CAsyncCore *core, long hid, int protocol)
 	return hr;
 }
 
-/* global configuration */
+// global configuration
 static int _async_core_setting(CAsyncCore *core, int config, long value)
 {
 	int hr = -1;
@@ -2889,7 +2885,7 @@ static int _async_core_setting(CAsyncCore *core, int config, long value)
 	return hr;
 }
 
-/* global configuration */
+// global configuration
 int async_core_setting(CAsyncCore *core, int config, long value)
 {
 	int hr = 0;
@@ -2899,7 +2895,7 @@ int async_core_setting(CAsyncCore *core, int config, long value)
 	return hr;
 }
 
-/* set connection socket option */
+// set connection socket option
 static int _async_core_option(CAsyncCore *core, long hid, 
 	int opt, long value)
 {
@@ -3078,7 +3074,7 @@ static int _async_core_option(CAsyncCore *core, long hid,
 }
 
 
-/* get connection socket status */
+// get connection socket status
 static long _async_core_status(CAsyncCore *core, long hid, int opt)
 {
 	long hr = -100;
@@ -3108,7 +3104,7 @@ static long _async_core_status(CAsyncCore *core, long hid, int opt)
 	return hr;
 }
 
-/* thread safe */
+// thread safe
 int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 {
 	int hr = 0;
@@ -3118,7 +3114,7 @@ int async_core_option(CAsyncCore *core, long hid, int opt, long value)
 	return hr;
 }
 
-/* thread safe */
+// thread safe
 long async_core_status(CAsyncCore *core, long hid, int opt)
 {
 	int hr = 0;
@@ -3128,7 +3124,7 @@ long async_core_status(CAsyncCore *core, long hid, int opt)
 	return hr;
 }
 
-/* set connection rc4 send key */
+// set connection rc4 send key
 int async_core_rc4_set_skey(CAsyncCore *core, long hid, 
 	const unsigned char *key, int keylen)
 {
@@ -3144,7 +3140,7 @@ int async_core_rc4_set_skey(CAsyncCore *core, long hid,
 	return hr;
 }
 
-/* set connection rc4 recv key */
+// set connection rc4 recv key
 int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	const unsigned char *key, int keylen)
 {
@@ -3160,7 +3156,7 @@ int async_core_rc4_set_rkey(CAsyncCore *core, long hid,
 	return hr;
 }
 
-/* set default buffer limit and max packet size */
+// set default buffer limit and max packet size
 void async_core_limit(CAsyncCore *core, long limited, long maxsize)
 {
 	ASYNC_CORE_CRITICAL_BEGIN(core);
@@ -3173,7 +3169,7 @@ void async_core_limit(CAsyncCore *core, long limited, long maxsize)
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* set disable read polling event: 1/on, 0/off */
+// set disable read polling event: 1/on, 0/off
 int async_core_disable(CAsyncCore *core, long hid, int value)
 {
 	CAsyncSock *sock;
@@ -3191,7 +3187,7 @@ int async_core_disable(CAsyncCore *core, long hid, int value)
 	return hr;
 }
 
-/* set remote ip validator */
+// set remote ip validator
 void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
 {
 	ASYNC_CORE_CRITICAL_BEGIN(core);
@@ -3200,7 +3196,7 @@ void async_core_firewall(CAsyncCore *core, CAsyncValidator v, void *user)
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* set timeout */
+// set timeout
 void async_core_timeout(CAsyncCore *core, long seconds)
 {
 	ASYNC_CORE_CRITICAL_BEGIN(core);
@@ -3208,7 +3204,7 @@ void async_core_timeout(CAsyncCore *core, long seconds)
 	ASYNC_CORE_CRITICAL_END(core);
 }
 
-/* getsockname */
+// getsockname
 int async_core_sockname(const CAsyncCore *core, long hid, 
 	struct sockaddr *addr, int *size)
 {
@@ -3221,7 +3217,7 @@ int async_core_sockname(const CAsyncCore *core, long hid,
 	return hr;
 }
 
-/* getpeername */
+// getpeername
 int async_core_peername(const CAsyncCore *core, long hid,
 	struct sockaddr *addr, int *size)
 {
@@ -3234,7 +3230,7 @@ int async_core_peername(const CAsyncCore *core, long hid,
 	return hr;
 }
 
-/* get fd count */
+// get fd count
 long async_core_nfds(const CAsyncCore *core)
 {
 	long count = 0;
@@ -3244,7 +3240,7 @@ long async_core_nfds(const CAsyncCore *core)
 	return count;
 }
 
-/* memory information */
+// memory information
 static long _async_core_info(const CAsyncCore *core, int info)
 {
 	long hr = 0;
@@ -3274,7 +3270,7 @@ static long _async_core_info(const CAsyncCore *core, int info)
 	return hr;
 }
 
-/* memory information */
+// memory information
 long async_core_info(const CAsyncCore *core, int info)
 {
 	long hr = 0;
@@ -3284,7 +3280,7 @@ long async_core_info(const CAsyncCore *core, int info)
 	return hr;
 }
 
-/* setup socket init hook */
+// setup socket init hook
 void async_core_install(CAsyncCore *core, CAsyncSocketInit proc, void *user)
 {
 	ASYNC_CORE_CRITICAL_BEGIN(core);
@@ -3314,7 +3310,7 @@ void async_core_install(CAsyncCore *core, CAsyncSocketInit proc, void *user)
 #define ISOCKPROXY_CONNECTED	10
 
 
-/* iproxy_base64 */
+// iproxy_base64
 int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 {
 	const char base64[] = 
@@ -3342,7 +3338,7 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 }
 
 
-/* polling */
+// polling
 static int iproxy_poll(int sock, int event, long millisec)
 {
 	int retval = 0;
@@ -3421,7 +3417,7 @@ static int iproxy_poll(int sock, int event, long millisec)
 	return retval;
 }
 
-/* get error number */
+// get error number
 static int iproxy_errno(void)
 {
 	int retval;
@@ -3433,7 +3429,7 @@ static int iproxy_errno(void)
 	return retval;
 }
 
-/* send data */
+// send data
 static int iproxy_send(struct ISOCKPROXY *proxy)
 {
 	int retval;
@@ -3454,7 +3450,7 @@ static int iproxy_send(struct ISOCKPROXY *proxy)
 	return retval;
 }
 
-/* receive data */
+// receive data
 static int iproxy_recv(struct ISOCKPROXY *proxy, int max)
 {
 	int retval;
@@ -3478,11 +3474,9 @@ static int iproxy_recv(struct ISOCKPROXY *proxy, int max)
 }
 
 
-/**
- * initialize ISOCKPROXY
- * type is: ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP, 
- * ISOCKPROXY_TYPE_SOCKS4, ISOCKPROXY_TYPE_SOCKS5
- */ 
+// initialize ISOCKPROXY
+// type is: ISOCKPROXY_TYPE_NONE, ISOCKPROXY_TYPE_HTTP,
+// ISOCKPROXY_TYPE_SOCKS4, ISOCKPROXY_TYPE_SOCKS5
 int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type, 
 	const struct sockaddr *remote, const struct sockaddr *proxyd, 
 	const char *user, const char *pass, int mode)
@@ -3576,10 +3570,8 @@ int iproxy_init(struct ISOCKPROXY *proxy, int sock, int type,
 }
 
 
-/**
- * update state
- * returns 1 for success, below zero for error, zero for try again later
- */
+// update state
+// returns 1 for success, below zero for error, zero for try again later
 int iproxy_process(struct ISOCKPROXY *proxy)
 {
 	struct sockaddr *remote;

@@ -49,214 +49,6 @@
 extern "C" {
 #endif
 
-//---------------------------------------------------------------------
-// ib_object - generic object structure
-//---------------------------------------------------------------------
-typedef struct ib_object {
-	int type;              // IB_OBJECT_*
-	int size;              // STR/BIN: byte length, ARRAY: count, MAP: pairs
-	int capacity;          // STR/BIN: byte length, ARRAY: count, MAP: pairs
-	int flags;             // IB_OBJECT_FLAG_BORROWED/SORTED/..
-	union {
-		IINT64 integer;                // IB_OBJECT_INT/BOOL
-		double dval;                   // IB_OBJECT_DOUBLE
-		unsigned char *str;            // IB_OBJECT_STR/BIN
-		struct ib_object **element;    // IB_OBJECT_ARRAY/MAP
-	};
-}   ib_object;
-
-#define IB_OBJECT_NIL     0
-#define IB_OBJECT_BOOL    1
-#define IB_OBJECT_INT     2
-#define IB_OBJECT_DOUBLE  3
-#define IB_OBJECT_STR     4
-#define IB_OBJECT_BIN     5
-#define IB_OBJECT_ARRAY   6
-#define IB_OBJECT_MAP     7
-
-// FLAG_BORROWED: data pointers (str/element) are borrowed from external
-// memory and must NOT be freed by ib_object_delete. This flag is set
-// automatically by init_* functions (capacity=0) and cleared when
-// element_grow copies borrowed data into owned memory. Callers should
-// NOT manually toggle this flag on objects created by new_* functions.
-#define IB_OBJECT_FLAG_BORROWED   1
-#define IB_OBJECT_FLAG_SORTED     2
-
-
-// initialize ib_object to nil type (flags = FLAG_BORROWED)
-void ib_object_init_nil(ib_object *obj);
-
-// initialize ib_object to bool type (flags = FLAG_BORROWED)
-void ib_object_init_bool(ib_object *obj, int val);
-
-// initialize ib_object to int type (flags = FLAG_BORROWED)
-void ib_object_init_int(ib_object *obj, IINT64 val);
-
-// initialize ib_object to double type (flags = FLAG_BORROWED)
-void ib_object_init_double(ib_object *obj, double val);
-
-// initialize ib_object to string type (flags = FLAG_BORROWED), won't
-// involve any memory allocation, just set obj->str to str pointer.
-void ib_object_init_str(ib_object *obj, const char *str, int size);
-
-// initialize ib_object to binary type (flags = FLAG_BORROWED), won't
-// involve any memory allocation, just set obj->str to bin pointer.
-void ib_object_init_bin(ib_object *obj, const void *bin, int size);
-
-// initialize ib_object to array type (flags = FLAG_BORROWED), won't
-// involve any memory allocation, just set obj->element to element pointer.
-void ib_object_init_array(ib_object *obj, ib_object **element, int size);
-
-// initialize ib_object to map type (flags = FLAG_BORROWED), won't
-// involve any memory allocation, just set obj->element to element pointer.
-void ib_object_init_map(ib_object *obj, ib_object **element, int size);
-
-
-//---------------------------------------------------------------------
-// ib_object - dynamic allocation (alloc=NULL uses default allocator)
-//---------------------------------------------------------------------
-
-// create a new nil object
-ib_object *ib_object_new_nil(struct IALLOCATOR *alloc);
-
-// create a new bool object
-ib_object *ib_object_new_bool(struct IALLOCATOR *alloc, int val);
-
-// create a new int object
-ib_object *ib_object_new_int(struct IALLOCATOR *alloc, IINT64 val);
-
-// create a new double object
-ib_object *ib_object_new_double(struct IALLOCATOR *alloc, double val);
-
-// create a new string object, data is copied, null-terminated.
-// returns NULL if len < 0 or allocation fails.
-ib_object *ib_object_new_str(struct IALLOCATOR *alloc,
-        const char *str, int len);
-
-// create a new binary object, data is copied, null-terminated.
-// returns NULL if len < 0 or allocation fails.
-ib_object *ib_object_new_bin(struct IALLOCATOR *alloc,
-        const void *bin, int len);
-
-// create a new array object with initial capacity
-ib_object *ib_object_new_array(struct IALLOCATOR *alloc, int capacity);
-
-// create a new map object with initial capacity (in pairs)
-ib_object *ib_object_new_map(struct IALLOCATOR *alloc, int capacity);
-
-// recursive delete: frees obj and its children. FLAG_BORROWED objects
-// only free the ib_object shell, not the borrowed str/element data.
-// Safe to call on init_* objects (they carry FLAG_BORROWED by default).
-void ib_object_delete(struct IALLOCATOR *alloc, ib_object *obj);
-
-// deep copy an object tree
-ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
-        const ib_object *obj);
-
-
-//---------------------------------------------------------------------
-// ib_object - array operations
-// NOTE: arr must be IB_OBJECT_ARRAY (debug assert). Read-only functions
-// (get/detach/replace) return NULL if arr is NULL.
-//---------------------------------------------------------------------
-
-// append item to array, returns 0 on success, -1 on failure
-int ib_object_array_push(struct IALLOCATOR *alloc,
-        ib_object *arr, ib_object *item);
-
-// insert item at index, returns 0 on success, -1 on failure
-int ib_object_array_insert(struct IALLOCATOR *alloc,
-        ib_object *arr, int index, ib_object *item);
-
-// get item at index (read-only), returns NULL if arr is NULL or out of range
-ib_object *ib_object_array_get(const ib_object *arr, int index);
-
-// detach item at index (remove without freeing), returns NULL if arr is NULL
-ib_object *ib_object_array_detach(ib_object *arr, int index);
-
-// remove and delete item at index
-void ib_object_array_erase(struct IALLOCATOR *alloc,
-        ib_object *arr, int index);
-
-// replace item at index, returns old item (detached, not freed).
-// returns NULL if arr is NULL or out of range.
-ib_object *ib_object_array_replace(ib_object *arr,
-        int index, ib_object *item);
-
-
-//---------------------------------------------------------------------
-// ib_object - map operations
-// NOTE: map must be IB_OBJECT_MAP (debug assert). Search functions
-// (get/gets/erase) only match keys of type STR or BIN by byte
-// comparison; non-string keys require manual iteration via
-// ib_object_map_key(map, i) macro.
-//---------------------------------------------------------------------
-
-// append key-value pair (no duplicate check), returns 0 on success.
-// clears FLAG_SORTED.
-int ib_object_map_add(struct IALLOCATOR *alloc,
-        ib_object *map, ib_object *key, ib_object *val);
-
-// find value by key bytes (STR/BIN keys only), returns NULL if not
-// found, or if map is NULL, or if keylen < 0.
-ib_object *ib_object_map_get(const ib_object *map,
-        const void *key, int keylen);
-
-// find value by C string key (STR/BIN keys only, strlen internally).
-// returns NULL if map is NULL or key is NULL.
-ib_object *ib_object_map_gets(const ib_object *map, const char *key);
-
-// remove pair by key and delete both (STR/BIN keys only), returns 0
-// if found, -1 if not found or keylen < 0.
-int ib_object_map_erase(struct IALLOCATOR *alloc,
-        ib_object *map, const void *key, int keylen);
-
-// sort map keys for binary search. STR/BIN keys are sorted
-// lexicographically to the front; non-string keys go to the end.
-// If BORROWED, copies element array to owned memory first.
-// Sets FLAG_SORTED on success. get/gets/erase will use binary search.
-// Returns 0 on success, -1 on allocation failure.
-int ib_object_map_sort(struct IALLOCATOR *alloc, ib_object *map);
-
-// indexed access to key-value pairs
-#define ib_object_map_key(map, i)  ((map)->element[(i) * 2])
-#define ib_object_map_val(map, i)  ((map)->element[(i) * 2 + 1])
-
-
-//---------------------------------------------------------------------
-// ib_object - convenience: add typed value with C string key.
-// All return -1 if key is NULL or allocation fails. On failure the
-// partially created key/value is freed (no leak).
-//---------------------------------------------------------------------
-
-int ib_object_map_add_nil(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key);
-
-int ib_object_map_add_bool(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, int val);
-
-int ib_object_map_add_int(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, IINT64 val);
-
-int ib_object_map_add_double(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, double val);
-
-int ib_object_map_add_str(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, const char *val, int len);
-
-
-//---------------------------------------------------------------------
-// ib_object - type check macros
-//---------------------------------------------------------------------
-#define ib_object_is_nil(o)     ((o)->type == IB_OBJECT_NIL)
-#define ib_object_is_bool(o)    ((o)->type == IB_OBJECT_BOOL)
-#define ib_object_is_int(o)     ((o)->type == IB_OBJECT_INT)
-#define ib_object_is_double(o)  ((o)->type == IB_OBJECT_DOUBLE)
-#define ib_object_is_str(o)     ((o)->type == IB_OBJECT_STR)
-#define ib_object_is_bin(o)     ((o)->type == IB_OBJECT_BIN)
-#define ib_object_is_array(o)   ((o)->type == IB_OBJECT_ARRAY)
-#define ib_object_is_map(o)     ((o)->type == IB_OBJECT_MAP)
-
 
 //---------------------------------------------------------------------
 // common utilities
@@ -310,6 +102,406 @@ void async_reader_feed(CAsyncReader *reader, const void *data, long len);
 
 // clear stream data
 void async_reader_clear(CAsyncReader *reader);
+
+
+//---------------------------------------------------------------------
+// ib_object flag extensions for protocol codecs
+//---------------------------------------------------------------------
+
+// RESP protocol flags (starting from 8 to avoid conflict with
+// DYNAMIC=1, OWNED=2, SORTED=4 defined in imemdata.h)
+#define IB_OBJECT_FLAG_ERROR    8    // RESP error (STR or BIN)
+#define IB_OBJECT_FLAG_PUSH     16   // RESP3 push message (ARRAY)
+#define IB_OBJECT_FLAG_SET      32   // RESP3 set type (ARRAY)
+#define IB_OBJECT_FLAG_EXT      64   // Msgpack ext type indicator (BIN)
+
+// Msgpack ext type (stored in flags high bits)
+#define IB_OBJECT_FLAG_EXT_SHIFT  16
+#define IB_OBJECT_FLAG_EXT_MASK   0x00ff0000
+
+
+//---------------------------------------------------------------------
+// ib_resp_reader - incremental RESP (Redis Serialization Protocol) decoder
+//
+// Supports RESP2 and RESP3 types. Parses streaming data incrementally
+// using a two-phase scan+build approach (zero-copy boundary detection,
+// then ib_object tree construction).
+//
+// Usage:
+//   ib_resp_reader *r = ib_resp_reader_new();
+//   ib_resp_reader_feed(r, data, len);
+//   ib_object *obj;
+//   int rc = ib_resp_reader_read(r, &obj, NULL);
+//   if (rc == 1) { /* use obj, then ib_object_delete(obj) */ }
+//   ib_resp_reader_delete(r);
+//
+// Decoded ib_object types and flags:
+//   +OK          -> STR "OK"              (simple string)
+//   -ERR msg     -> STR "ERR msg" with FLAG_ERROR
+//   :123         -> INT 123
+//   $5\r\nhello  -> STR "hello"           (bulk string)
+//   $-1          -> NIL
+//   *3           -> ARRAY (size=3)
+//   #t / #f      -> BOOL (RESP3)
+//   ,3.14        -> DOUBLE (RESP3)
+//   %2           -> MAP (RESP3, as ib_object MAP)
+//   ~3           -> ARRAY with FLAG_SET (RESP3 set)
+//   >3           -> ARRAY with FLAG_PUSH (RESP3 push)
+//   !len\r\ndata -> BIN with FLAG_ERROR (RESP3 bulk error)
+//   =len\r\nfmt:data -> BIN (RESP3 verbatim string)
+//---------------------------------------------------------------------
+struct ib_resp_reader;
+typedef struct ib_resp_reader ib_resp_reader;
+
+// create a new RESP incremental decoder.
+// default limits: max_depth=8, max_bulk=256MB, max_elements=1048576.
+// returns NULL on allocation failure.
+ib_resp_reader *ib_resp_reader_new(void);
+
+// destroy the decoder and free all internal buffers.
+void ib_resp_reader_delete(ib_resp_reader *reader);
+
+// append raw data to the decoder's input buffer.
+// automatically compacts consumed bytes. returns 0 on success.
+int ib_resp_reader_feed(ib_resp_reader *reader, const void *data, long len);
+
+// try to read one complete RESP message from the buffer.
+// returns:  1 = success (*result receives a new ib_object tree),
+//           0 = incomplete (need more data via feed),
+//          -1 = protocol error (decoder is poisoned, call clear to reset).
+// alloc: optional IALLOCATOR (e.g. zone allocator); NULL uses default.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_resp_reader_read(ib_resp_reader *reader,
+        ib_object **result, struct IALLOCATOR *alloc);
+
+// reset the decoder: clear buffer, scan state and error flag.
+// use this to recover after a protocol error or to reuse the decoder.
+void ib_resp_reader_clear(ib_resp_reader *reader);
+
+// configure safety limits to prevent resource exhaustion:
+//   max_depth    - max nesting depth for arrays/maps (default 8)
+//   max_bulk     - max bulk string size in bytes (default 256MB)
+//   max_elements - max elements in a single array/map (default 1048576)
+void ib_resp_reader_set_limits(ib_resp_reader *reader,
+        int max_depth, long max_bulk, int max_elements);
+
+// enable or disable inline command parsing (disabled by default).
+// when enabled, lines not starting with a RESP type prefix are parsed
+// as space-separated inline commands (returns an ARRAY of BIN strings).
+void ib_resp_reader_set_inline(ib_resp_reader *reader, int enable);
+
+
+//---------------------------------------------------------------------
+// RESP writer - stateless protocol serialization
+//
+// Each function appends one RESP element to 'out' (ib_string).
+// Build a complete command by calling write_array(n) followed by
+// n calls to write_bulk/write_int/etc. All functions return 0.
+//
+// Example - serialize "SET key value":
+//   ib_string out;
+//   ib_string_init(&out, NULL, 0);
+//   ib_resp_write_array(&out, 3);
+//   ib_resp_write_bulk(&out, "SET", 3);
+//   ib_resp_write_bulk(&out, "key", 3);
+//   ib_resp_write_bulk(&out, "value", 5);
+//   // out now contains "*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
+//---------------------------------------------------------------------
+
+// write array header "*count\r\n", followed by 'count' elements
+int ib_resp_write_array(ib_string *out, int count);
+
+// write bulk string "$len\r\ndata\r\n" (binary-safe)
+int ib_resp_write_bulk(ib_string *out, const void *data, int len);
+
+// write integer ":val\r\n"
+int ib_resp_write_int(ib_string *out, IINT64 val);
+
+// write null bulk string "$-1\r\n"
+int ib_resp_write_nil(ib_string *out);
+
+// write simple status "+str\r\n" (str must not contain \r\n)
+int ib_resp_write_status(ib_string *out, const char *str);
+
+// write simple error "-str\r\n" (str must not contain \r\n)
+int ib_resp_write_error(ib_string *out, const char *str);
+
+// write RESP3 bulk error "!len\r\ndata\r\n" (binary-safe error)
+int ib_resp_write_bulk_error(ib_string *out, const void *data, int len);
+
+// write RESP3 verbatim string "=len\r\nfmt:data\r\n"
+// fmt is a 3-char media type prefix (e.g. "txt", "mkd")
+int ib_resp_write_verbatim(ib_string *out, const char *fmt,
+        const void *data, int len);
+
+// write RESP3 boolean "#t\r\n" or "#f\r\n"
+int ib_resp_write_bool(ib_string *out, int val);
+
+// write RESP3 double ",value\r\n" (handles nan, inf, -inf)
+int ib_resp_write_double(ib_string *out, double val);
+
+// write RESP3 map header "%count\r\n", followed by count key-value pairs
+int ib_resp_write_map(ib_string *out, int count);
+
+// write RESP3 set header "~count\r\n", followed by count elements
+int ib_resp_write_set(ib_string *out, int count);
+
+// write RESP3 push header ">count\r\n", followed by count elements
+int ib_resp_write_push(ib_string *out, int count);
+
+// encode an ib_object tree into RESP format (recursive).
+// dispatches on obj->type: NIL, BOOL, INT, DOUBLE, STR, BIN, ARRAY, MAP.
+// STR -> bulk string "$N\r\ndata\r\n", STR+ERROR -> simple error "-msg\r\n".
+// uses obj->flags (FLAG_ERROR, FLAG_PUSH, FLAG_SET) for RESP3 types.
+// returns 0 on success, -1 on failure (NULL or unknown type).
+int ib_resp_encode(ib_string *out, const ib_object *obj);
+
+
+//---------------------------------------------------------------------
+// ib_msgpack_reader - incremental MessagePack decoder
+//
+// Parses MessagePack binary data incrementally. Supports all msgpack
+// types: nil, bool, int (positive/negative), float32/64, str, bin,
+// ext, array, and map. Uses two-phase scan+build like ib_resp_reader.
+//
+// Usage:
+//   ib_msgpack_reader *r = ib_msgpack_reader_new();
+//   ib_msgpack_reader_feed(r, data, len);
+//   ib_object *obj;
+//   int rc = ib_msgpack_reader_read(r, &obj, NULL);
+//   if (rc == 1) { /* use obj, then ib_object_delete(obj) */ }
+//   ib_msgpack_reader_delete(r);
+//
+// Decoded ib_object types:
+//   nil         -> NIL
+//   true/false  -> BOOL (integer=1/0)
+//   int/uint    -> INT (uint64 > INT64_MAX clamped to INT64_MAX)
+//   float32/64  -> DOUBLE
+//   str         -> STR
+//   bin         -> BIN
+//   ext         -> BIN with ext type in FLAG_EXT bits of flags
+//   array       -> ARRAY
+//   map         -> MAP
+//---------------------------------------------------------------------
+struct ib_msgpack_reader;
+typedef struct ib_msgpack_reader ib_msgpack_reader;
+
+// create a new msgpack incremental decoder.
+// default limits: max_depth=8, max_size=256MB, max_elements=1048576.
+// returns NULL on allocation failure.
+ib_msgpack_reader *ib_msgpack_reader_new(void);
+
+// destroy the decoder and free all internal buffers.
+void ib_msgpack_reader_delete(ib_msgpack_reader *reader);
+
+// append raw data to the decoder's input buffer.
+// automatically compacts consumed bytes. returns 0 on success.
+int ib_msgpack_reader_feed(ib_msgpack_reader *reader,
+        const void *data, long len);
+
+// try to read one complete msgpack message from the buffer.
+// returns:  1 = success (*result receives a new ib_object tree),
+//           0 = incomplete (need more data via feed),
+//          -1 = protocol error (decoder is poisoned, call clear to reset).
+// alloc: optional IALLOCATOR (e.g. zone allocator); NULL uses default.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_msgpack_reader_read(ib_msgpack_reader *reader,
+        ib_object **result, struct IALLOCATOR *alloc);
+
+// reset the decoder: clear buffer, scan state and error flag.
+// use this to recover after a protocol error or to reuse the decoder.
+void ib_msgpack_reader_clear(ib_msgpack_reader *reader);
+
+// configure safety limits to prevent resource exhaustion:
+//   max_depth    - max nesting depth for arrays/maps (default 8)
+//   max_size     - max str/bin/ext size in bytes (default 256MB)
+//   max_elements - max elements in a single array/map (default 1048576)
+void ib_msgpack_reader_set_limits(ib_msgpack_reader *reader,
+        int max_depth, long max_size, int max_elements);
+
+
+//---------------------------------------------------------------------
+// Msgpack writer - stateless binary serialization
+//
+// Each function appends one msgpack element to 'out' (ib_string).
+// Build composite values by calling write_array(n) or write_map(n)
+// followed by the appropriate number of element writes.
+// All functions return 0.
+//
+// Example - serialize {"name": "Alice", "age": 30}:
+//   ib_string out;
+//   ib_string_init(&out, NULL, 0);
+//   ib_msgpack_write_map(&out, 2);
+//   ib_msgpack_write_str(&out, "name", 4);
+//   ib_msgpack_write_str(&out, "Alice", 5);
+//   ib_msgpack_write_str(&out, "age", 3);
+//   ib_msgpack_write_int(&out, 30);
+//---------------------------------------------------------------------
+
+// write msgpack nil (0xc0)
+int ib_msgpack_write_nil(ib_string *out);
+
+// write msgpack boolean (0xc2=false, 0xc3=true)
+int ib_msgpack_write_bool(ib_string *out, int val);
+
+// write signed integer, uses smallest encoding (fixint/int8/../int64)
+int ib_msgpack_write_int(ib_string *out, IINT64 val);
+
+// write unsigned integer, uses smallest encoding (fixint/uint8/../uint64)
+int ib_msgpack_write_uint(ib_string *out, IUINT64 val);
+
+// write 64-bit float (always float64 / 8 bytes)
+int ib_msgpack_write_double(ib_string *out, double val);
+
+// write string with length prefix (fixstr/str8/str16/str32)
+int ib_msgpack_write_str(ib_string *out, const char *str, int len);
+
+// write binary data with length prefix (bin8/bin16/bin32)
+int ib_msgpack_write_bin(ib_string *out, const void *data, int len);
+
+// write array header, followed by 'count' element writes
+int ib_msgpack_write_array(ib_string *out, int count);
+
+// write map header, followed by 'pairs' key-value pair writes
+int ib_msgpack_write_map(ib_string *out, int pairs);
+
+// write ext type with data (fixext/ext8/ext16/ext32).
+// type is a signed int8 (-128..127) identifying the extension.
+int ib_msgpack_write_ext(ib_string *out, int type,
+        const void *data, int len);
+
+// encode an ib_object tree into msgpack format (recursive).
+// dispatches on obj->type: NIL, BOOL, INT, DOUBLE, STR, BIN, ARRAY, MAP.
+// BIN with FLAG_EXT is encoded as ext type (type from FLAG_EXT_MASK bits).
+// returns 0 on success, -1 on failure (NULL or unknown type).
+int ib_msgpack_encode(ib_string *out, const ib_object *obj);
+
+
+//---------------------------------------------------------------------
+// ib_json_reader - incremental JSON decoder
+//
+// Parses JSON text incrementally. Supports all JSON types: null, bool,
+// number (integer/float), string, array, and object. Uses two-phase
+// scan+build like ib_resp_reader and ib_msgpack_reader.
+//
+// Usage:
+//   ib_json_reader *r = ib_json_reader_new();
+//   ib_json_reader_feed(r, data, len);
+//   ib_object *obj;
+//   int rc = ib_json_reader_read(r, &obj, NULL);
+//   if (rc == 1) { /* use obj, then ib_object_delete(obj) */ }
+//   ib_json_reader_delete(r);
+//
+// Decoded ib_object types:
+//   null         -> NIL
+//   true/false   -> BOOL (integer=1/0)
+//   integer      -> INT (no decimal point or exponent, fits IINT64)
+//   float        -> DOUBLE (has decimal point or exponent)
+//   "string"     -> STR (escape sequences decoded to UTF-8)
+//   [...]        -> ARRAY
+//   {...}        -> MAP (keys are STR)
+//---------------------------------------------------------------------
+struct ib_json_reader;
+typedef struct ib_json_reader ib_json_reader;
+
+// create a new JSON incremental decoder.
+// default limits: max_depth=64, max_string=256MB, max_elements=1048576.
+// returns NULL on allocation failure.
+ib_json_reader *ib_json_reader_new(void);
+
+// destroy the decoder and free all internal buffers.
+void ib_json_reader_delete(ib_json_reader *reader);
+
+// append raw data to the decoder's input buffer.
+// automatically compacts consumed bytes. returns 0 on success.
+int ib_json_reader_feed(ib_json_reader *reader, const void *data, long len);
+
+// try to read one complete JSON value from the buffer.
+// returns:  1 = success (*result receives a new ib_object tree),
+//           0 = incomplete (need more data via feed),
+//          -1 = syntax error (decoder is poisoned, call clear to reset).
+// alloc: optional IALLOCATOR (e.g. zone allocator); NULL uses default.
+// caller owns *result and must call ib_object_delete() when done.
+int ib_json_reader_read(ib_json_reader *reader,
+        ib_object **result, struct IALLOCATOR *alloc);
+
+// reset the decoder: clear buffer, scan state and error flag.
+// use this to recover after a syntax error or to reuse the decoder.
+void ib_json_reader_clear(ib_json_reader *reader);
+
+// signal end-of-input: call after the last feed to allow bare numbers
+// at buffer end to be recognized as complete values.
+void ib_json_reader_finish(ib_json_reader *reader);
+
+// configure safety limits to prevent resource exhaustion:
+//   max_depth    - max nesting depth for arrays/objects (default 64)
+//   max_string   - max string size in bytes (default 256MB)
+//   max_elements - max elements in a single array/object (default 1048576)
+void ib_json_reader_set_limits(ib_json_reader *reader,
+        int max_depth, long max_string, int max_elements);
+
+
+//---------------------------------------------------------------------
+// JSON writer - stateless text serialization
+//
+// Each function appends one JSON element to 'out' (ib_string).
+// Atomic value functions (nil, bool, int, double, str) produce a
+// complete JSON value. Structure functions (array/object begin/end,
+// comma, key) are building blocks for manual composition.
+// All functions return 0.
+//
+// Example - serialize {"name":"Alice","age":30}:
+//   ib_string out;
+//   ib_string_init(&out, NULL, 0);
+//   ib_json_write_object_begin(&out);
+//   ib_json_write_key(&out, "name", 4);
+//   ib_json_write_str(&out, "Alice", 5);
+//   ib_json_write_comma(&out);
+//   ib_json_write_key(&out, "age", 3);
+//   ib_json_write_int(&out, 30);
+//   ib_json_write_object_end(&out);
+//   // out now contains {"name":"Alice","age":30}
+//---------------------------------------------------------------------
+
+// write JSON null: "null"
+int ib_json_write_nil(ib_string *out);
+
+// write JSON boolean: "true" or "false"
+int ib_json_write_bool(ib_string *out, int val);
+
+// write JSON integer (no decimal point)
+int ib_json_write_int(ib_string *out, IINT64 val);
+
+// write JSON number (floating point). nan/inf produce "null".
+int ib_json_write_double(ib_string *out, double val);
+
+// write JSON string with escaping: "str" (handles \", \\, \b, \f,
+// \n, \r, \t and \uXXXX for control characters below 0x20)
+int ib_json_write_str(ib_string *out, const char *str, int len);
+
+// write array opening bracket: "["
+int ib_json_write_array_begin(ib_string *out);
+
+// write array closing bracket: "]"
+int ib_json_write_array_end(ib_string *out);
+
+// write object opening brace: "{"
+int ib_json_write_object_begin(ib_string *out);
+
+// write object closing brace: "}"
+int ib_json_write_object_end(ib_string *out);
+
+// write comma separator: ","
+int ib_json_write_comma(ib_string *out);
+
+// write object key with colon: "key":
+int ib_json_write_key(ib_string *out, const char *key, int len);
+
+// encode an ib_object tree into JSON format (recursive).
+// dispatches on obj->type: NIL, BOOL, INT, DOUBLE, STR, ARRAY, MAP.
+// BIN is encoded as a JSON string. nan/inf doubles become null.
+// returns 0 on success, -1 on failure (NULL or unknown type).
+int ib_json_encode(ib_string *out, const ib_object *obj);
 
 
 #ifdef __cplusplus

@@ -199,6 +199,12 @@ int iv_reserve(struct IVECTOR *v, size_t size)
 	return iv_capacity(v, (size >= v->size)? size : v->size);
 }
 
+/* shrink capacity to size */
+int iv_shrink(struct IVECTOR *v)
+{
+	return iv_capacity(v, v->size);
+}
+
 /* append bytes to the end of the buffer */
 int iv_push(struct IVECTOR *v, const void *data, size_t size)
 {
@@ -279,6 +285,7 @@ void imnode_init(struct IMEMNODE *mn, ilong nodesize, struct IALLOCATOR *ac)
 	nodesize = IROUND_UP(nodesize, 8);
 
 	mnode->node_size = nodesize;
+	mnode->node_shift = 0;
 	mnode->node_free = 0;
 	mnode->node_used = 0;
 	mnode->node_max = 0;
@@ -304,11 +311,12 @@ void imnode_destroy(struct IMEMNODE *mnode)
 			}
 			mnode->mmem[i] = NULL;
 		}
-		mnode->mem_count = 0;
-		mnode->mem_max = 0;
-		iv_destroy(&mnode->vmem);
-		mnode->mmem = NULL;
 	}
+
+	mnode->mem_count = 0;
+	mnode->mem_max = 0;
+	iv_destroy(&mnode->vmem);
+	mnode->mmem = NULL;
 
 	iv_destroy(&mnode->vprev);
 	iv_destroy(&mnode->vnext);
@@ -1259,7 +1267,7 @@ void *ib_tree_find(struct ib_tree *tree, const void *data)
 {
 	struct ib_node *n = tree->root.node;
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = (int)(tree->offset);
+	size_t offset = tree->offset;
 	while (n) {
 		void *nd = IB_NODE2DATA(n, offset);
 		int hr = compare(data, nd);
@@ -1281,7 +1289,7 @@ void *ib_tree_nearest(struct ib_tree *tree, const void *data)
 	struct ib_node *n = tree->root.node;
 	struct ib_node *p = NULL;
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = (int)(tree->offset);
+	size_t offset = tree->offset;
 	while (n) {
 		void *nd = IB_NODE2DATA(n, offset);
 		int hr = compare(data, nd);
@@ -1305,7 +1313,7 @@ void *ib_tree_add(struct ib_tree *tree, void *data)
 	struct ib_node *parent = NULL;
 	struct ib_node *node = IB_DATA2NODE(data, tree->offset);
 	int (*compare)(const void*, const void*) = tree->compare;
-	int offset = (int)(tree->offset);
+	size_t offset = tree->offset;
 	while (link[0]) {
 		void *pd;
 		int hr;
@@ -1429,14 +1437,16 @@ void* ib_fastbin_new(struct ib_fastbin *fb)
 		return obj;
 	}
 	if (fb->start == NULL || fb->start + obj_size > fb->endup) {
-		char *page = (char*)ikmem_malloc(fb->page_size);
+		size_t cur_page_size = fb->page_size;
+		char *page = (char*)ikmem_malloc(cur_page_size);
 		size_t lineptr = (size_t)page;
 		ASSERTION(page);
 		ib_write_ptr(page, fb->pages);
+		memcpy(page + sizeof(void*), &cur_page_size, sizeof(size_t));
 		fb->pages = page;
 		lineptr = (lineptr + sizeof(void*) + 15) & (~15);
 		fb->start = (char*)lineptr;
-		fb->endup = (char*)page + fb->page_size;
+		fb->endup = (char*)page + cur_page_size;
 		if (fb->page_size < fb->maximum) {
 			fb->page_size *= 2;
 		}
@@ -1460,9 +1470,12 @@ void ib_fastbin_del(struct ib_fastbin *fb, void *ptr)
 	int found = 0;
 	while (page && !found) {
 		char *pbase = (char*)page;
-		size_t lineptr = ((size_t)pbase + sizeof(void*) + 15) & (~15);
+		size_t this_page_size;
+		size_t lineptr;
+		memcpy(&this_page_size, pbase + sizeof(void*), sizeof(size_t));
+		lineptr = ((size_t)pbase + sizeof(void*) + 15) & (~15);
 		if ((char*)ptr >= (char*)lineptr &&
-			(char*)ptr < pbase + fb->page_size &&
+			(char*)ptr < pbase + this_page_size &&
 			(((size_t)((char*)ptr - lineptr)) % fb->obj_size) == 0) {
 			found = 1;
 		}
@@ -1516,6 +1529,10 @@ ib_string* ib_string_new_size(const char *text, int size)
 	size = (size > 0)? size : 0;
 	if (size > 0 && text) {
 		ib_string_resize(str, size);
+		if (str->size < size) {
+			ib_string_delete(str);
+			return NULL;
+		}
 		memcpy(str->ptr, text, size);
 	}
 	return str;
@@ -1593,7 +1610,7 @@ ib_string* ib_string_reserve(ib_string *str, int newsize)
 ib_string* ib_string_clone(const ib_string *str)
 {
 	ib_string *newstr = ib_string_new();
-	ASSERTION(newstr);
+	if (newstr == NULL) return NULL;
 	ib_string_assign_size(newstr, str->ptr, str->size);
 	return newstr;
 }
@@ -2701,9 +2718,9 @@ size_t ib_map_count(const struct ib_hash_map *hm)
 }
 
 
-void* ib_hash_str_copy(void *str)
+void* ib_hash_str_copy(const void *str)
 {
-	ib_string *src = (ib_string*)str;
+	const ib_string *src = (const ib_string*)str;
 	ib_string *dst = ib_string_new();
 	ib_string_append_size(dst, src->ptr, src->size);
 	return dst;
@@ -2715,7 +2732,7 @@ void ib_hash_str_destroy(void *str)
 	ib_string_delete(s);
 }
 
-void* ib_hash_cstr_copy(void *cstr)
+void* ib_hash_cstr_copy(const void *cstr)
 {
 	const char *src = (const char*)cstr;
 	size_t size = strlen(src);
