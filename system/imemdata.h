@@ -164,9 +164,9 @@ void ib_object_init_map(ib_object *obj, ib_object **element, int size);
 //---------------------------------------------------------------------
 // ib_object - L2: dynamic allocation (flags include DYNAMIC)
 //
-// FLAG_DYNAMIC: shell was malloc'd — ib_object_delete may free it.
+// FLAG_DYNAMIC: shell was malloc'd -- ib_object_delete may free it.
 // FLAG_OWNED:   data (STR/BIN buffer) or children (ARRAY/MAP elements)
-//               are owned — delete frees them, mutation is allowed.
+//               are owned -- delete frees them, mutation is allowed.
 //               Without OWNED, data/children are external references.
 // FLAG_SORTED:  MAP keys are sorted for binary search.
 //

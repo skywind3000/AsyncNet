@@ -638,7 +638,11 @@ int ib_resp_write_double(ib_string *out, double val)
     }
     {
         char buf[32];
+#if defined(_MSC_VER) || defined(__WATCOMC__)
+        int n = _snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
+#else
         int n = snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
+#endif
         ib_string_append_size(out, buf, n);
     }
     return 0;
@@ -955,6 +959,18 @@ static ib_object *_ib_resp_build_inline(ib_resp_reader *reader,
 //        ( (BigNumber->INT/STR), ~ (Set->ARRAY+FLAG_SET),
 //        > (Push->ARRAY+FLAG_PUSH), % (Map->MAP), | (Attribute->skip)
 //---------------------------------------------------------------------
+static double _ib_make_double_inf(void)
+{
+    volatile double zero = 0.0;
+    return 1.0 / zero;
+}
+
+static double _ib_make_double_nan(void)
+{
+    volatile double zero = 0.0;
+    return 0.0 / zero;
+}
+
 static ib_object *_ib_resp_build(ib_resp_reader *reader,
         long *offset, struct IALLOCATOR *alloc)
 {
@@ -1081,13 +1097,13 @@ static ib_object *_ib_resp_build(ib_resp_reader *reader,
 
             /* check inf/nan */
             if (strcmp(tmp, "inf") == 0 || strcmp(tmp, "Inf") == 0) {
-                dval = 1.0 / 0.0;
+                dval = _ib_make_double_inf();
             }
             else if (strcmp(tmp, "-inf") == 0 || strcmp(tmp, "-Inf") == 0) {
-                dval = -1.0 / 0.0;
+                dval = -_ib_make_double_inf();
             }
             else if (strcmp(tmp, "nan") == 0 || strcmp(tmp, "NaN") == 0) {
-                dval = 0.0 / 0.0;
+                dval = _ib_make_double_nan();
             }
             else {
                 dval = strtod(tmp, NULL);
@@ -1513,7 +1529,7 @@ int ib_msgpack_write_int(ib_string *out, IINT64 val)
             iencode16u_msb((char *)buf + 1, (unsigned short)val);
             ib_string_append_size(out, (const char *)buf, 3);
         }
-        else if (val <= (IINT64)0xffffffffLL) {
+        else if (val <= (IINT64)0xffffffff) {
             /* uint32 */
             buf[0] = 0xce;
             iencode32u_msb((char *)buf + 1, (IUINT32)val);
@@ -1547,7 +1563,7 @@ int ib_msgpack_write_int(ib_string *out, IINT64 val)
         else if (val >= (IINT64)(-2147483647L - 1)) {
             /* int32 */
             buf[0] = 0xd2;
-            iencode32u_msb((char *)buf + 1, (IUINT32)(val & 0xffffffffLL));
+            iencode32u_msb((char *)buf + 1, (IUINT32)(val & (IUINT64)0xffffffff));
             ib_string_append_size(out, (const char *)buf, 5);
         }
         else {
@@ -1582,7 +1598,7 @@ int ib_msgpack_write_uint(ib_string *out, IUINT64 val)
         iencode16u_msb((char *)buf + 1, (unsigned short)val);
         ib_string_append_size(out, (const char *)buf, 3);
     }
-    else if (val <= 0xffffffffULL) {
+    else if (val <= (IUINT64)0xffffffff) {
         buf[0] = 0xce;
         iencode32u_msb((char *)buf + 1, (IUINT32)val);
         ib_string_append_size(out, (const char *)buf, 5);
@@ -2850,7 +2866,9 @@ int ib_json_write_bool(ib_string *out, int val)
 //---------------------------------------------------------------------
 int ib_json_write_int(ib_string *out, IINT64 val)
 {
-    ib_string_printf(out, "%lld", (long long)val);
+    char buf[32];
+    int n = illtoa(val, buf, 10);
+    ib_string_append_size(out, buf, n);
     return 0;
 }
 

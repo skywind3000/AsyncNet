@@ -900,7 +900,7 @@ void ib_map_init(struct ib_hash_map *hm, size_t (*hash)(const void*),
  * value_destroy), then free internal fastbin and hash table. */
 void ib_map_destroy(struct ib_hash_map *hm);
 
-/* iteration — no callback side effects */
+/* iteration -- no callback side effects */
 struct ib_hash_entry* ib_map_first(struct ib_hash_map *hm);
 struct ib_hash_entry* ib_map_last(struct ib_hash_map *hm);
 
