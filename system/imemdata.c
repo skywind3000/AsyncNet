@@ -1437,25 +1437,24 @@ int ib_object_path_erase(struct IALLOCATOR *alloc,
 		int next_type = ib_object_path_segment(path, &p_next,
 				&key, &key_len, &idx);
 		if (next_type < 0) return -1;
-		if (path[p_next] == '\0') {
-			// parent is 'parent', final segment info in
-			// (last_seg_type, last_key, last_key_len, last_idx)
-			if (last_seg_type == 1) {
-				if (parent->type != IB_OBJECT_ARRAY) return -1;
-				if (last_idx < 0 || last_idx >= parent->size) return -1;
-				ib_object_array_erase(alloc, parent, last_idx);
-				return 0;
-			}
-			else {
-				if (parent->type != IB_OBJECT_MAP) return -1;
-				return ib_object_map_erase_str(alloc, parent, last_key);
-			}
-		}
-		// navigate one step
+		// navigate to the parent of the final segment
 		ib_object *step = ib_object_path_step(parent,
 				last_seg_type, last_key, last_key_len, last_idx);
 		if (step == NULL) return -1;
 		parent = step;
+		if (path[p_next] == '\0') {
+			// final segment: erase on 'parent' using (next_type, key, idx)
+			if (next_type == 1) {
+				if (parent->type != IB_OBJECT_ARRAY) return -1;
+				if (idx < 0 || idx >= parent->size) return -1;
+				ib_object_array_erase(alloc, parent, idx);
+				return 0;
+			}
+			else {
+				if (parent->type != IB_OBJECT_MAP) return -1;
+				return ib_object_map_erase_str(alloc, parent, key);
+			}
+		}
 		pos = p_next;
 		last_seg_type = next_type;
 		last_key = key;
