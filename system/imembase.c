@@ -2915,28 +2915,31 @@ static void ib_zone_free(struct IALLOCATOR *allocator, void *ptr)
 static void* ib_zone_realloc(struct IALLOCATOR *allocator,
 		void *ptr, size_t size)
 {
-	void *obj;
 	if (size == 0) {
 		if (ptr) {
 			ib_zone_free(allocator, ptr);
 		}
 		return NULL;
 	}
-	obj = ib_zone_alloc(allocator, size);
-	if (obj == NULL) {
-		ASSERTION(obj != NULL);
-		return NULL;
-	}
 	if (ptr != NULL) {
 		size_t oldsize = 0;
+		void *obj = NULL;
 		memcpy(&oldsize, ((char*)ptr) - sizeof(size_t), sizeof(size_t));
+		if (oldsize >= size) {
+			return ptr;
+		}
+		obj = ib_zone_alloc(allocator, size);
+		if (obj == NULL) {
+			return obj;
+		}
 		if (oldsize > 0) {
 			size_t minsize = (oldsize < size)? oldsize : size;
 			memcpy(obj, ptr, minsize);
 		}
 		ib_zone_free(allocator, ptr);
+		return obj;
 	}
-	return obj;
+	return ib_zone_alloc(allocator, size);
 }
 
 /* setup an allocator: allocator->free will do nothing */

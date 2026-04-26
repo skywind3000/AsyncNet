@@ -4085,9 +4085,8 @@ void ib_json_reader_set_limits(ib_json_reader *reader,
 static int ib_json_encode_pretty_impl(ib_string *out,
         const ib_object *obj, int indent, int depth)
 {
-    int i;
+    int padlen = 0, i = 0;
     char pad[256];
-    int padlen;
 
     if (obj == NULL) return -1;
 
@@ -4247,9 +4246,8 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
 static int ib_object_dump_impl(ib_string *out,
         const ib_object *obj, int indent, int depth)
 {
-    int i;
+    int padlen = 0, i = 0;
     char pad[256];
-    int padlen;
 
     if (obj == NULL) {
         ib_string_append_size(out, "null", 4);
