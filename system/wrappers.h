@@ -397,7 +397,7 @@ static inline std::string SignatureMake(const void *in, int size,
 		const char *secret, uint32_t timestamp) {
 	std::string sign;
 	sign.resize(40);
-	hash_signature_md5(&sign[0], in, size, secret, -1, (IUINT32)timestamp);
+	hmac_signature(0, &sign[0], in, size, secret, -1, (IUINT32)timestamp);
 	return sign;
 }
 
@@ -409,9 +409,8 @@ static inline std::string SignatureMake(const void *in, int size,
 
 // 取得签名内的时间戳
 static inline uint32_t SignatureTime(const char *signature) {
-	return static_cast<uint32_t>(hash_signature_time(signature));
+	return static_cast<uint32_t>(hmac_signature_time(signature));
 }
-
 
 NAMESPACE_END(System);
 

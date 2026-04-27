@@ -54,16 +54,20 @@ extern "C" {
 // common utilities
 //---------------------------------------------------------------------
 
-// format string into ib_string
+// format string into ib_string 
+// (OVERWRITE: clears existing content first)
 ilong ib_string_format(ib_string *out, const char *fmt, ...);
 
-// format string with va_list into ib_string
+// format string with va_list into ib_string 
+// (OVERWRITE: clears existing content first)
 ilong ib_string_vformat(ib_string *out, const char *fmt, va_list ap);
 
-// format and append to ib_string
+// format and append to ib_string 
+// (APPEND: keeps existing content, appends formatted string)
 ilong ib_string_printf(ib_string *out, const char *fmt, ...);
 
-// format and append to ib_string
+// format and append to ib_string with va_list 
+// (APPEND: keeps existing content, appends formatted string)
 ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap);
 
 
@@ -541,6 +545,9 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent);
 // STR with embedded \0 → "\0" escape in output.
 // returns 0 on success, -1 on failure.
 int ib_object_dump(ib_string *out, const ib_object *obj, int indent);
+
+// print an ib_object tree to stdout in human-readable form (for debugging).
+int ib_object_print(const ib_object *obj, int indent);
 
 
 #ifdef __cplusplus

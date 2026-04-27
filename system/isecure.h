@@ -246,13 +246,16 @@ IUINT32 hash_checksum(const void *in, unsigned int len);
 //=====================================================================
 
 // calculate HMAC-MD5, digest must be 16 bytes buffer
-void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void *digest);
+void hash_hmac_md5(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest);
 
 // calculate HMAC-SHA1, digest must be 20 bytes buffer
-void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void *digest);
+void hash_hmac_sha1(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest);
 
 // calculate HMAC-SHA256, digest must be 32 bytes buffer
-void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, void *digest);
+void hash_hmac_sha256(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest);
 
 
 //=====================================================================
@@ -521,6 +524,22 @@ IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound);
 
 
 
+//=====================================================================
+// HMAC Signature with time
+//=====================================================================
+
+// generate a 40/48/72 bytes signature
+char *hmac_signature(
+		int method,            // 0/md5, 1/sha1, 2/sha256
+		char *out,             // output string with size above 80 bytes
+		const void *in,        // input data
+		int size,              // input size
+		const char *secret,    // secret token
+		int secret_size,       // secret size
+		IUINT32 timestamp);    // time stamp in unix epoch seconds
+
+// extract timestamp from signature
+IUINT32 hmac_signature_time(const char *signature);
 
 
 #ifdef __cplusplus

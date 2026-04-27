@@ -629,42 +629,6 @@ int iposix_addr_peername(int fd, iPosixAddress *addr)
 
 
 //=====================================================================
-// Panic
-//=====================================================================
-
-// panic handler function pointer
-void (*iposix_panic_cb)(const char *fn, int ln, const char *msg) = NULL;
-
-
-//---------------------------------------------------------------------
-// panic at file and line with formatted message
-//---------------------------------------------------------------------
-void iposix_panic_at(const char *fn, int line, const char *fmt, ...)
-{
-	va_list ap;
-	char buffer[1024];
-
-	if (iposix_panic_cb == NULL) {
-		va_start(ap, fmt);
-		fprintf(stderr, "PANIC: %s (%d): ", fn, line);
-		vfprintf(stderr, fmt, ap);
-		fprintf(stderr, "\n");
-		va_end(ap);
-		fflush(stderr);
-	}
-	else {
-		va_start(ap, fmt);
-		vsprintf(buffer, fmt, ap);
-		va_end(ap);
-		iposix_panic_cb(fn, line, buffer);
-	}
-
-	abort();
-}
-
-
-
-//=====================================================================
 // utils
 //=====================================================================
 
@@ -847,146 +811,6 @@ int select_notify_wake(CSelectNotify *sn)
 }
 
 
-//=====================================================================
-// Terminal Colors
-//=====================================================================
-
-// set console color, color is a bitmask:
-// http://en.wikipedia.org/wiki/ANSI_escape_code
-void console_set_color(int color)
-{
-	#ifdef _WIN32
-	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	WORD result = 0;
-	if (color & 1) result |= FOREGROUND_RED;
-	if (color & 2) result |= FOREGROUND_GREEN;
-	if (color & 4) result |= FOREGROUND_BLUE;
-	if (color & 8) result |= FOREGROUND_INTENSITY;
-	if (color & 16) result |= BACKGROUND_RED;
-	if (color & 32) result |= BACKGROUND_GREEN;
-	if (color & 64) result |= BACKGROUND_BLUE;
-	if (color & 128) result |= BACKGROUND_INTENSITY;
-	SetConsoleTextAttribute(hConsole, (WORD)result);
-	#else
-	int foreground = color & 7;
-	int background = (color >> 4) & 7;
-	int bold = color & 8;
-	if (background != 0) {
-		printf("\033[%s3%d;4%dm", bold? "01;" : "", foreground, background);
-	}   else {
-		printf("\033[%s3%dm", bold? "01;" : "", foreground);
-	}
-	#endif
-}
-
-// set cursor position, row and col are 1-based
-void console_cursor(int row, int col)
-{
-	#ifdef _WIN32
-	COORD point; 
-	point.X = col - 1;
-	point.Y = row - 1;
-	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), point); 
-	#else
-	printf("\033[%d;%dH", row, col);
-	#endif
-}
-
-// reset console color
-void console_reset(void)
-{
-	#ifdef _WIN32
-	console_set_color(7);
-	#else
-	printf("\033[0m");
-	#endif
-}
-
-// clear console screen
-void console_clear(int color)
-{
-	(void)color;
-	#ifdef _WIN32
-	COORD coordScreen = { 0, 0 };
-	DWORD cCharsWritten;
-	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	DWORD dwConSize;
-	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-	GetConsoleScreenBufferInfo(hConsole, &csbi);
-	dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
-	FillConsoleOutputCharacter(hConsole, TEXT(' '),
-								dwConSize,
-								coordScreen,
-								&cCharsWritten);
-	GetConsoleScreenBufferInfo(hConsole, &csbi);
-	FillConsoleOutputAttribute(hConsole,
-								csbi.wAttributes,
-								dwConSize,
-								coordScreen,
-								&cCharsWritten);
-	SetConsoleCursorPosition(hConsole, coordScreen); 
-	#else
-	printf("\033[2J");
-	#endif
-}
-
-
-//=====================================================================
-// utilities
-//=====================================================================
-
-
-char* hash_signature_md5(
-		char *out,             // output string with size above 64 bytes
-		const void *in,        // input data
-		int in_size,           // input size
-		const char *secret,    // secret token
-		int secret_size,       // secret size
-		IUINT32 timestamp)     // time stamp in unix epoch seconds
-{
-	HASH_MD5_CTX md5;
-	unsigned char buffer[32];
-	if (secret_size < 0) {
-		secret_size = (int)strlen(secret);
-	}
-	iencode32u_lsb((char*)buffer, timestamp);
-	HASH_MD5_Init(&md5, 0);
-	HASH_MD5_Update(&md5, "SIGNATURE", 9);
-	HASH_MD5_Update(&md5, in, (unsigned int)in_size);
-	HASH_MD5_Update(&md5, secret, (unsigned int)secret_size);
-	HASH_MD5_Update(&md5, buffer, 4);
-	HASH_MD5_Final(&md5, buffer + 4);
-	hash_digest_to_string(out, buffer, 20);
-	return out;
-}
-
-
-// extract timestamp from signature
-IUINT32 hash_signature_time(const char *signature)
-{
-	unsigned char head[4];
-	IUINT32 timestamp;
-	int i;
-	for (i = 0; i < 4; i++) {
-		char ch = signature[i];
-		int index = 0;
-		if (ch >= '0' && ch <= '9') {
-			index = (int)(ch - '0');
-		}
-		else if (ch >= 'a' && ch <= 'f') {
-			index = (int)(ch - 'a') + 10;
-		}
-		else if (ch >= 'A' && ch <= 'F') {
-			index = (int)(ch - 'A') + 10;
-		}
-		head[i] = (unsigned char)(index & 15);
-	}
-	idecode32u_lsb((char*)head, &timestamp);
-	return (IUINT32)timestamp;
-}
-
-
-
 //---------------------------------------------------------------------
 // signal handles
 //---------------------------------------------------------------------
@@ -1024,4 +848,5 @@ void signal_watcher(void (*watcher)(int))
 {
 	_signal_watcher = watcher;
 }
+
 

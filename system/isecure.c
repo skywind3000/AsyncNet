@@ -854,7 +854,8 @@ IUINT32 hash_checksum(const void *in, unsigned int len)
 //=====================================================================
 
 // calculate HMAC-MD5, digest must be 16 bytes buffer
-void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void *digest)
+void hash_hmac_md5(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest)
 {
 	HASH_MD5_CTX ctx;
 	unsigned char kbuf[64];
@@ -864,7 +865,7 @@ void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void 
 	unsigned char *out = (unsigned char*)digest;
 	int i;
 
-	if (size < 0 || keylen < 0) return;
+	if (count < 0 || keylen < 0) return;
 
 	// prepare key
 	memset(kbuf, 0, 64);
@@ -880,7 +881,11 @@ void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void 
 	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
 	HASH_MD5_Init(&ctx, 0);
 	HASH_MD5_Update(&ctx, ibuf, 64);
-	if (size > 0) HASH_MD5_Update(&ctx, msg, size);
+	for (i = 0; i < count; i++) {
+		if (!msgs) continue;
+		if (sizes[i] > 0 && msgs[i])
+			HASH_MD5_Update(&ctx, msgs[i], sizes[i]);
+	}
 	HASH_MD5_Final(&ctx, tmp);
 
 	// outer hash: H((K ^ opad) || inner_digest)
@@ -892,7 +897,8 @@ void hash_hmac_md5(const void *msg, int size, const void *key, int keylen, void 
 }
 
 // calculate HMAC-SHA1, digest must be 20 bytes buffer
-void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void *digest)
+void hash_hmac_sha1(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest)
 {
 	HASH_SHA1_CTX ctx;
 	unsigned char kbuf[64];
@@ -902,7 +908,7 @@ void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void
 	unsigned char *out = (unsigned char*)digest;
 	int i;
 
-	if (size < 0 || keylen < 0) return;
+	if (count < 0 || keylen < 0) return;
 
 	// prepare key
 	memset(kbuf, 0, 64);
@@ -918,7 +924,11 @@ void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void
 	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
 	HASH_SHA1_Init(&ctx);
 	HASH_SHA1_Update(&ctx, ibuf, 64);
-	if (size > 0) HASH_SHA1_Update(&ctx, msg, size);
+	for (i = 0; i < count; i++) {
+		if (!msgs) continue;
+		if (sizes[i] > 0 && msgs[i]) 
+			HASH_SHA1_Update(&ctx, msgs[i], sizes[i]);
+	}
 	HASH_SHA1_Final(&ctx, tmp);
 
 	// outer hash: H((K ^ opad) || inner_digest)
@@ -930,7 +940,8 @@ void hash_hmac_sha1(const void *msg, int size, const void *key, int keylen, void
 }
 
 // calculate HMAC-SHA256, digest must be 32 bytes buffer
-void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, void *digest)
+void hash_hmac_sha256(const void *msgs[], const int *sizes, int count, 
+		const void *key, int keylen, void *digest)
 {
 	HASH_SHA256_CTX ctx;
 	unsigned char kbuf[64];
@@ -940,7 +951,7 @@ void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, vo
 	unsigned char *out = (unsigned char*)digest;
 	int i;
 
-	if (size < 0 || keylen < 0) return;
+	if (count < 0 || keylen < 0) return;
 
 	// prepare key
 	memset(kbuf, 0, 64);
@@ -956,7 +967,11 @@ void hash_hmac_sha256(const void *msg, int size, const void *key, int keylen, vo
 	for (i = 0; i < 64; i++) ibuf[i] = kbuf[i] ^ 0x36;
 	HASH_SHA256_Init(&ctx);
 	HASH_SHA256_Update(&ctx, ibuf, 64);
-	if (size > 0) HASH_SHA256_Update(&ctx, msg, size);
+	for (i = 0; i < count; i++) {
+		if (!msgs) continue;
+		if (sizes[i] > 0 && msgs[i]) 
+			HASH_SHA256_Update(&ctx, msgs[i], sizes[i]);
+	}
 	HASH_SHA256_Final(&ctx, tmp);
 
 	// outer hash: H((K ^ opad) || inner_digest)
@@ -2195,6 +2210,75 @@ IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound)
 		}
     }
 	return hr;
+}
+
+
+//=====================================================================
+// HMAC Signature with time
+//=====================================================================
+
+// generate a 80 bytes signature
+char *hmac_signature(int method, char *out, const void *in, int size, 
+		const char *secret, int secret_size, IUINT32 timestamp)
+{
+	const static int length[3] = {16, 20, 32};
+	static char temp[80];
+	unsigned char buffer[32 + 4];
+	const void *msgs[4];
+	int sizes[4];
+	if (method < 0 || method > 2) return NULL;
+	if (secret_size < 0) secret_size = (int)strlen(secret);
+	is_encode32u_lsb((char*)buffer, timestamp);
+	msgs[0] = "SIGNATURE";
+	sizes[0] = 9;
+	msgs[1] = in;
+	sizes[1] = size;
+	msgs[2] = buffer;
+	sizes[2] = 4;
+	msgs[3] = secret;
+	sizes[3] = secret_size;
+	if (method == 0) {
+		hash_hmac_md5(msgs, sizes, 4, secret, secret_size, buffer + 4);
+	}
+	else if (method == 1) {
+		hash_hmac_sha1(msgs, sizes, 4, secret, secret_size, buffer + 4);
+	}
+	else {
+		hash_hmac_sha256(msgs, sizes, 4, secret, secret_size, buffer + 4);
+	}
+	if (out == NULL) out = temp;
+	hash_digest_to_string(out, buffer, 4 + length[method]);
+	return out;
+}
+
+
+// extract timestamp from signature
+IUINT32 hmac_signature_time(const char *signature)
+{
+	unsigned char head[8], buffer[4];
+	IUINT32 timestamp;
+	int i;
+	for (i = 0; i < 8; i++) {
+		char ch = signature[i];
+		int index = 0;
+		if (ch >= '0' && ch <= '9') {
+			index = (int)(ch - '0');
+		}
+		else if (ch >= 'a' && ch <= 'f') {
+			index = (int)(ch - 'a') + 10;
+		}
+		else if (ch >= 'A' && ch <= 'F') {
+			index = (int)(ch - 'A') + 10;
+		}
+		head[i] = (unsigned char)(index & 15);
+	}
+	for (i = 0; i < 4; i++) {
+		unsigned char c1 = head[i * 2 + 0];
+		unsigned char c2 = head[i * 2 + 1];
+		buffer[i] = (c1 << 4) | c2;
+	}
+	is_decode32u_lsb((char*)buffer, &timestamp);
+	return (IUINT32)timestamp;
 }
 
 

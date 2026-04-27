@@ -565,11 +565,11 @@ void BasicTraceHandler::Output(const char *text)
 void BasicTraceHandler::WriteConsole(const char *text)
 {
 	if (_color >= 0) {
-		console_set_color(_color);
+		iposix_console_color(_color);
 	}
 	printf("[%s] %s\n", _timestamp.c_str(), text);
 	if (_color >= 0) {
-		console_reset();
+		iposix_console_reset();
 	}
 	fflush(stdout);
 }

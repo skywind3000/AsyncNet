@@ -2000,5 +2000,124 @@ int iposix_path_wrename(const wchar_t *oldname, const wchar_t *newname)
 #endif
 
 
+//=====================================================================
+// Panic
+//=====================================================================
+
+// panic handler function pointer
+void (*iposix_panic_cb)(const char *fn, int ln, const char *msg) = NULL;
+
+
+//---------------------------------------------------------------------
+// panic at file and line with formatted message
+//---------------------------------------------------------------------
+void iposix_panic_at(const char *fn, int line, const char *fmt, ...)
+{
+	va_list ap;
+	char buffer[1024];
+
+	if (iposix_panic_cb == NULL) {
+		va_start(ap, fmt);
+		fprintf(stderr, "PANIC: %s (%d): ", fn, line);
+		vfprintf(stderr, fmt, ap);
+		fprintf(stderr, "\n");
+		va_end(ap);
+		fflush(stderr);
+	}
+	else {
+		va_start(ap, fmt);
+		vsprintf(buffer, fmt, ap);
+		va_end(ap);
+		iposix_panic_cb(fn, line, buffer);
+	}
+
+	abort();
+}
+
+
+//=====================================================================
+// console color
+//=====================================================================
+
+// set console color, color is a bitmask:
+// http://en.wikipedia.org/wiki/ANSI_escape_code
+void iposix_console_color(int color)
+{
+	#ifdef _WIN32
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	WORD result = 0;
+	if (color & 1) result |= FOREGROUND_RED;
+	if (color & 2) result |= FOREGROUND_GREEN;
+	if (color & 4) result |= FOREGROUND_BLUE;
+	if (color & 8) result |= FOREGROUND_INTENSITY;
+	if (color & 16) result |= BACKGROUND_RED;
+	if (color & 32) result |= BACKGROUND_GREEN;
+	if (color & 64) result |= BACKGROUND_BLUE;
+	if (color & 128) result |= BACKGROUND_INTENSITY;
+	SetConsoleTextAttribute(hConsole, (WORD)result);
+	#else
+	int foreground = color & 7;
+	int background = (color >> 4) & 7;
+	int bold = color & 8;
+	if (background != 0) {
+		printf("\033[%s3%d;4%dm", bold? "01;" : "", foreground, background);
+	}   else {
+		printf("\033[%s3%dm", bold? "01;" : "", foreground);
+	}
+	#endif
+}
+
+// set cursor position, row and col are 1-based
+void iposix_console_cursor(int row, int col)
+{
+	#ifdef _WIN32
+	COORD point; 
+	point.X = col - 1;
+	point.Y = row - 1;
+	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), point); 
+	#else
+	printf("\033[%d;%dH", row, col);
+	#endif
+}
+
+// reset console color
+void iposix_console_reset(void)
+{
+	#ifdef _WIN32
+	iposix_console_color(7);
+	#else
+	printf("\033[0m");
+	#endif
+}
+
+// clear console screen
+void iposix_console_clear(int color)
+{
+	(void)color;
+	#ifdef _WIN32
+	COORD coordScreen = { 0, 0 };
+	DWORD cCharsWritten;
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	DWORD dwConSize;
+	HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+	GetConsoleScreenBufferInfo(hConsole, &csbi);
+	dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
+	FillConsoleOutputCharacter(hConsole, TEXT(' '),
+								dwConSize,
+								coordScreen,
+								&cCharsWritten);
+	GetConsoleScreenBufferInfo(hConsole, &csbi);
+	FillConsoleOutputAttribute(hConsole,
+								csbi.wAttributes,
+								dwConSize,
+								coordScreen,
+								&cCharsWritten);
+	SetConsoleCursorPosition(hConsole, coordScreen); 
+	#else
+	printf("\033[2J");
+	#endif
+}
+
+
 
 

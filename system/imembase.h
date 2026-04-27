@@ -420,22 +420,6 @@ typedef struct ILISTHEAD ilist_head;
 #define ilist_foreach_entry(pos, head) \
 	for( (pos) = (head)->next; (pos) != (head) ; (pos) = (pos)->next )
 
-#define ILIST_FOREACH_SAFE(iterator, iterator_next, head, TYPE, MEMBER) \
-	for ((iterator) = ilist_entry((head)->next, TYPE, MEMBER), \
-		(iterator_next) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER); \
-		&((iterator)->MEMBER) != (head); \
-		(iterator) = (iterator_next), \
-		(iterator_next) = ilist_entry((iterator)->MEMBER.next, TYPE, MEMBER))
-
-#define ilist_foreach_safe(iterator, iterator_next, head, TYPE, MEMBER) \
-	ILIST_FOREACH_SAFE(iterator, iterator_next, head, TYPE, MEMBER)
-
-#define ilist_foreach_entry_safe(pos, n, head) \
-	for ((pos) = (head)->next, (n) = (pos)->next; \
-		(pos) != (head); \
-		(pos) = (n), (n) = (pos)->next)
-
-
 #define __ilist_splice(list, head) do {	\
 		ilist_head *first = (list)->next, *last = (list)->prev; \
 		ilist_head *at = (head)->next; \

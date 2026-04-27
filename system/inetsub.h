@@ -25,9 +25,12 @@ extern "C" {
 struct CAsyncTopic;
 struct CAsyncSubscribe;
 struct CAsyncSignal;
+struct CAsyncCodec;
+
 typedef struct CAsyncTopic CAsyncTopic;
 typedef struct CAsyncSubscribe CAsyncSubscribe;
 typedef struct CAsyncSignal CAsyncSignal;
+typedef struct CAsyncCodec CAsyncCodec;
 
 
 //---------------------------------------------------------------------
@@ -146,9 +149,6 @@ int async_signal_default(CAsyncLoop *loop);
 #ifndef ASYNC_CODEC_ZONE_SIZE
 #define ASYNC_CODEC_ZONE_SIZE   2048
 #endif
-
-struct CAsyncCodec;
-typedef struct CAsyncCodec CAsyncCodec;
 
 struct CAsyncCodec {
     CAsyncLoop *loop;

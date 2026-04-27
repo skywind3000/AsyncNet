@@ -487,6 +487,66 @@ int iposix_path_wrename(const wchar_t *oldname, const wchar_t *newname);
 #endif
 
 
+//---------------------------------------------------------------------
+// Panic
+//---------------------------------------------------------------------
+
+// panic handler function pointer
+extern void (*iposix_panic_cb)(const char *fn, int ln, const char *msg);
+
+// convenient macro for panic
+#define iposix_panic(...) iposix_panic_at(__FILE__, __LINE__, __VA_ARGS__)
+
+// panic at file and line with formatted message
+void iposix_panic_at(const char *fn, int line, const char *fmt, ...);
+
+
+//---------------------------------------------------------------------
+// console color
+//---------------------------------------------------------------------
+
+// colors
+#define CTEXT_BLACK			0
+#define CTEXT_RED			1
+#define CTEXT_GREEN			2
+#define CTEXT_YELLOW		3
+#define CTEXT_BLUE			4
+#define CTEXT_MAGENTA		5
+#define CTEXT_CYAN			6
+#define CTEXT_WHITE			7
+#define CTEXT_BOLD			8
+#define CTEXT_BOLD_RED		9
+#define CTEXT_BOLD_GREEN	10
+#define CTEXT_BOLD_YELLO	11
+#define CTEXT_BOLD_BLUE		12
+#define CTEXT_BOLD_MAGENTA	13
+#define CTEXT_BOLD_CYAN		14
+#define CTEXT_BOLD_WHITE	15
+
+// background colors
+#define CBG_BLACK			0
+#define CBG_RED				(1 << 4)
+#define CBG_GREEN			(2 << 4)
+#define CBG_YELLO			(3 << 4)
+#define CBG_BLUE			(4 << 4)
+#define CBG_MAGENTA			(5 << 4)
+#define CBG_CYAN			(6 << 4)
+#define CBG_WHITE			(7 << 4)
+
+// set console text color, see details at
+// http://en.wikipedia.org/wiki/ANSI_escape_code
+void iposix_console_color(int color);
+
+// set console cursor position
+void iposix_console_cursor(int row, int col);
+
+// reset console
+void iposix_console_reset(void);
+
+// clear console with specific color
+void iposix_console_clear(int color);
+
+
 
 #ifdef __cplusplus
 }

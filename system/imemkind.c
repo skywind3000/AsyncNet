@@ -21,6 +21,7 @@
 
 //---------------------------------------------------------------------
 // format string with va_list into ib_string
+// (OVERWRITE: clears existing content first)
 //---------------------------------------------------------------------
 ilong ib_string_vformat(ib_string *out, const char *fmt, va_list ap)
 {
@@ -110,6 +111,7 @@ ilong ib_string_vformat(ib_string *out, const char *fmt, va_list ap)
 
 //---------------------------------------------------------------------
 // format string into ib_string
+// (OVERWRITE: clears existing content first)
 //---------------------------------------------------------------------
 ilong ib_string_format(ib_string *out, const char *fmt, ...)
 {
@@ -124,6 +126,7 @@ ilong ib_string_format(ib_string *out, const char *fmt, ...)
 
 //---------------------------------------------------------------------
 // format and append to ib_string
+// (APPEND: keeps existing content, appends formatted string)
 //---------------------------------------------------------------------
 ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap)
 {
@@ -142,6 +145,7 @@ ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap)
 
 //---------------------------------------------------------------------
 // format and append to ib_string
+// (APPEND: keeps existing content, appends formatted string)
 //---------------------------------------------------------------------
 ilong ib_string_printf(ib_string *out, const char *fmt, ...)
 {
@@ -4093,7 +4097,8 @@ static int ib_json_encode_pretty_impl(ib_string *out,
     if (indent > 0) {
         padlen = indent * depth;
         if (padlen > 255) padlen = 255;
-        for (i = 0; i < padlen; i++) pad[i] = ' ';
+        /* Fill pad buffer with spaces up to max needed (padlen + indent) */
+        for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
     }
 
     switch (obj->type) {
@@ -4257,7 +4262,8 @@ static int ib_object_dump_impl(ib_string *out,
     if (indent > 0) {
         padlen = indent * depth;
         if (padlen > 255) padlen = 255;
-        for (i = 0; i < padlen; i++) pad[i] = ' ';
+        /* Fill pad buffer with spaces up to max needed (padlen + indent) */
+        for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
     }
 
     switch (obj->type) {
@@ -4271,14 +4277,18 @@ static int ib_object_dump_impl(ib_string *out,
         break;
 
     case IB_OBJECT_INT:
-        ib_string_format(out, "%lld", (IINT64)obj->integer);
-        break;
-
-    case IB_OBJECT_DOUBLE:
     {
-        ib_string_format(out, "%g", obj->dval);
+        // append integer as decimal string using illtoa for cross-platform compatibility (VC6 %lld fix)
+        char buf[32];
+        int n = illtoa((IINT64)obj->integer, buf, 10);
+        ib_string_append_size(out, buf, n);
         break;
     }
+
+    case IB_OBJECT_DOUBLE:
+        // append double as %g format
+        ib_string_printf(out, "%g", obj->dval);
+        break;
 
     case IB_OBJECT_STR:
     {
@@ -4317,10 +4327,12 @@ static int ib_object_dump_impl(ib_string *out,
     {
         int show = (obj->size > IB_DUMP_BIN_MAX) ?
                 IB_DUMP_BIN_MAX : obj->size;
-        ib_string_format(out, "<%d:", obj->size);
+        // append bin header: <size:
+        ib_string_printf(out, "<%d:", obj->size);
         for (i = 0; i < show; i++) {
-            ib_string_format(out, "%02x", obj->str[i]);
-            if (i + 1 < show) ib_string_append_c(out, ' ');
+            if (i > 0) ib_string_append_c(out, ' ');
+            // append each byte as hex
+            ib_string_printf(out, "%02x", obj->str[i]);
         }
         if (obj->size > IB_DUMP_BIN_MAX) {
             ib_string_append_size(out, " ...", 4);
@@ -4410,6 +4422,21 @@ static int ib_object_dump_impl(ib_string *out,
 int ib_object_dump(ib_string *out, const ib_object *obj, int indent)
 {
     return ib_object_dump_impl(out, obj, indent, 0);
+}
+
+
+// print an ib_object tree to stdout in human-readable form (for debugging).
+int ib_object_print(const ib_object *obj, int indent)
+{
+	ib_string *tmp = ib_string_new();
+	if (tmp == NULL) return -1;
+	if (ib_object_dump_impl(tmp, obj, indent, 0) < 0) {
+		ib_string_delete(tmp);
+		return -1;
+	}
+	printf("%s\n", ib_string_ptr(tmp));
+	ib_string_delete(tmp);
+	return 0;
 }
 
 

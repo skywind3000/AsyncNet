@@ -41,6 +41,7 @@
 #ifndef _SYSTEM_H_
 #define _SYSTEM_H_
 
+#include <malloc.h>
 #include <string>
 #include <vector>
 #include <sstream>
@@ -1015,6 +1016,71 @@ protected:
 
 
 //---------------------------------------------------------------------
+// zone allocator
+//---------------------------------------------------------------------
+class MemoryZone final
+{
+public:
+	~MemoryZone() {
+		ib_zone_destroy(&_zone);
+	}
+
+	MemoryZone(void *initmem, size_t size, IALLOCATOR *allocator = NULL) {
+		ib_zone_init(&_zone, initmem, size, allocator);
+		ib_zone_setup(&_zone, &_allocator);
+	}
+
+	MemoryZone(IALLOCATOR *allocator = NULL) {
+		ib_zone_init(&_zone, NULL, 0, allocator);
+		ib_zone_setup(&_zone, &_allocator);
+	}
+
+	MemoryZone(MemoryZone &&) = delete;
+	MemoryZone(const MemoryZone &) = delete;
+	MemoryZone& operator = (const MemoryZone&) = delete;
+	MemoryZone& operator = (MemoryZone&&) = delete;
+
+public:
+	inline IALLOCATOR *allocator() { return &_allocator; }
+	inline const IALLOCATOR *allocator() const { return &_allocator; }
+
+	inline ib_zone *zone() { return &_zone; }
+	inline const ib_zone *zone() const { return &_zone; }
+
+	inline void clear() { ib_zone_clear(&_zone); }
+
+	inline void finalizer(void (*fn)(void*), void *user) {
+		ib_zone_finalizer(&_zone, fn, user);
+	}
+
+	inline void *next(size_t size, size_t align = 0) {
+		if (align == 0) {
+			return ib_zone_malloc(&_zone, size);
+		}
+		else {
+			return ib_zone_malloc_aligned(&_zone, size, align);
+		}
+	}
+
+	inline void *malloc(size_t size) {
+		return internal_malloc(&_allocator, size);
+	}
+
+	inline void free(void *ptr) {
+		internal_free(&_allocator, ptr);
+	}
+
+	inline void *realloc(void *ptr, size_t size) {
+		return internal_realloc(&_allocator, ptr, size);
+	}
+
+private:
+	ib_zone _zone;
+	IALLOCATOR _allocator;
+};
+
+
+//---------------------------------------------------------------------
 // 内存流
 //---------------------------------------------------------------------
 class MemStream
@@ -1103,7 +1169,6 @@ protected:
 	int x;
 	int y;
 };
-
 
 
 //---------------------------------------------------------------------

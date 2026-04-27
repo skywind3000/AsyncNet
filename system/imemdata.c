@@ -15,6 +15,7 @@
 //
 //=====================================================================
 #include "imemdata.h"
+#include "imembase.h"
 
 #include <ctype.h>
 #include <assert.h>
@@ -1462,6 +1463,7 @@ int ib_object_path_erase(struct IALLOCATOR *alloc,
 		last_idx = idx;
 	}
 }
+
 
 
 //=====================================================================
