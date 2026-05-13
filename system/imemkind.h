@@ -70,6 +70,13 @@ ilong ib_string_printf(ib_string *out, const char *fmt, ...);
 // (APPEND: keeps existing content, appends formatted string)
 ilong ib_string_vprintf(ib_string *out, const char *fmt, va_list ap);
 
+// load file content into ib_string.
+// (OVERWRITE: clears existing string content)
+ilong ib_string_load(ib_string *out, const char *filename);
+
+// save string content into a file
+ilong ib_string_save(const ib_string *out, const char *filename);
+
 
 //---------------------------------------------------------------------
 // CAsyncReader - read data from stream with various modes
@@ -538,6 +545,11 @@ int ib_json_decode(const char *input, size_t size,
 // nan/inf doubles become null. returns 0 on success, -1 on failure.
 int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent);
 
+
+//---------------------------------------------------------------------
+// Object Enhancement
+//---------------------------------------------------------------------
+
 // encode an ib_object tree into human-readable debug representation.
 // indent=0: single-line compact (suitable for logs).
 // indent>0: multi-line with indentation (suitable for human inspection).
@@ -548,6 +560,53 @@ int ib_object_dump(ib_string *out, const ib_object *obj, int indent);
 
 // print an ib_object tree to stdout in human-readable form (for debugging).
 int ib_object_print(const ib_object *obj, int indent);
+
+// load an ib_object tree from a file in RESP format (binary, not human-readable).
+ib_object *ib_object_load_resp(struct IALLOCATOR *alloc, const char *filename);
+
+// load an ib_object tree from a file in msgpack format (binary, not human-readable).
+ib_object *ib_object_load_msgpack(struct IALLOCATOR *alloc, const char *filename);
+
+// load an ib_object tree from a file in JSON format (human-readable).
+ib_object *ib_object_load_json(struct IALLOCATOR *alloc, const char *filename);
+
+// save an ib_object tree to a file in a compact binary format (not human-readable).
+int ib_object_save_resp(const ib_object *obj, const char *filename);
+
+// save an ib_object tree to a file in a compact binary format (not human-readable).
+int ib_object_save_msgpack(const ib_object *obj, const char *filename);
+
+// save an ib_object tree to a file in JSON format (human-readable).
+int ib_object_save_json(const ib_object *obj, const char *filename);
+
+// set an integer value at a nested path within an ib_object tree.
+int ib_object_path_set_int(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, IINT64 value);
+
+// set a string value at a nested path within an ib_object tree.
+int ib_object_path_set_str(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, const char *value, int len);
+
+// set a binary value at a nested path within an ib_object tree.
+int ib_object_path_set_bin(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, const void *value, int len);
+
+// set a binary value at a nested path within an ib_object tree.
+int ib_object_path_set_bool(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, int value);
+
+// set a floating-point value at a nested path within an ib_object tree.
+int ib_object_path_set_double(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, double value);
+
+// set a null value at a nested path within an ib_object tree.
+int ib_object_path_set_nil(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path);
+
+// set a nested ib_object value at a path within an json encoded object.
+int ib_object_path_set_json(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, const char *json);
+
 
 
 #ifdef __cplusplus

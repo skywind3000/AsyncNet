@@ -237,6 +237,7 @@ struct CAsyncLoop {
 	void *logger;         // logger for loop object, can be NULL
 	void (*writelog)(void *logger, const char *msg);
 	void (*on_once)(CAsyncLoop *loop);
+	void (*on_wait)(CAsyncLoop *loop);
 	void (*on_timer)(CAsyncLoop *loop);
 	void (*on_idle)(CAsyncLoop *loop);
 	itimer_mgr timer_mgr;

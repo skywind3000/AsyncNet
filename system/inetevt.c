@@ -289,6 +289,7 @@ CAsyncLoop* async_loop_new(void)
 	loop->writelog = NULL;
 
 	loop->on_once = NULL;
+	loop->on_wait = NULL;
 	loop->on_timer = NULL;
 	loop->on_idle = NULL;
 
@@ -1122,6 +1123,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 
 	// update iteration
 	loop->iteration++;
+
+	// post wait callback
+	if (loop->on_wait) {
+		loop->on_wait(loop);
+	}
 
 	// dispatch I/O events
 	cc = async_loop_pending_dispatch(loop);

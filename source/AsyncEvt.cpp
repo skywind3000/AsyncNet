@@ -28,6 +28,10 @@ AsyncLoop::~AsyncLoop()
 		_loop->self = NULL;
 		_loop->writelog = NULL;
 		_loop->logger = NULL;
+		_loop->on_wait = NULL;
+		_loop->on_idle = NULL;
+		_loop->on_once = NULL;
+		_loop->on_timer = NULL;
 	}
 	if (_borrow == false) {
 		if (_loop != NULL) {
@@ -45,8 +49,11 @@ AsyncLoop::AsyncLoop()
 {
 	_loop = async_loop_new();
 	_loop->self = this;
+	_loop->on_wait = OnWait;
+	_loop->logger = this;
 	_borrow = false;
 	_ptr = NULL;
+	UpdateTime();
 }
 
 
@@ -59,8 +66,10 @@ AsyncLoop::AsyncLoop(CAsyncLoop *loop)
 	_loop->self = this;
 	_loop->writelog = OnLog;
 	_loop->logger = this;
+	_loop->on_wait = OnWait;
 	_ptr = NULL;
 	_borrow = true;
+	UpdateTime();
 }
 
 
@@ -80,6 +89,7 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	this->_cb_once = src._cb_once;
 	this->_cb_idle = src._cb_idle;
 	this->_cb_timer = src._cb_timer;
+	this->_cb_wait = src._cb_wait;
 	this->_ptr = src._ptr;
 	src._loop = NULL;
 	src._borrow = false;
@@ -87,12 +97,14 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	src._cb_once = NULL;
 	src._cb_idle = NULL;
 	src._cb_timer = NULL;
+	src._cb_wait = NULL;
 	src._ptr = NULL;
 	if (src._log_cache.size() > 0) {
 		this->_log_cache = std::move(src._log_cache);
 	} else {
 		this->_log_cache.clear();
 	}
+	UpdateTime();
 }
 
 
@@ -190,6 +202,20 @@ int64_t AsyncLoop::UptimeMillisec() const
 
 
 //---------------------------------------------------------------------
+// Post wait callback
+//---------------------------------------------------------------------
+void AsyncLoop::UpdateTime()
+{
+	_time_seconds = _loop->timestamp / 1000000000.0;
+	_time_millisec = _loop->timestamp / 1000000;
+	_time_microsec = _loop->timestamp / 1000;
+	_monotonic_seconds = _loop->monotonic / 1000000000.0;
+	_monotonic_millisec = _loop->monotonic / 1000000;
+	_monotonic_microsec = _loop->monotonic / 1000;
+}
+
+
+//---------------------------------------------------------------------
 // callback for c
 //---------------------------------------------------------------------
 void AsyncLoop::OnLog(void *logger, const char *text)
@@ -212,6 +238,21 @@ void AsyncLoop::OnOnce(CAsyncLoop *loop)
 	if (self) {
 		if (self->_cb_once != nullptr) {
 			self->_cb_once();
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnWait(CAsyncLoop *loop)
+{
+	AsyncLoop *self = (AsyncLoop*)loop->self;
+	self->UpdateTime();
+	if (self) {
+		if (self->_cb_wait != nullptr) {
+			self->_cb_wait();
 		}
 	}
 }
@@ -333,6 +374,16 @@ void AsyncLoop::SetTimerHandler(std::function<void()> handler)
 {
 	_cb_timer = handler;
 	_loop->on_timer = (handler == nullptr)? nullptr : OnTimer;
+}
+
+
+//---------------------------------------------------------------------
+// 设置一个函数，每次 poll wait 结束时被调用（分发具体事件前）
+//---------------------------------------------------------------------
+void AsyncLoop::SetWaitHandler(std::function<void()> handler)
+{
+	_cb_wait = handler;
+	_loop->on_wait = OnWait;
 }
 
 

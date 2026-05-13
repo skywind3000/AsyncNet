@@ -105,12 +105,20 @@ struct CAsyncStream {
 #define async_stream_eof_read(s) ((s)->eof & ASYNC_STREAM_INPUT)
 #define async_stream_eof_write(s) ((s)->eof & ASYNC_STREAM_OUTPUT)
 
+
+// Stream event flags for callback: stream->callback(stream, event, args)
+// These are BITMASK flags -- multiple flags can be OR'd together in a
+// single callback invocation (e.g. ESTAB|READING, READING|EOF).
+// MUST use bitwise test:  if (event & ASYNC_STREAM_EVT_ESTAB) { ... }
+// MUST NOT use switch(event) -- it silently drops combined events.
 #define ASYNC_STREAM_EVT_ESTAB      0x01
 #define ASYNC_STREAM_EVT_EOF        0x02
 #define ASYNC_STREAM_EVT_ERROR      0x04
 #define ASYNC_STREAM_EVT_READING    0x08
 #define ASYNC_STREAM_EVT_WRITING    0x10
 
+
+// stream name construction macro, fourcc code in little-endian order
 #define ASYNC_STREAM_NAME(c1, c2, c3, c4) \
 	((IUINT32)( (((IUINT32)(c1)) << 0) | \
 				(((IUINT32)(c2)) << 8) | \

@@ -158,6 +158,63 @@ ilong ib_string_printf(ib_string *out, const char *fmt, ...)
 }
 
 
+//---------------------------------------------------------------------
+// load file content into ib_string.
+// (OVERWRITE: clears existing string content)
+//---------------------------------------------------------------------
+ilong ib_string_load(ib_string *out, const char *filename)
+{
+	FILE *fp = fopen(filename, "rb");
+	if (fp == NULL) return -1;
+	fseek(fp, 0, SEEK_END);
+	ilong size = (ilong)ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	if (size < 0) {
+		fclose(fp);
+		return -1;
+	}
+	ib_string_resize(out, (int)size);
+	if (size > 0) {
+		ilong remain = (ilong)size;
+		ilong offset = 0;
+		while (remain > 0) {
+			size_t read = fread(ib_string_ptr(out) + offset, 1, remain, fp);
+			if (read == 0) {
+				ib_string_resize(out, (int)offset);
+				break;
+			}
+			remain -= (ilong)read;
+			offset += (ilong)read;
+		}
+	}
+	fclose(fp);
+	return size;
+}
+
+
+//---------------------------------------------------------------------
+// save string content into a file
+//---------------------------------------------------------------------
+ilong ib_string_save(const ib_string *out, const char *filename)
+{
+	FILE *fp = fopen(filename, "wb");
+	if (fp == NULL) return -1;
+	ilong remain = (ilong)ib_string_size(out);
+	ilong offset = 0;
+	while (remain > 0) {
+		size_t written = fwrite(ib_string_ptr(out) + offset, 1, 65536, fp);
+		if (written == 0) {
+			fclose(fp);
+			return -1;
+		}
+		remain -= (ilong)written;
+		offset += (ilong)written;
+	}
+	fclose(fp);
+	return (ilong)ib_string_size(out);
+}
+
+
 
 //=====================================================================
 // CAsyncReader
@@ -4235,7 +4292,7 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
 
 
 //=====================================================================
-// Object Dump - human-readable debug representation
+// Object Enhancement
 //=====================================================================
 
 //---------------------------------------------------------------------
@@ -4437,6 +4494,168 @@ int ib_object_print(const ib_object *obj, int indent)
 	printf("%s\n", ib_string_ptr(tmp));
 	ib_string_delete(tmp);
 	return 0;
+}
+
+// load an ib_object tree from a file in RESP format (binary, not human-readable).
+ib_object *ib_object_load_resp(struct IALLOCATOR *alloc, const char *filename)
+{
+	ib_string tmp;
+	ib_object *obj;
+	int hr;
+	ib_string_init(&tmp);
+	if (ib_string_load(&tmp, filename) < 0) {
+		ib_string_destroy(&tmp);
+		return NULL;
+	}
+	hr = ib_resp_decode(ib_string_ptr(&tmp), ib_string_size(&tmp), &obj, alloc);
+	if (hr != 1) {
+		obj = NULL;
+	}
+	ib_string_destroy(&tmp);
+	return obj;
+}
+
+// load an ib_object tree from a file in msgpack format (binary, not human-readable).
+ib_object *ib_object_load_msgpack(struct IALLOCATOR *alloc, const char *filename)
+{
+	ib_string tmp;
+	ib_object *obj;
+	int hr;
+	ib_string_init(&tmp);
+	if (ib_string_load(&tmp, filename) < 0) {
+		ib_string_destroy(&tmp);
+		return NULL;
+	}
+	hr = ib_msgpack_decode(ib_string_ptr(&tmp), ib_string_size(&tmp), &obj, alloc);
+	if (hr != 1) {
+		obj = NULL;
+	}
+	ib_string_destroy(&tmp);
+	return obj;
+}
+
+// load an ib_object tree from a file in JSON format (human-readable).
+ib_object *ib_object_load_json(struct IALLOCATOR *alloc, const char *filename)
+{
+	ib_string tmp;
+	ib_object *obj;
+	int hr;
+	ib_string_init(&tmp);
+	if (ib_string_load(&tmp, filename) < 0) {
+		ib_string_destroy(&tmp);
+		return NULL;
+	}
+	hr = ib_json_decode(ib_string_ptr(&tmp), ib_string_size(&tmp), &obj, alloc);
+	if (hr != 1) {
+		obj = NULL;
+	}
+	ib_string_destroy(&tmp);
+	return obj;
+}
+
+// save an ib_object tree to a file in a compact binary format (not human-readable).
+int ib_object_save_resp(const ib_object *obj, const char *filename)
+{
+	ib_string tmp;
+	int hr;
+	ib_string_init(&tmp);
+	hr = ib_resp_encode(&tmp, obj);
+	if (hr == 0) {
+		hr = ib_string_save(&tmp, filename);
+	}
+	ib_string_destroy(&tmp);
+	return hr;
+}
+
+// save an ib_object tree to a file in a compact binary format (not human-readable).
+int ib_object_save_msgpack(const ib_object *obj, const char *filename)
+{
+	ib_string tmp;
+	int hr;
+	ib_string_init(&tmp);
+	hr = ib_msgpack_encode(&tmp, obj);
+	if (hr == 0) {
+		hr = ib_string_save(&tmp, filename);
+	}
+	ib_string_destroy(&tmp);
+	return hr;
+}
+
+// save an ib_object tree to a file in JSON format (human-readable).
+int ib_object_save_json(const ib_object *obj, const char *filename)
+{
+	ib_string tmp;
+	int hr;
+	ib_string_init(&tmp);
+	hr = ib_json_encode_pretty(&tmp, obj, 4);
+	if (hr == 0) {
+		hr = ib_string_save(&tmp, filename);
+	}
+	ib_string_destroy(&tmp);
+	return hr;
+}
+
+
+// set an integer value at a nested path within an ib_object tree.
+int ib_object_path_set_int(struct IALLOCATOR *alloc, ib_object *obj, const char *path, IINT64 value)
+{
+	ib_object *val = ib_object_new_int(alloc, value);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a string value at a nested path within an ib_object tree.
+int ib_object_path_set_str(struct IALLOCATOR *alloc, ib_object *obj, const char *path, const char *value, int len)
+{
+	ib_object *val;
+	if (value == NULL) value = "";
+	if (len < 0) len = (int)strlen(value);
+	val = ib_object_new_str(alloc, value, len);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a binary value at a nested path within an ib_object tree.
+int ib_object_path_set_bin(struct IALLOCATOR *alloc, ib_object *obj, const char *path, const void *value, int len)
+{
+	ib_object *val = ib_object_new_bin(alloc, value, len);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a binary value at a nested path within an ib_object tree.
+int ib_object_path_set_bool(struct IALLOCATOR *alloc, ib_object *obj, const char *path, int value)
+{
+	ib_object *val = ib_object_new_bool(alloc, value);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a floating-point value at a nested path within an ib_object tree.
+int ib_object_path_set_double(struct IALLOCATOR *alloc, ib_object *obj, const char *path, double value)
+{
+	ib_object *val = ib_object_new_double(alloc, value);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a null value at a nested path within an ib_object tree.
+int ib_object_path_set_nil(struct IALLOCATOR *alloc, ib_object *obj, const char *path)
+{
+	ib_object *val = ib_object_new_nil(alloc);
+	if (val == NULL) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
+}
+
+// set a nested ib_object value at a path within an json encoded object.
+int ib_object_path_set_json(struct IALLOCATOR *alloc, ib_object *obj, 
+		const char *path, const char *json)
+{
+	ib_object *val;
+	int rc = 0;
+	rc = ib_json_decode(json, strlen(json), &val, alloc);
+	if (rc <= 0) return -1;
+	return ib_object_path_set(alloc, obj, path, val);
 }
 
 

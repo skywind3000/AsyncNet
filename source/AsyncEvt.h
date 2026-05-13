@@ -138,8 +138,18 @@ public:
 	}
 
 	// 取得毫秒时间戳
-	int64_t Millisecond(bool monotonic) const {
-		return Timestamp(monotonic) / 1000000;
+	int64_t GetMillisecond(bool monotonic) const {
+		return monotonic? _monotonic_millisec : _time_millisec;
+	}
+
+	// 取得微秒时间戳
+	int64_t GetMicrosecond(bool monotonic) const {
+		return monotonic? _monotonic_microsec : _time_microsec;
+	}
+
+	// 取得浮点数时间戳，monotonic 为 false 时返回实时时钟，单位秒
+	double GetFloatTime(bool monotonic) const {
+		return monotonic? _monotonic_seconds : _time_seconds;
 	}
 
 	// 取得当前的 jiffies 计时，每毫秒递增 1，用于驱动内部的 Linux 时间轮
@@ -160,6 +170,9 @@ public:
 	// 设置一个函数，每次 jiffies 改变时被调用（即毫秒更新）
 	void SetTimerHandler(std::function<void()> handler);
 
+	// 设置一个函数，每次 poll wait 结束时被调用（分发具体事件前）
+	void SetWaitHandler(std::function<void()> handler);
+
 	// inline ptr helper
 	inline const void *Ptr() const { return _ptr; }
 	inline void *Ptr() { return _ptr; }
@@ -170,13 +183,25 @@ private:
 	std::function<void(const char*)> _cb_log;
 	std::function<void()> _cb_idle;
 	std::function<void()> _cb_once;
+	std::function<void()> _cb_wait;
 	std::function<void()> _cb_timer;
 
 	std::string _log_cache;
 	void *_ptr = NULL;
 
+	double _time_seconds;
+	int64_t _time_millisec;
+	int64_t _time_microsec;
+
+	double _monotonic_seconds;
+	int64_t _monotonic_millisec;
+	int64_t _monotonic_microsec;
+
+	void UpdateTime();
+
 	static void OnLog(void *logger, const char *text);
 	static void OnOnce(CAsyncLoop *loop);
+	static void OnWait(CAsyncLoop *loop);
 	static void OnTimer(CAsyncLoop *loop);
 	static void OnIdle(CAsyncLoop *loop);
 
