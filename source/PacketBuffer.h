@@ -123,7 +123,7 @@ public:
 	inline virtual ~PacketBuffer();
 
 #ifdef IKMEM_PACKET
-    CLASS_USE_KMEM
+	CLASS_USE_KMEM
 #endif
 
 public:

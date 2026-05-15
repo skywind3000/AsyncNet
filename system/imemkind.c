@@ -438,12 +438,12 @@ void async_reader_clear(CAsyncReader *reader)
 //---------------------------------------------------------------------
 static long _ib_resp_find_crlf(const unsigned char *buf, long start, long size)
 {
-    long i;
-    for (i = start; i + 1 < size; i++) {
-        if (buf[i] == '\r' && buf[i + 1] == '\n')
-            return i;
-    }
-    return -1;
+	long i;
+	for (i = start; i + 1 < size; i++) {
+		if (buf[i] == '\r' && buf[i + 1] == '\n')
+			return i;
+	}
+	return -1;
 }
 
 
@@ -453,31 +453,31 @@ static long _ib_resp_find_crlf(const unsigned char *buf, long start, long size)
 // returns 0 on success, -1 on failure
 //---------------------------------------------------------------------
 static int _ib_resp_parse_long(const unsigned char *buf, long start, long end,
-        IINT64 *result)
+		IINT64 *result)
 {
-    IINT64 val = 0;
-    int negative = 0;
-    long i = start;
+	IINT64 val = 0;
+	int negative = 0;
+	long i = start;
 
-    if (i >= end) return -1;
+	if (i >= end) return -1;
 
-    if (buf[i] == '-') {
-        negative = 1;
-        i++;
-        if (i >= end) return -1;
-    }
+	if (buf[i] == '-') {
+		negative = 1;
+		i++;
+		if (i >= end) return -1;
+	}
 
-    for (; i < end; i++) {
-        unsigned char c = buf[i];
-        if (c < '0' || c > '9') return -1;
-        /* overflow check */
-        if (val > IINT64_MAX / 10) return -1;
-        val = val * 10 + (c - '0');
-        if (val < 0 && val != IINT64_MIN) return -1;
-    }
+	for (; i < end; i++) {
+		unsigned char c = buf[i];
+		if (c < '0' || c > '9') return -1;
+		/* overflow check */
+		if (val > IINT64_MAX / 10) return -1;
+		val = val * 10 + (c - '0');
+		if (val < 0 && val != IINT64_MIN) return -1;
+	}
 
-    *result = negative ? -val : val;
-    return 0;
+	*result = negative ? -val : val;
+	return 0;
 }
 
 
@@ -495,29 +495,29 @@ static int _ib_resp_parse_long(const unsigned char *buf, long start, long end,
 //---------------------------------------------------------------------
 static void _ib_resp_append_int(ib_string *out, IINT64 val)
 {
-    char buf[24]; /* enough for -9223372036854775808 (20 chars + NUL) */
-    char *p = buf + sizeof(buf);
-    int negative = 0;
-    IUINT64 uval;
+	char buf[24]; /* enough for -9223372036854775808 (20 chars + NUL) */
+	char *p = buf + sizeof(buf);
+	int negative = 0;
+	IUINT64 uval;
 
-    if (val < 0) {
-        negative = 1;
-        /* handle INT64_MIN safely: negate as unsigned */
-        uval = (IUINT64)(-(val + 1)) + 1;
-    }
-    else {
-        uval = (IUINT64)val;
-    }
+	if (val < 0) {
+		negative = 1;
+		/* handle INT64_MIN safely: negate as unsigned */
+		uval = (IUINT64)(-(val + 1)) + 1;
+	}
+	else {
+		uval = (IUINT64)val;
+	}
 
-    /* generate digits in reverse order */
-    do {
-        *(--p) = (char)('0' + (int)(uval % 10));
-        uval /= 10;
-    } while (uval > 0);
+	/* generate digits in reverse order */
+	do {
+		*(--p) = (char)('0' + (int)(uval % 10));
+		uval /= 10;
+	} while (uval > 0);
 
-    if (negative) *(--p) = '-';
+	if (negative) *(--p) = '-';
 
-    ib_string_append_size(out, p, (int)(buf + sizeof(buf) - p));
+	ib_string_append_size(out, p, (int)(buf + sizeof(buf) - p));
 }
 
 //---------------------------------------------------------------------
@@ -525,15 +525,15 @@ static void _ib_resp_append_int(ib_string *out, IINT64 val)
 //---------------------------------------------------------------------
 static void _ib_resp_append_uint(ib_string *out, IUINT64 val)
 {
-    char buf[24];
-    char *p = buf + sizeof(buf);
+	char buf[24];
+	char *p = buf + sizeof(buf);
 
-    do {
-        *(--p) = (char)('0' + (int)(val % 10));
-        val /= 10;
-    } while (val > 0);
+	do {
+		*(--p) = (char)('0' + (int)(val % 10));
+		val /= 10;
+	} while (val > 0);
 
-    ib_string_append_size(out, p, (int)(buf + sizeof(buf) - p));
+	ib_string_append_size(out, p, (int)(buf + sizeof(buf) - p));
 }
 
 //---------------------------------------------------------------------
@@ -543,32 +543,32 @@ static void _ib_resp_append_uint(ib_string *out, IUINT64 val)
 //---------------------------------------------------------------------
 static void _ib_resp_write_prefix_int(ib_string *out, char prefix, int val)
 {
-    /* fast path for small integers (covers vast majority of cases):
-       single-digit 0-9 needs only 4 bytes "X0\r\n" */
-    if (val >= 0 && val <= 9) {
-        char buf[4];
-        buf[0] = prefix;
-        buf[1] = (char)('0' + val);
-        buf[2] = '\r';
-        buf[3] = '\n';
-        ib_string_append_size(out, buf, 4);
-        return;
-    }
-    /* two-digit 10-99 */
-    if (val >= 10 && val <= 99) {
-        char buf[5];
-        buf[0] = prefix;
-        buf[1] = (char)('0' + val / 10);
-        buf[2] = (char)('0' + val % 10);
-        buf[3] = '\r';
-        buf[4] = '\n';
-        ib_string_append_size(out, buf, 5);
-        return;
-    }
-    /* general path */
-    ib_string_append_size(out, &prefix, 1);
-    _ib_resp_append_uint(out, (IUINT64)(unsigned int)val);
-    ib_string_append_size(out, "\r\n", 2);
+	/* fast path for small integers (covers vast majority of cases):
+	   single-digit 0-9 needs only 4 bytes "X0\r\n" */
+	if (val >= 0 && val <= 9) {
+		char buf[4];
+		buf[0] = prefix;
+		buf[1] = (char)('0' + val);
+		buf[2] = '\r';
+		buf[3] = '\n';
+		ib_string_append_size(out, buf, 4);
+		return;
+	}
+	/* two-digit 10-99 */
+	if (val >= 10 && val <= 99) {
+		char buf[5];
+		buf[0] = prefix;
+		buf[1] = (char)('0' + val / 10);
+		buf[2] = (char)('0' + val % 10);
+		buf[3] = '\r';
+		buf[4] = '\n';
+		ib_string_append_size(out, buf, 5);
+		return;
+	}
+	/* general path */
+	ib_string_append_size(out, &prefix, 1);
+	_ib_resp_append_uint(out, (IUINT64)(unsigned int)val);
+	ib_string_append_size(out, "\r\n", 2);
 }
 
 //---------------------------------------------------------------------
@@ -577,8 +577,8 @@ static void _ib_resp_write_prefix_int(ib_string *out, char prefix, int val)
 //---------------------------------------------------------------------
 int ib_resp_write_array(ib_string *out, int count)
 {
-    _ib_resp_write_prefix_int(out, '*', count);
-    return 0;
+	_ib_resp_write_prefix_int(out, '*', count);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -587,10 +587,10 @@ int ib_resp_write_array(ib_string *out, int count)
 //---------------------------------------------------------------------
 int ib_resp_write_bulk(ib_string *out, const void *data, int len)
 {
-    _ib_resp_write_prefix_int(out, '$', len);
-    ib_string_append_size(out, (const char *)data, len);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	_ib_resp_write_prefix_int(out, '$', len);
+	ib_string_append_size(out, (const char *)data, len);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -598,10 +598,10 @@ int ib_resp_write_bulk(ib_string *out, const void *data, int len)
 //---------------------------------------------------------------------
 int ib_resp_write_int(ib_string *out, IINT64 val)
 {
-    ib_string_append_size(out, ":", 1);
-    _ib_resp_append_int(out, val);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	ib_string_append_size(out, ":", 1);
+	_ib_resp_append_int(out, val);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -609,8 +609,8 @@ int ib_resp_write_int(ib_string *out, IINT64 val)
 //---------------------------------------------------------------------
 int ib_resp_write_nil(ib_string *out)
 {
-    ib_string_append_size(out, "$-1\r\n", 5);
-    return 0;
+	ib_string_append_size(out, "$-1\r\n", 5);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -619,10 +619,10 @@ int ib_resp_write_nil(ib_string *out)
 //---------------------------------------------------------------------
 int ib_resp_write_status(ib_string *out, const char *str)
 {
-    ib_string_append_size(out, "+", 1);
-    ib_string_append(out, str);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	ib_string_append_size(out, "+", 1);
+	ib_string_append(out, str);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -631,10 +631,10 @@ int ib_resp_write_status(ib_string *out, const char *str)
 //---------------------------------------------------------------------
 int ib_resp_write_error(ib_string *out, const char *str)
 {
-    ib_string_append_size(out, "-", 1);
-    ib_string_append(out, str);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	ib_string_append_size(out, "-", 1);
+	ib_string_append(out, str);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -643,10 +643,10 @@ int ib_resp_write_error(ib_string *out, const char *str)
 //---------------------------------------------------------------------
 int ib_resp_write_bulk_error(ib_string *out, const void *data, int len)
 {
-    _ib_resp_write_prefix_int(out, '!', len);
-    ib_string_append_size(out, (const char *)data, len);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	_ib_resp_write_prefix_int(out, '!', len);
+	ib_string_append_size(out, (const char *)data, len);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -654,14 +654,14 @@ int ib_resp_write_bulk_error(ib_string *out, const void *data, int len)
 // fmt is a 3-byte format tag (e.g. "txt", "mkd"), total = 3 + 1 + len
 //---------------------------------------------------------------------
 int ib_resp_write_verbatim(ib_string *out, const char *fmt,
-        const void *data, int len)
+		const void *data, int len)
 {
-    _ib_resp_write_prefix_int(out, '=', 3 + 1 + len);
-    ib_string_append_size(out, fmt, 3);
-    ib_string_append_size(out, ":", 1);
-    ib_string_append_size(out, (const char *)data, len);
-    ib_string_append_size(out, "\r\n", 2);
-    return 0;
+	_ib_resp_write_prefix_int(out, '=', 3 + 1 + len);
+	ib_string_append_size(out, fmt, 3);
+	ib_string_append_size(out, ":", 1);
+	ib_string_append_size(out, (const char *)data, len);
+	ib_string_append_size(out, "\r\n", 2);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -669,11 +669,11 @@ int ib_resp_write_verbatim(ib_string *out, const char *fmt,
 //---------------------------------------------------------------------
 int ib_resp_write_bool(ib_string *out, int val)
 {
-    if (val)
-        ib_string_append_size(out, "#t\r\n", 4);
-    else
-        ib_string_append_size(out, "#f\r\n", 4);
-    return 0;
+	if (val)
+		ib_string_append_size(out, "#t\r\n", 4);
+	else
+		ib_string_append_size(out, "#f\r\n", 4);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -683,30 +683,30 @@ int ib_resp_write_bool(ib_string *out, int val)
 //---------------------------------------------------------------------
 int ib_resp_write_double(ib_string *out, double val)
 {
-    /* cross-platform inf/nan detection without C99 macros */
-    if (val != val) {
-        /* NaN: val != val is only true for NaN */
-        ib_string_append_size(out, ",nan\r\n", 6);
-        return 0;
-    }
-    if (val == val && val - val != 0) {
-        /* Inf: finite numbers satisfy val - val == 0 */
-        if (val > 0)
-            ib_string_append_size(out, ",inf\r\n", 6);
-        else
-            ib_string_append_size(out, ",-inf\r\n", 7);
-        return 0;
-    }
-    {
-        char buf[32];
+	/* cross-platform inf/nan detection without C99 macros */
+	if (val != val) {
+		/* NaN: val != val is only true for NaN */
+		ib_string_append_size(out, ",nan\r\n", 6);
+		return 0;
+	}
+	if (val == val && val - val != 0) {
+		/* Inf: finite numbers satisfy val - val == 0 */
+		if (val > 0)
+			ib_string_append_size(out, ",inf\r\n", 6);
+		else
+			ib_string_append_size(out, ",-inf\r\n", 7);
+		return 0;
+	}
+	{
+		char buf[32];
 #if defined(_MSC_VER) || defined(__WATCOMC__)
-        int n = _snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
+		int n = _snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
 #else
-        int n = snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
+		int n = snprintf(buf, sizeof(buf), ",%.17g\r\n", val);
 #endif
-        ib_string_append_size(out, buf, n);
-    }
-    return 0;
+		ib_string_append_size(out, buf, n);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -715,8 +715,8 @@ int ib_resp_write_double(ib_string *out, double val)
 //---------------------------------------------------------------------
 int ib_resp_write_map(ib_string *out, int count)
 {
-    _ib_resp_write_prefix_int(out, '%', count);
-    return 0;
+	_ib_resp_write_prefix_int(out, '%', count);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -725,8 +725,8 @@ int ib_resp_write_map(ib_string *out, int count)
 //---------------------------------------------------------------------
 int ib_resp_write_set(ib_string *out, int count)
 {
-    _ib_resp_write_prefix_int(out, '~', count);
-    return 0;
+	_ib_resp_write_prefix_int(out, '~', count);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -735,8 +735,8 @@ int ib_resp_write_set(ib_string *out, int count)
 //---------------------------------------------------------------------
 int ib_resp_write_push(ib_string *out, int count)
 {
-    _ib_resp_write_prefix_int(out, '>', count);
-    return 0;
+	_ib_resp_write_prefix_int(out, '>', count);
+	return 0;
 }
 
 
@@ -754,15 +754,15 @@ int ib_resp_write_push(ib_string *out, int count)
 //---------------------------------------------------------------------
 struct ib_resp_reader
 {
-    struct IVECTOR buffer;       /* input byte buffer */
-    long pos;                    /* consumed position */
-    struct IVECTOR scan_stack;   /* scan stack: int array via iv_obj_* */
-    long scan_pos;               /* scan progress position */
-    int max_depth;               /* max nesting depth, default 8 */
-    long max_bulk;               /* max bulk length, default 512MB */
-    int max_elements;            /* max container elements, default 1048576 */
-    int error;                   /* error flag */
-    int inline_enabled;          /* inline command support */
+	struct IVECTOR buffer;       /* input byte buffer */
+	long pos;                    /* consumed position */
+	struct IVECTOR scan_stack;   /* scan stack: int array via iv_obj_* */
+	long scan_pos;               /* scan progress position */
+	int max_depth;               /* max nesting depth, default 8 */
+	long max_bulk;               /* max bulk length, default 512MB */
+	int max_elements;            /* max container elements, default 1048576 */
+	int error;                   /* error flag */
+	int inline_enabled;          /* inline command support */
 };
 
 
@@ -776,149 +776,149 @@ struct ib_resp_reader
 //---------------------------------------------------------------------
 static int _ib_resp_scan(ib_resp_reader *reader)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    long size = (long)iv_size(&reader->buffer);
-    long p = reader->scan_pos;
-    struct IVECTOR *stack = &reader->scan_stack;
+	unsigned char *buf = iv_data(&reader->buffer);
+	long size = (long)iv_size(&reader->buffer);
+	long p = reader->scan_pos;
+	struct IVECTOR *stack = &reader->scan_stack;
 
-    /* first entry: push 1 (need 1 top-level element) */
-    if (iv_obj_size(stack, int) == 0) {
-        int one = 1;
-        iv_obj_push(stack, int, &one);
-    }
+	/* first entry: push 1 (need 1 top-level element) */
+	if (iv_obj_size(stack, int) == 0) {
+		int one = 1;
+		iv_obj_push(stack, int, &one);
+	}
 
-    for (;;) {
-        /* cascade pop: remove completed layers */
-        while (iv_obj_size(stack, int) > 0) {
-            int top_val = iv_obj_top(stack, int);
-            if (top_val > 0) break;
-            iv_obj_pop(stack, int, NULL);
-        }
+	for (;;) {
+		/* cascade pop: remove completed layers */
+		while (iv_obj_size(stack, int) > 0) {
+			int top_val = iv_obj_top(stack, int);
+			if (top_val > 0) break;
+			iv_obj_pop(stack, int, NULL);
+		}
 
-        /* stack empty = top-level message complete */
-        if (iv_obj_size(stack, int) == 0) {
-            reader->scan_pos = p;
-            return 1;
-        }
+		/* stack empty = top-level message complete */
+		if (iv_obj_size(stack, int) == 0) {
+			reader->scan_pos = p;
+			return 1;
+		}
 
-        /* need more data */
-        if (p >= size) {
-            reader->scan_pos = p;
-            return 0;
-        }
+		/* need more data */
+		if (p >= size) {
+			reader->scan_pos = p;
+			return 0;
+		}
 
-        /* check nesting depth (+1 for the initial "1" entry) */
-        if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
-            return -1;
+		/* check nesting depth (+1 for the initial "1" entry) */
+		if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
+			return -1;
 
-        {
-            int *top;
-            unsigned char type_byte;
-            long end;
-            IINT64 len_val;
+		{
+			int *top;
+			unsigned char type_byte;
+			long end;
+			IINT64 len_val;
 
-            top = &iv_obj_index(stack, int,
-                    iv_obj_size(stack, int) - 1);
-            type_byte = buf[p];
+			top = &iv_obj_index(stack, int,
+					iv_obj_size(stack, int) - 1);
+			type_byte = buf[p];
 
-            switch (type_byte) {
-            /* simple line types: find \r\n */
-            case '+': case '-': case ':': case ',':
-            case '(': case '#': case '_':
-                end = _ib_resp_find_crlf(buf, p + 1, size);
-                if (end < 0) {
-                    reader->scan_pos = p;
-                    return 0;
-                }
-                p = end + 2;
-                (*top)--;
-                break;
+			switch (type_byte) {
+			/* simple line types: find \r\n */
+			case '+': case '-': case ':': case ',':
+			case '(': case '#': case '_':
+				end = _ib_resp_find_crlf(buf, p + 1, size);
+				if (end < 0) {
+					reader->scan_pos = p;
+					return 0;
+				}
+				p = end + 2;
+				(*top)--;
+				break;
 
-            /* bulk types: read length line + skip data body */
-            case '$': case '!': case '=':
-                end = _ib_resp_find_crlf(buf, p + 1, size);
-                if (end < 0) {
-                    reader->scan_pos = p;
-                    return 0;
-                }
-                if (_ib_resp_parse_long(buf, p + 1, end, &len_val) < 0)
-                    return -1;
-                if (len_val < -1)
-                    return -1;
-                if (len_val == -1) {
-                    p = end + 2;
-                }
-                else {
-                    if (len_val > reader->max_bulk)
-                        return -1;
-                    if (end + 2 + len_val + 2 > size) {
-                        reader->scan_pos = p;
-                        return 0;
-                    }
-                    p = end + 2 + (long)len_val + 2;
-                }
-                (*top)--;
-                break;
+			/* bulk types: read length line + skip data body */
+			case '$': case '!': case '=':
+				end = _ib_resp_find_crlf(buf, p + 1, size);
+				if (end < 0) {
+					reader->scan_pos = p;
+					return 0;
+				}
+				if (_ib_resp_parse_long(buf, p + 1, end, &len_val) < 0)
+					return -1;
+				if (len_val < -1)
+					return -1;
+				if (len_val == -1) {
+					p = end + 2;
+				}
+				else {
+					if (len_val > reader->max_bulk)
+						return -1;
+					if (end + 2 + len_val + 2 > size) {
+						reader->scan_pos = p;
+						return 0;
+					}
+					p = end + 2 + (long)len_val + 2;
+				}
+				(*top)--;
+				break;
 
-            /* container types: read count, push stack */
-            case '*': case '%': case '~': case '>': case '|':
-                end = _ib_resp_find_crlf(buf, p + 1, size);
-                if (end < 0) {
-                    reader->scan_pos = p;
-                    return 0;
-                }
-                if (_ib_resp_parse_long(buf, p + 1, end, &len_val) < 0)
-                    return -1;
-                p = end + 2;
-                {
-                    int count = (int)len_val;
-                    if (count < -1)
-                        return -1;
-                    /* all element types do (*top)-- first */
-                    (*top)--;
-                    if (count <= 0) {
-                        /* null/empty container */
-                    }
-                    else {
-                        if (count > reader->max_elements)
-                            return -1;
-                        {
-                            int n;
-                            if (type_byte == '%') {
-                                /* map: count pairs = count*2 elements */
-                                n = count * 2;
-                            }
-                            else if (type_byte == '|') {
-                                /* attribute: count pairs + 1 following value */
-                                n = count * 2 + 1;
-                            }
-                            else {
-                                n = count;
-                            }
-                            iv_obj_push(stack, int, &n);
-                        }
-                    }
-                }
-                break;
+			/* container types: read count, push stack */
+			case '*': case '%': case '~': case '>': case '|':
+				end = _ib_resp_find_crlf(buf, p + 1, size);
+				if (end < 0) {
+					reader->scan_pos = p;
+					return 0;
+				}
+				if (_ib_resp_parse_long(buf, p + 1, end, &len_val) < 0)
+					return -1;
+				p = end + 2;
+				{
+					int count = (int)len_val;
+					if (count < -1)
+						return -1;
+					/* all element types do (*top)-- first */
+					(*top)--;
+					if (count <= 0) {
+						/* null/empty container */
+					}
+					else {
+						if (count > reader->max_elements)
+							return -1;
+						{
+							int n;
+							if (type_byte == '%') {
+								/* map: count pairs = count*2 elements */
+								n = count * 2;
+							}
+							else if (type_byte == '|') {
+								/* attribute: count pairs + 1 following value */
+								n = count * 2 + 1;
+							}
+							else {
+								n = count;
+							}
+							iv_obj_push(stack, int, &n);
+						}
+					}
+				}
+				break;
 
-            default:
-                /* inline command or illegal byte */
-                if (reader->inline_enabled) {
-                    end = _ib_resp_find_crlf(buf, p, size);
-                    if (end < 0) {
-                        reader->scan_pos = p;
-                        return 0;
-                    }
-                    p = end + 2;
-                    (*top)--;
-                }
-                else {
-                    return -1;
-                }
-                break;
-            }
-        }
-    }
+			default:
+				/* inline command or illegal byte */
+				if (reader->inline_enabled) {
+					end = _ib_resp_find_crlf(buf, p, size);
+					if (end < 0) {
+						reader->scan_pos = p;
+						return 0;
+					}
+					p = end + 2;
+					(*top)--;
+				}
+				else {
+					return -1;
+				}
+				break;
+			}
+		}
+	}
 }
 
 
@@ -928,7 +928,7 @@ static int _ib_resp_scan(ib_resp_reader *reader)
 // offset is read cursor (in/out param), alloc may be NULL (default alloc)
 //---------------------------------------------------------------------
 static ib_object *_ib_resp_build(ib_resp_reader *reader,
-        long *offset, struct IALLOCATOR *alloc);
+		long *offset, struct IALLOCATOR *alloc);
 
 
 //---------------------------------------------------------------------
@@ -937,77 +937,77 @@ static ib_object *_ib_resp_build(ib_resp_reader *reader,
 // terminated by \r\n, with double-quote support for args containing spaces
 //---------------------------------------------------------------------
 static ib_object *_ib_resp_build_inline(ib_resp_reader *reader,
-        long *offset, struct IALLOCATOR *alloc)
+		long *offset, struct IALLOCATOR *alloc)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    long size = (long)iv_size(&reader->buffer);
-    long p = *offset;
-    long end;
-    ib_object *arr;
-    int count = 0;
+	unsigned char *buf = iv_data(&reader->buffer);
+	long size = (long)iv_size(&reader->buffer);
+	long p = *offset;
+	long end;
+	ib_object *arr;
+	int count = 0;
 
-    end = _ib_resp_find_crlf(buf, p, size);
-    if (end < 0) return NULL;
+	end = _ib_resp_find_crlf(buf, p, size);
+	if (end < 0) return NULL;
 
-    /* first pass: count tokens */
-    {
-        long i = p;
-        while (i < end) {
-            while (i < end && buf[i] == ' ') i++;
-            if (i >= end) break;
-            if (buf[i] == '"') {
-                i++;
-                while (i < end && buf[i] != '"') i++;
-                if (i < end) i++;   /* skip closing quote */
-            }
-            else {
-                while (i < end && buf[i] != ' ') i++;
-            }
-            count++;
-        }
-    }
+	/* first pass: count tokens */
+	{
+		long i = p;
+		while (i < end) {
+			while (i < end && buf[i] == ' ') i++;
+			if (i >= end) break;
+			if (buf[i] == '"') {
+				i++;
+				while (i < end && buf[i] != '"') i++;
+				if (i < end) i++;   /* skip closing quote */
+			}
+			else {
+				while (i < end && buf[i] != ' ') i++;
+			}
+			count++;
+		}
+	}
 
-    if (count == 0) {
-        *offset = end + 2;
-        return ib_object_new_nil(alloc);
-    }
+	if (count == 0) {
+		*offset = end + 2;
+		return ib_object_new_nil(alloc);
+	}
 
-    arr = ib_object_new_array(alloc, count);
-    if (arr == NULL) return NULL;
+	arr = ib_object_new_array(alloc, count);
+	if (arr == NULL) return NULL;
 
-    /* second pass: extract tokens */
-    {
-        long i = p;
-        while (i < end) {
-            long tok_start, tok_len;
-            ib_object *item;
+	/* second pass: extract tokens */
+	{
+		long i = p;
+		while (i < end) {
+			long tok_start, tok_len;
+			ib_object *item;
 
-            while (i < end && buf[i] == ' ') i++;
-            if (i >= end) break;
+			while (i < end && buf[i] == ' ') i++;
+			if (i >= end) break;
 
-            if (buf[i] == '"') {
-                i++;
-                tok_start = i;
-                while (i < end && buf[i] != '"') i++;
-                tok_len = i - tok_start;
-                if (i < end) i++;
-            }
-            else {
-                tok_start = i;
-                while (i < end && buf[i] != ' ') i++;
-                tok_len = i - tok_start;
-            }
+			if (buf[i] == '"') {
+				i++;
+				tok_start = i;
+				while (i < end && buf[i] != '"') i++;
+				tok_len = i - tok_start;
+				if (i < end) i++;
+			}
+			else {
+				tok_start = i;
+				while (i < end && buf[i] != ' ') i++;
+				tok_len = i - tok_start;
+			}
 
-            item = ib_object_new_bin(alloc,
-                    buf + tok_start, (int)tok_len);
-            if (item) {
-                ib_object_array_push(alloc, arr, item);
-            }
-        }
-    }
+			item = ib_object_new_bin(alloc,
+					buf + tok_start, (int)tok_len);
+			if (item) {
+				ib_object_array_push(alloc, arr, item);
+			}
+		}
+	}
 
-    *offset = end + 2;
-    return arr;
+	*offset = end + 2;
+	return arr;
 }
 
 
@@ -1022,297 +1022,297 @@ static ib_object *_ib_resp_build_inline(ib_resp_reader *reader,
 //---------------------------------------------------------------------
 static double _ib_make_double_inf(void)
 {
-    volatile double zero = 0.0;
-    return 1.0 / zero;
+	volatile double zero = 0.0;
+	return 1.0 / zero;
 }
 
 static double _ib_make_double_nan(void)
 {
-    volatile double zero = 0.0;
-    return 0.0 / zero;
+	volatile double zero = 0.0;
+	return 0.0 / zero;
 }
 
 static ib_object *_ib_resp_build(ib_resp_reader *reader,
-        long *offset, struct IALLOCATOR *alloc)
+		long *offset, struct IALLOCATOR *alloc)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    unsigned char type_byte = buf[*offset];
-    long start, end;
-    IINT64 val;
+	unsigned char *buf = iv_data(&reader->buffer);
+	unsigned char type_byte = buf[*offset];
+	long start, end;
+	IINT64 val;
 
-    switch (type_byte) {
-    case '+': {
-        /* Simple String -> STR */
-        ib_object *obj;
-        start = *offset + 1;
-        end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        obj = ib_object_new_str(alloc, (const char *)buf + start,
-                (int)(end - start));
-        *offset = end + 2;
-        return obj;
-    }
+	switch (type_byte) {
+	case '+': {
+		/* Simple String -> STR */
+		ib_object *obj;
+		start = *offset + 1;
+		end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		obj = ib_object_new_str(alloc, (const char *)buf + start,
+				(int)(end - start));
+		*offset = end + 2;
+		return obj;
+	}
 
-    case '-': {
-        /* Error -> STR + FLAG_ERROR */
-        ib_object *obj;
-        start = *offset + 1;
-        end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        obj = ib_object_new_str(alloc, (const char *)buf + start,
-                (int)(end - start));
-        if (obj) obj->flags |= IB_OBJECT_FLAG_ERROR;
-        *offset = end + 2;
-        return obj;
-    }
+	case '-': {
+		/* Error -> STR + FLAG_ERROR */
+		ib_object *obj;
+		start = *offset + 1;
+		end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		obj = ib_object_new_str(alloc, (const char *)buf + start,
+				(int)(end - start));
+		if (obj) obj->flags |= IB_OBJECT_FLAG_ERROR;
+		*offset = end + 2;
+		return obj;
+	}
 
-    case ':': {
-        /* Integer -> INT */
-        start = *offset + 1;
-        end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, end, &val) < 0)
-            return NULL;
-        *offset = end + 2;
-        return ib_object_new_int(alloc, val);
-    }
+	case ':': {
+		/* Integer -> INT */
+		start = *offset + 1;
+		end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, end, &val) < 0)
+			return NULL;
+		*offset = end + 2;
+		return ib_object_new_int(alloc, val);
+	}
 
-    case '$': {
-        /* Bulk String -> STR or NIL (aligned with hiredis behavior) */
-        long hdr_end;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        if (val == -1) {
-            *offset = hdr_end + 2;
-            return ib_object_new_nil(alloc);
-        }
-        else {
-            long data_start = hdr_end + 2;
-            ib_object *obj = ib_object_new_str(alloc,
-                    (const char *)buf + data_start, (int)val);
-            *offset = data_start + (long)val + 2;
-            return obj;
-        }
-    }
+	case '$': {
+		/* Bulk String -> STR or NIL (aligned with hiredis behavior) */
+		long hdr_end;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		if (val == -1) {
+			*offset = hdr_end + 2;
+			return ib_object_new_nil(alloc);
+		}
+		else {
+			long data_start = hdr_end + 2;
+			ib_object *obj = ib_object_new_str(alloc,
+					(const char *)buf + data_start, (int)val);
+			*offset = data_start + (long)val + 2;
+			return obj;
+		}
+	}
 
-    case '!': {
-        /* Bulk Error (RESP3) -> BIN + FLAG_ERROR */
-        long hdr_end;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        {
-            long data_start = hdr_end + 2;
-            ib_object *obj = ib_object_new_bin(alloc,
-                    buf + data_start, (int)val);
-            if (obj) obj->flags |= IB_OBJECT_FLAG_ERROR;
-            *offset = data_start + (long)val + 2;
-            return obj;
-        }
-    }
+	case '!': {
+		/* Bulk Error (RESP3) -> BIN + FLAG_ERROR */
+		long hdr_end;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		{
+			long data_start = hdr_end + 2;
+			ib_object *obj = ib_object_new_bin(alloc,
+					buf + data_start, (int)val);
+			if (obj) obj->flags |= IB_OBJECT_FLAG_ERROR;
+			*offset = data_start + (long)val + 2;
+			return obj;
+		}
+	}
 
-    case '=': {
-        /* Verbatim String (RESP3) -> BIN (preserve fmt: prefix) */
-        long hdr_end;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        {
-            long data_start = hdr_end + 2;
-            ib_object *obj = ib_object_new_bin(alloc,
-                    buf + data_start, (int)val);
-            *offset = data_start + (long)val + 2;
-            return obj;
-        }
-    }
+	case '=': {
+		/* Verbatim String (RESP3) -> BIN (preserve fmt: prefix) */
+		long hdr_end;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		{
+			long data_start = hdr_end + 2;
+			ib_object *obj = ib_object_new_bin(alloc,
+					buf + data_start, (int)val);
+			*offset = data_start + (long)val + 2;
+			return obj;
+		}
+	}
 
-    case '_': {
-        /* Null (RESP3) -> NIL */
-        end = _ib_resp_find_crlf(buf, *offset + 1,
-                (long)iv_size(&reader->buffer));
-        *offset = end + 2;
-        return ib_object_new_nil(alloc);
-    }
+	case '_': {
+		/* Null (RESP3) -> NIL */
+		end = _ib_resp_find_crlf(buf, *offset + 1,
+				(long)iv_size(&reader->buffer));
+		*offset = end + 2;
+		return ib_object_new_nil(alloc);
+	}
 
-    case '#': {
-        /* Boolean (RESP3) -> BOOL */
-        int bval = (buf[*offset + 1] == 't') ? 1 : 0;
-        end = _ib_resp_find_crlf(buf, *offset + 1,
-                (long)iv_size(&reader->buffer));
-        *offset = end + 2;
-        return ib_object_new_bool(alloc, bval);
-    }
+	case '#': {
+		/* Boolean (RESP3) -> BOOL */
+		int bval = (buf[*offset + 1] == 't') ? 1 : 0;
+		end = _ib_resp_find_crlf(buf, *offset + 1,
+				(long)iv_size(&reader->buffer));
+		*offset = end + 2;
+		return ib_object_new_bool(alloc, bval);
+	}
 
-    case ',': {
-        /* Double (RESP3) -> DOUBLE */
-        double dval;
-        start = *offset + 1;
-        end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        {
-            char tmp[128];
-            int tlen = (int)(end - start);
-            if (tlen >= (int)sizeof(tmp)) tlen = (int)sizeof(tmp) - 1;
-            memcpy(tmp, buf + start, (size_t)tlen);
-            tmp[tlen] = '\0';
+	case ',': {
+		/* Double (RESP3) -> DOUBLE */
+		double dval;
+		start = *offset + 1;
+		end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		{
+			char tmp[128];
+			int tlen = (int)(end - start);
+			if (tlen >= (int)sizeof(tmp)) tlen = (int)sizeof(tmp) - 1;
+			memcpy(tmp, buf + start, (size_t)tlen);
+			tmp[tlen] = '\0';
 
-            /* check inf/nan */
-            if (strcmp(tmp, "inf") == 0 || strcmp(tmp, "Inf") == 0) {
-                dval = _ib_make_double_inf();
-            }
-            else if (strcmp(tmp, "-inf") == 0 || strcmp(tmp, "-Inf") == 0) {
-                dval = -_ib_make_double_inf();
-            }
-            else if (strcmp(tmp, "nan") == 0 || strcmp(tmp, "NaN") == 0) {
-                dval = _ib_make_double_nan();
-            }
-            else {
-                dval = strtod(tmp, NULL);
-            }
-        }
-        *offset = end + 2;
-        return ib_object_new_double(alloc, dval);
-    }
+			/* check inf/nan */
+			if (strcmp(tmp, "inf") == 0 || strcmp(tmp, "Inf") == 0) {
+				dval = _ib_make_double_inf();
+			}
+			else if (strcmp(tmp, "-inf") == 0 || strcmp(tmp, "-Inf") == 0) {
+				dval = -_ib_make_double_inf();
+			}
+			else if (strcmp(tmp, "nan") == 0 || strcmp(tmp, "NaN") == 0) {
+				dval = _ib_make_double_nan();
+			}
+			else {
+				dval = strtod(tmp, NULL);
+			}
+		}
+		*offset = end + 2;
+		return ib_object_new_double(alloc, dval);
+	}
 
-    case '(': {
-        /* Big Number (RESP3) -> try INT, fallback to STR */
-        start = *offset + 1;
-        end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, end, &val) == 0) {
-            *offset = end + 2;
-            return ib_object_new_int(alloc, val);
-        }
-        else {
-            ib_object *obj = ib_object_new_str(alloc,
-                    (const char *)buf + start, (int)(end - start));
-            *offset = end + 2;
-            return obj;
-        }
-    }
+	case '(': {
+		/* Big Number (RESP3) -> try INT, fallback to STR */
+		start = *offset + 1;
+		end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, end, &val) == 0) {
+			*offset = end + 2;
+			return ib_object_new_int(alloc, val);
+		}
+		else {
+			ib_object *obj = ib_object_new_str(alloc,
+					(const char *)buf + start, (int)(end - start));
+			*offset = end + 2;
+			return obj;
+		}
+	}
 
-    case '*': {
-        /* Array -> ARRAY, *-1 -> NIL */
-        long hdr_end;
-        int count, i;
-        ib_object *arr;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        count = (int)val;
-        *offset = hdr_end + 2;
-        if (count < 0)
-            return ib_object_new_nil(alloc);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_resp_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	case '*': {
+		/* Array -> ARRAY, *-1 -> NIL */
+		long hdr_end;
+		int count, i;
+		ib_object *arr;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		count = (int)val;
+		*offset = hdr_end + 2;
+		if (count < 0)
+			return ib_object_new_nil(alloc);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_resp_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    case '~': {
-        /* Set (RESP3) -> ARRAY + FLAG_SET */
-        long hdr_end;
-        int count, i;
-        ib_object *arr;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        count = (int)val;
-        *offset = hdr_end + 2;
-        if (count < 0)
-            return ib_object_new_nil(alloc);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        arr->flags |= IB_OBJECT_FLAG_SET;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_resp_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	case '~': {
+		/* Set (RESP3) -> ARRAY + FLAG_SET */
+		long hdr_end;
+		int count, i;
+		ib_object *arr;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		count = (int)val;
+		*offset = hdr_end + 2;
+		if (count < 0)
+			return ib_object_new_nil(alloc);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		arr->flags |= IB_OBJECT_FLAG_SET;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_resp_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    case '>': {
-        /* Push (RESP3) -> ARRAY + FLAG_PUSH */
-        long hdr_end;
-        int count, i;
-        ib_object *arr;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        count = (int)val;
-        *offset = hdr_end + 2;
-        if (count < 0)
-            return ib_object_new_nil(alloc);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        arr->flags |= IB_OBJECT_FLAG_PUSH;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_resp_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	case '>': {
+		/* Push (RESP3) -> ARRAY + FLAG_PUSH */
+		long hdr_end;
+		int count, i;
+		ib_object *arr;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		count = (int)val;
+		*offset = hdr_end + 2;
+		if (count < 0)
+			return ib_object_new_nil(alloc);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		arr->flags |= IB_OBJECT_FLAG_PUSH;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_resp_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    case '%': {
-        /* Map (RESP3) -> MAP */
-        long hdr_end;
-        int pairs, i;
-        ib_object *map;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        pairs = (int)val;
-        *offset = hdr_end + 2;
-        if (pairs < 0)
-            return ib_object_new_nil(alloc);
-        map = ib_object_new_map(alloc, pairs);
-        if (map == NULL) return NULL;
-        for (i = 0; i < pairs; i++) {
-            ib_object *key = _ib_resp_build(reader, offset, alloc);
-            ib_object *mval = _ib_resp_build(reader, offset, alloc);
-            if (key == NULL || mval == NULL) return NULL;
-            ib_object_map_add(alloc, map, key, mval);
-        }
-        return map;
-    }
+	case '%': {
+		/* Map (RESP3) -> MAP */
+		long hdr_end;
+		int pairs, i;
+		ib_object *map;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		pairs = (int)val;
+		*offset = hdr_end + 2;
+		if (pairs < 0)
+			return ib_object_new_nil(alloc);
+		map = ib_object_new_map(alloc, pairs);
+		if (map == NULL) return NULL;
+		for (i = 0; i < pairs; i++) {
+			ib_object *key = _ib_resp_build(reader, offset, alloc);
+			ib_object *mval = _ib_resp_build(reader, offset, alloc);
+			if (key == NULL || mval == NULL) return NULL;
+			ib_object_map_add(alloc, map, key, mval);
+		}
+		return map;
+	}
 
-    case '|': {
-        /* Attribute (RESP3) -> discard pairs, return following value */
-        long hdr_end;
-        int pairs, i;
-        start = *offset + 1;
-        hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
-        if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
-            return NULL;
-        pairs = (int)val;
-        *offset = hdr_end + 2;
-        /* discard all attribute key-value pairs */
-        for (i = 0; i < pairs; i++) {
-            ib_object *akey = _ib_resp_build(reader, offset, alloc);
-            ib_object *aval = _ib_resp_build(reader, offset, alloc);
-            if (akey) ib_object_delete(alloc, akey);
-            if (aval) ib_object_delete(alloc, aval);
-        }
-        /* return the following actual value */
-        return _ib_resp_build(reader, offset, alloc);
-    }
+	case '|': {
+		/* Attribute (RESP3) -> discard pairs, return following value */
+		long hdr_end;
+		int pairs, i;
+		start = *offset + 1;
+		hdr_end = _ib_resp_find_crlf(buf, start, (long)iv_size(&reader->buffer));
+		if (_ib_resp_parse_long(buf, start, hdr_end, &val) < 0)
+			return NULL;
+		pairs = (int)val;
+		*offset = hdr_end + 2;
+		/* discard all attribute key-value pairs */
+		for (i = 0; i < pairs; i++) {
+			ib_object *akey = _ib_resp_build(reader, offset, alloc);
+			ib_object *aval = _ib_resp_build(reader, offset, alloc);
+			if (akey) ib_object_delete(alloc, akey);
+			if (aval) ib_object_delete(alloc, aval);
+		}
+		/* return the following actual value */
+		return _ib_resp_build(reader, offset, alloc);
+	}
 
-    default:
-        /* inline command */
-        if (reader->inline_enabled) {
-            return _ib_resp_build_inline(reader, offset, alloc);
-        }
-        return NULL;
-    }
+	default:
+		/* inline command */
+		if (reader->inline_enabled) {
+			return _ib_resp_build_inline(reader, offset, alloc);
+		}
+		return NULL;
+	}
 }
 
 
@@ -1326,19 +1326,19 @@ static ib_object *_ib_resp_build(ib_resp_reader *reader,
 //---------------------------------------------------------------------
 ib_resp_reader *ib_resp_reader_new(void)
 {
-    ib_resp_reader *reader;
-    reader = (ib_resp_reader *)ikmem_malloc(sizeof(ib_resp_reader));
-    if (reader == NULL) return NULL;
-    iv_init(&reader->buffer, NULL);
-    iv_init(&reader->scan_stack, NULL);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->max_depth = 8;
-    reader->max_bulk = 512 * 1024 * 1024L;
-    reader->max_elements = 1048576;
-    reader->error = 0;
-    reader->inline_enabled = 0;
-    return reader;
+	ib_resp_reader *reader;
+	reader = (ib_resp_reader *)ikmem_malloc(sizeof(ib_resp_reader));
+	if (reader == NULL) return NULL;
+	iv_init(&reader->buffer, NULL);
+	iv_init(&reader->scan_stack, NULL);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->max_depth = 8;
+	reader->max_bulk = 512 * 1024 * 1024L;
+	reader->max_elements = 1048576;
+	reader->error = 0;
+	reader->inline_enabled = 0;
+	return reader;
 }
 
 //---------------------------------------------------------------------
@@ -1346,11 +1346,11 @@ ib_resp_reader *ib_resp_reader_new(void)
 //---------------------------------------------------------------------
 void ib_resp_reader_delete(ib_resp_reader *reader)
 {
-    if (reader != NULL) {
-        iv_destroy(&reader->buffer);
-        iv_destroy(&reader->scan_stack);
-        ikmem_free(reader);
-    }
+	if (reader != NULL) {
+		iv_destroy(&reader->buffer);
+		iv_destroy(&reader->scan_stack);
+		ikmem_free(reader);
+	}
 }
 
 //---------------------------------------------------------------------
@@ -1359,23 +1359,23 @@ void ib_resp_reader_delete(ib_resp_reader *reader)
 //---------------------------------------------------------------------
 int ib_resp_reader_feed(ib_resp_reader *reader, const void *data, long len)
 {
-    if (len <= 0) return 0;
+	if (len <= 0) return 0;
 
-    /* compact: remove consumed bytes */
-    if (reader->pos > 0) {
-        long remain = (long)iv_size(&reader->buffer) - reader->pos;
-        if (remain > 0) {
-            memmove(iv_data(&reader->buffer),
-                    iv_data(&reader->buffer) + reader->pos,
-                    (size_t)remain);
-        }
-        iv_resize(&reader->buffer, (size_t)remain);
-        reader->scan_pos -= reader->pos;
-        if (reader->scan_pos < 0) reader->scan_pos = 0;
-        reader->pos = 0;
-    }
+	/* compact: remove consumed bytes */
+	if (reader->pos > 0) {
+		long remain = (long)iv_size(&reader->buffer) - reader->pos;
+		if (remain > 0) {
+			memmove(iv_data(&reader->buffer),
+					iv_data(&reader->buffer) + reader->pos,
+					(size_t)remain);
+		}
+		iv_resize(&reader->buffer, (size_t)remain);
+		reader->scan_pos -= reader->pos;
+		if (reader->scan_pos < 0) reader->scan_pos = 0;
+		reader->pos = 0;
+	}
 
-    return iv_push(&reader->buffer, data, (size_t)len);
+	return iv_push(&reader->buffer, data, (size_t)len);
 }
 
 //---------------------------------------------------------------------
@@ -1384,37 +1384,37 @@ int ib_resp_reader_feed(ib_resp_reader *reader, const void *data, long len)
 // alloc may be NULL (default allocator) or a zone allocator for bulk free
 //---------------------------------------------------------------------
 int ib_resp_reader_read(ib_resp_reader *reader,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    int rc;
-    long offset;
+	int rc;
+	long offset;
 
-    if (reader->error)
-        return -1;
+	if (reader->error)
+		return -1;
 
-    /* phase 1: incremental scan */
-    rc = _ib_resp_scan(reader);
-    if (rc == 0)
-        return 0;
-    if (rc < 0) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 1: incremental scan */
+	rc = _ib_resp_scan(reader);
+	if (rc == 0)
+		return 0;
+	if (rc < 0) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* phase 2: build ib_object tree */
-    offset = reader->pos;
-    *result = _ib_resp_build(reader, &offset, alloc);
-    if (*result == NULL) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 2: build ib_object tree */
+	offset = reader->pos;
+	*result = _ib_resp_build(reader, &offset, alloc);
+	if (*result == NULL) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* advance consumed position, reset scan state */
-    reader->pos = offset;
-    reader->scan_pos = offset;
-    iv_clear(&reader->scan_stack);
+	/* advance consumed position, reset scan state */
+	reader->pos = offset;
+	reader->scan_pos = offset;
+	iv_clear(&reader->scan_stack);
 
-    return 1;
+	return 1;
 }
 
 //---------------------------------------------------------------------
@@ -1423,11 +1423,11 @@ int ib_resp_reader_read(ib_resp_reader *reader,
 //---------------------------------------------------------------------
 void ib_resp_reader_clear(ib_resp_reader *reader)
 {
-    iv_clear(&reader->buffer);
-    iv_clear(&reader->scan_stack);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->error = 0;
+	iv_clear(&reader->buffer);
+	iv_clear(&reader->scan_stack);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->error = 0;
 }
 
 //---------------------------------------------------------------------
@@ -1436,11 +1436,11 @@ void ib_resp_reader_clear(ib_resp_reader *reader)
 // max_elements: max container element count
 //---------------------------------------------------------------------
 void ib_resp_reader_set_limits(ib_resp_reader *reader,
-        int max_depth, long max_bulk, int max_elements)
+		int max_depth, long max_bulk, int max_elements)
 {
-    reader->max_depth = max_depth;
-    reader->max_bulk = max_bulk;
-    reader->max_elements = max_elements;
+	reader->max_depth = max_depth;
+	reader->max_bulk = max_bulk;
+	reader->max_elements = max_elements;
 }
 
 //---------------------------------------------------------------------
@@ -1449,7 +1449,7 @@ void ib_resp_reader_set_limits(ib_resp_reader *reader,
 //---------------------------------------------------------------------
 void ib_resp_reader_set_inline(ib_resp_reader *reader, int enable)
 {
-    reader->inline_enabled = enable;
+	reader->inline_enabled = enable;
 }
 
 
@@ -1466,74 +1466,74 @@ void ib_resp_reader_set_inline(ib_resp_reader *reader, int enable)
 //---------------------------------------------------------------------
 int ib_resp_encode(ib_string *out, const ib_object *obj)
 {
-    if (obj == NULL)
-        return -1;
+	if (obj == NULL)
+		return -1;
 
-    switch (obj->type) {
-    case IB_OBJECT_NIL:
-        ib_resp_write_nil(out);
-        break;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		ib_resp_write_nil(out);
+		break;
 
-    case IB_OBJECT_BOOL:
-        ib_resp_write_bool(out, (int)obj->integer);
-        break;
+	case IB_OBJECT_BOOL:
+		ib_resp_write_bool(out, (int)obj->integer);
+		break;
 
-    case IB_OBJECT_INT:
-        ib_resp_write_int(out, obj->integer);
-        break;
+	case IB_OBJECT_INT:
+		ib_resp_write_int(out, obj->integer);
+		break;
 
-    case IB_OBJECT_DOUBLE:
-        ib_resp_write_double(out, obj->dval);
-        break;
+	case IB_OBJECT_DOUBLE:
+		ib_resp_write_double(out, obj->dval);
+		break;
 
-    case IB_OBJECT_STR:
-        if (obj->flags & IB_OBJECT_FLAG_ERROR)
-            ib_resp_write_error(out, (const char *)obj->str);
-        else
-            ib_resp_write_bulk(out, obj->str, obj->size);
-        break;
+	case IB_OBJECT_STR:
+		if (obj->flags & IB_OBJECT_FLAG_ERROR)
+			ib_resp_write_error(out, (const char *)obj->str);
+		else
+			ib_resp_write_bulk(out, obj->str, obj->size);
+		break;
 
-    case IB_OBJECT_BIN:
-        if (obj->flags & IB_OBJECT_FLAG_ERROR) {
-            ib_resp_write_bulk_error(out, obj->str, obj->size);
-        }
-        else {
-            ib_resp_write_bulk(out, obj->str, obj->size);
-        }
-        break;
+	case IB_OBJECT_BIN:
+		if (obj->flags & IB_OBJECT_FLAG_ERROR) {
+			ib_resp_write_bulk_error(out, obj->str, obj->size);
+		}
+		else {
+			ib_resp_write_bulk(out, obj->str, obj->size);
+		}
+		break;
 
-    case IB_OBJECT_ARRAY: {
-        int i;
-        if (obj->flags & IB_OBJECT_FLAG_PUSH)
-            ib_resp_write_push(out, obj->size);
-        else if (obj->flags & IB_OBJECT_FLAG_SET)
-            ib_resp_write_set(out, obj->size);
-        else
-            ib_resp_write_array(out, obj->size);
-        for (i = 0; i < obj->size; i++) {
-            if (ib_resp_encode(out, obj->element[i]) < 0)
-                return -1;
-        }
-        break;
-    }
+	case IB_OBJECT_ARRAY: {
+		int i;
+		if (obj->flags & IB_OBJECT_FLAG_PUSH)
+			ib_resp_write_push(out, obj->size);
+		else if (obj->flags & IB_OBJECT_FLAG_SET)
+			ib_resp_write_set(out, obj->size);
+		else
+			ib_resp_write_array(out, obj->size);
+		for (i = 0; i < obj->size; i++) {
+			if (ib_resp_encode(out, obj->element[i]) < 0)
+				return -1;
+		}
+		break;
+	}
 
-    case IB_OBJECT_MAP: {
-        int i;
-        ib_resp_write_map(out, obj->size);
-        for (i = 0; i < obj->size; i++) {
-            if (ib_resp_encode(out, obj->element[i * 2]) < 0)
-                return -1;
-            if (ib_resp_encode(out, obj->element[i * 2 + 1]) < 0)
-                return -1;
-        }
-        break;
-    }
+	case IB_OBJECT_MAP: {
+		int i;
+		ib_resp_write_map(out, obj->size);
+		for (i = 0; i < obj->size; i++) {
+			if (ib_resp_encode(out, obj->element[i * 2]) < 0)
+				return -1;
+			if (ib_resp_encode(out, obj->element[i * 2 + 1]) < 0)
+				return -1;
+		}
+		break;
+	}
 
-    default:
-        return -1;
-    }
+	default:
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 
@@ -1544,26 +1544,26 @@ int ib_resp_encode(ib_string *out, const ib_object *obj)
 // returns: 1=success, 0=incomplete, -1=error
 //---------------------------------------------------------------------
 int ib_resp_decode(const char *input, size_t size,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    ib_resp_reader *reader;
-    int rc;
+	ib_resp_reader *reader;
+	int rc;
 
-    if (input == NULL || size == 0 || result == NULL)
-        return -1;
+	if (input == NULL || size == 0 || result == NULL)
+		return -1;
 
-    reader = ib_resp_reader_new();
-    if (reader == NULL)
-        return -1;
+	reader = ib_resp_reader_new();
+	if (reader == NULL)
+		return -1;
 
-    if (ib_resp_reader_feed(reader, input, (long)size) != 0) {
-        ib_resp_reader_delete(reader);
-        return -1;
-    }
+	if (ib_resp_reader_feed(reader, input, (long)size) != 0) {
+		ib_resp_reader_delete(reader);
+		return -1;
+	}
 
-    rc = ib_resp_reader_read(reader, result, alloc);
-    ib_resp_reader_delete(reader);
-    return rc;
+	rc = ib_resp_reader_read(reader, result, alloc);
+	ib_resp_reader_delete(reader);
+	return rc;
 }
 
 
@@ -1578,9 +1578,9 @@ int ib_resp_decode(const char *input, size_t size,
 //---------------------------------------------------------------------
 int ib_msgpack_write_nil(ib_string *out)
 {
-    unsigned char b = 0xc0;
-    ib_string_append_size(out, (const char *)&b, 1);
-    return 0;
+	unsigned char b = 0xc0;
+	ib_string_append_size(out, (const char *)&b, 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1588,9 +1588,9 @@ int ib_msgpack_write_nil(ib_string *out)
 //---------------------------------------------------------------------
 int ib_msgpack_write_bool(ib_string *out, int val)
 {
-    unsigned char b = val ? 0xc3 : 0xc2;
-    ib_string_append_size(out, (const char *)&b, 1);
-    return 0;
+	unsigned char b = val ? 0xc3 : 0xc2;
+	ib_string_append_size(out, (const char *)&b, 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1600,71 +1600,71 @@ int ib_msgpack_write_bool(ib_string *out, int val)
 //---------------------------------------------------------------------
 int ib_msgpack_write_int(ib_string *out, IINT64 val)
 {
-    unsigned char buf[9];
+	unsigned char buf[9];
 
-    if (val >= 0) {
-        if (val <= 0x7f) {
-            /* positive fixint */
-            buf[0] = (unsigned char)val;
-            ib_string_append_size(out, (const char *)buf, 1);
-        }
-        else if (val <= 0xff) {
-            /* uint8 */
-            buf[0] = 0xcc;
-            buf[1] = (unsigned char)val;
-            ib_string_append_size(out, (const char *)buf, 2);
-        }
-        else if (val <= 0xffff) {
-            /* uint16 */
-            buf[0] = 0xcd;
-            iencode16u_msb((char *)buf + 1, (unsigned short)val);
-            ib_string_append_size(out, (const char *)buf, 3);
-        }
-        else if (val <= (IINT64)0xffffffff) {
-            /* uint32 */
-            buf[0] = 0xce;
-            iencode32u_msb((char *)buf + 1, (IUINT32)val);
-            ib_string_append_size(out, (const char *)buf, 5);
-        }
-        else {
-            /* int64 */
-            buf[0] = 0xd3;
-            iencode64u_msb((char *)buf + 1, (IUINT64)val);
-            ib_string_append_size(out, (const char *)buf, 9);
-        }
-    }
-    else {
-        if (val >= -32) {
-            /* negative fixint */
-            buf[0] = (unsigned char)(val & 0xff);
-            ib_string_append_size(out, (const char *)buf, 1);
-        }
-        else if (val >= -128) {
-            /* int8 */
-            buf[0] = 0xd0;
-            buf[1] = (unsigned char)(val & 0xff);
-            ib_string_append_size(out, (const char *)buf, 2);
-        }
-        else if (val >= -32768) {
-            /* int16 */
-            buf[0] = 0xd1;
-            iencode16u_msb((char *)buf + 1, (unsigned short)(val & 0xffff));
-            ib_string_append_size(out, (const char *)buf, 3);
-        }
-        else if (val >= (IINT64)(-2147483647L - 1)) {
-            /* int32 */
-            buf[0] = 0xd2;
-            iencode32u_msb((char *)buf + 1, (IUINT32)(val & (IUINT64)0xffffffff));
-            ib_string_append_size(out, (const char *)buf, 5);
-        }
-        else {
-            /* int64 */
-            buf[0] = 0xd3;
-            iencode64u_msb((char *)buf + 1, (IUINT64)val);
-            ib_string_append_size(out, (const char *)buf, 9);
-        }
-    }
-    return 0;
+	if (val >= 0) {
+		if (val <= 0x7f) {
+			/* positive fixint */
+			buf[0] = (unsigned char)val;
+			ib_string_append_size(out, (const char *)buf, 1);
+		}
+		else if (val <= 0xff) {
+			/* uint8 */
+			buf[0] = 0xcc;
+			buf[1] = (unsigned char)val;
+			ib_string_append_size(out, (const char *)buf, 2);
+		}
+		else if (val <= 0xffff) {
+			/* uint16 */
+			buf[0] = 0xcd;
+			iencode16u_msb((char *)buf + 1, (unsigned short)val);
+			ib_string_append_size(out, (const char *)buf, 3);
+		}
+		else if (val <= (IINT64)0xffffffff) {
+			/* uint32 */
+			buf[0] = 0xce;
+			iencode32u_msb((char *)buf + 1, (IUINT32)val);
+			ib_string_append_size(out, (const char *)buf, 5);
+		}
+		else {
+			/* int64 */
+			buf[0] = 0xd3;
+			iencode64u_msb((char *)buf + 1, (IUINT64)val);
+			ib_string_append_size(out, (const char *)buf, 9);
+		}
+	}
+	else {
+		if (val >= -32) {
+			/* negative fixint */
+			buf[0] = (unsigned char)(val & 0xff);
+			ib_string_append_size(out, (const char *)buf, 1);
+		}
+		else if (val >= -128) {
+			/* int8 */
+			buf[0] = 0xd0;
+			buf[1] = (unsigned char)(val & 0xff);
+			ib_string_append_size(out, (const char *)buf, 2);
+		}
+		else if (val >= -32768) {
+			/* int16 */
+			buf[0] = 0xd1;
+			iencode16u_msb((char *)buf + 1, (unsigned short)(val & 0xffff));
+			ib_string_append_size(out, (const char *)buf, 3);
+		}
+		else if (val >= (IINT64)(-2147483647L - 1)) {
+			/* int32 */
+			buf[0] = 0xd2;
+			iencode32u_msb((char *)buf + 1, (IUINT32)(val & (IUINT64)0xffffffff));
+			ib_string_append_size(out, (const char *)buf, 5);
+		}
+		else {
+			/* int64 */
+			buf[0] = 0xd3;
+			iencode64u_msb((char *)buf + 1, (IUINT64)val);
+			ib_string_append_size(out, (const char *)buf, 9);
+		}
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1673,33 +1673,33 @@ int ib_msgpack_write_int(ib_string *out, IINT64 val)
 //---------------------------------------------------------------------
 int ib_msgpack_write_uint(ib_string *out, IUINT64 val)
 {
-    unsigned char buf[9];
+	unsigned char buf[9];
 
-    if (val <= 0x7f) {
-        buf[0] = (unsigned char)val;
-        ib_string_append_size(out, (const char *)buf, 1);
-    }
-    else if (val <= 0xff) {
-        buf[0] = 0xcc;
-        buf[1] = (unsigned char)val;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (val <= 0xffff) {
-        buf[0] = 0xcd;
-        iencode16u_msb((char *)buf + 1, (unsigned short)val);
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else if (val <= (IUINT64)0xffffffff) {
-        buf[0] = 0xce;
-        iencode32u_msb((char *)buf + 1, (IUINT32)val);
-        ib_string_append_size(out, (const char *)buf, 5);
-    }
-    else {
-        buf[0] = 0xcf;
-        iencode64u_msb((char *)buf + 1, val);
-        ib_string_append_size(out, (const char *)buf, 9);
-    }
-    return 0;
+	if (val <= 0x7f) {
+		buf[0] = (unsigned char)val;
+		ib_string_append_size(out, (const char *)buf, 1);
+	}
+	else if (val <= 0xff) {
+		buf[0] = 0xcc;
+		buf[1] = (unsigned char)val;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (val <= 0xffff) {
+		buf[0] = 0xcd;
+		iencode16u_msb((char *)buf + 1, (unsigned short)val);
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else if (val <= (IUINT64)0xffffffff) {
+		buf[0] = 0xce;
+		iencode32u_msb((char *)buf + 1, (IUINT32)val);
+		ib_string_append_size(out, (const char *)buf, 5);
+	}
+	else {
+		buf[0] = 0xcf;
+		iencode64u_msb((char *)buf + 1, val);
+		ib_string_append_size(out, (const char *)buf, 9);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1707,13 +1707,13 @@ int ib_msgpack_write_uint(ib_string *out, IUINT64 val)
 //---------------------------------------------------------------------
 int ib_msgpack_write_double(ib_string *out, double val)
 {
-    unsigned char buf[9];
-    IUINT64 uval;
-    buf[0] = 0xcb;
-    memcpy(&uval, &val, sizeof(double));
-    iencode64u_msb((char *)buf + 1, uval);
-    ib_string_append_size(out, (const char *)buf, 9);
-    return 0;
+	unsigned char buf[9];
+	IUINT64 uval;
+	buf[0] = 0xcb;
+	memcpy(&uval, &val, sizeof(double));
+	iencode64u_msb((char *)buf + 1, uval);
+	ib_string_append_size(out, (const char *)buf, 9);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1722,36 +1722,36 @@ int ib_msgpack_write_double(ib_string *out, double val)
 //---------------------------------------------------------------------
 int ib_msgpack_write_str(ib_string *out, const char *str, int len)
 {
-    unsigned char buf[5];
+	unsigned char buf[5];
 
-    if (len < 0) len = 0;
-    if (len <= 31) {
-        /* fixstr */
-        buf[0] = (unsigned char)(0xa0 | len);
-        ib_string_append_size(out, (const char *)buf, 1);
-    }
-    else if (len <= 255) {
-        /* str8 */
-        buf[0] = 0xd9;
-        buf[1] = (unsigned char)len;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len <= 65535) {
-        /* str16 */
-        buf[0] = 0xda;
-        iencode16u_msb((char *)buf + 1, (unsigned short)len);
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else {
-        /* str32 */
-        buf[0] = 0xdb;
-        iencode32u_msb((char *)buf + 1, (IUINT32)len);
-        ib_string_append_size(out, (const char *)buf, 5);
-    }
-    if (len > 0) {
-        ib_string_append_size(out, str, len);
-    }
-    return 0;
+	if (len < 0) len = 0;
+	if (len <= 31) {
+		/* fixstr */
+		buf[0] = (unsigned char)(0xa0 | len);
+		ib_string_append_size(out, (const char *)buf, 1);
+	}
+	else if (len <= 255) {
+		/* str8 */
+		buf[0] = 0xd9;
+		buf[1] = (unsigned char)len;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len <= 65535) {
+		/* str16 */
+		buf[0] = 0xda;
+		iencode16u_msb((char *)buf + 1, (unsigned short)len);
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else {
+		/* str32 */
+		buf[0] = 0xdb;
+		iencode32u_msb((char *)buf + 1, (IUINT32)len);
+		ib_string_append_size(out, (const char *)buf, 5);
+	}
+	if (len > 0) {
+		ib_string_append_size(out, str, len);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1760,31 +1760,31 @@ int ib_msgpack_write_str(ib_string *out, const char *str, int len)
 //---------------------------------------------------------------------
 int ib_msgpack_write_bin(ib_string *out, const void *data, int len)
 {
-    unsigned char buf[5];
+	unsigned char buf[5];
 
-    if (len < 0) len = 0;
-    if (len <= 255) {
-        /* bin8 */
-        buf[0] = 0xc4;
-        buf[1] = (unsigned char)len;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len <= 65535) {
-        /* bin16 */
-        buf[0] = 0xc5;
-        iencode16u_msb((char *)buf + 1, (unsigned short)len);
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else {
-        /* bin32 */
-        buf[0] = 0xc6;
-        iencode32u_msb((char *)buf + 1, (IUINT32)len);
-        ib_string_append_size(out, (const char *)buf, 5);
-    }
-    if (len > 0) {
-        ib_string_append_size(out, (const char *)data, len);
-    }
-    return 0;
+	if (len < 0) len = 0;
+	if (len <= 255) {
+		/* bin8 */
+		buf[0] = 0xc4;
+		buf[1] = (unsigned char)len;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len <= 65535) {
+		/* bin16 */
+		buf[0] = 0xc5;
+		iencode16u_msb((char *)buf + 1, (unsigned short)len);
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else {
+		/* bin32 */
+		buf[0] = 0xc6;
+		iencode32u_msb((char *)buf + 1, (IUINT32)len);
+		ib_string_append_size(out, (const char *)buf, 5);
+	}
+	if (len > 0) {
+		ib_string_append_size(out, (const char *)data, len);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1794,27 +1794,27 @@ int ib_msgpack_write_bin(ib_string *out, const void *data, int len)
 //---------------------------------------------------------------------
 int ib_msgpack_write_array(ib_string *out, int count)
 {
-    unsigned char buf[5];
+	unsigned char buf[5];
 
-    if (count < 0) count = 0;
-    if (count <= 15) {
-        /* fixarray */
-        buf[0] = (unsigned char)(0x90 | count);
-        ib_string_append_size(out, (const char *)buf, 1);
-    }
-    else if (count <= 65535) {
-        /* array16 */
-        buf[0] = 0xdc;
-        iencode16u_msb((char *)buf + 1, (unsigned short)count);
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else {
-        /* array32 */
-        buf[0] = 0xdd;
-        iencode32u_msb((char *)buf + 1, (IUINT32)count);
-        ib_string_append_size(out, (const char *)buf, 5);
-    }
-    return 0;
+	if (count < 0) count = 0;
+	if (count <= 15) {
+		/* fixarray */
+		buf[0] = (unsigned char)(0x90 | count);
+		ib_string_append_size(out, (const char *)buf, 1);
+	}
+	else if (count <= 65535) {
+		/* array16 */
+		buf[0] = 0xdc;
+		iencode16u_msb((char *)buf + 1, (unsigned short)count);
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else {
+		/* array32 */
+		buf[0] = 0xdd;
+		iencode32u_msb((char *)buf + 1, (IUINT32)count);
+		ib_string_append_size(out, (const char *)buf, 5);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1824,27 +1824,27 @@ int ib_msgpack_write_array(ib_string *out, int count)
 //---------------------------------------------------------------------
 int ib_msgpack_write_map(ib_string *out, int pairs)
 {
-    unsigned char buf[5];
+	unsigned char buf[5];
 
-    if (pairs < 0) pairs = 0;
-    if (pairs <= 15) {
-        /* fixmap */
-        buf[0] = (unsigned char)(0x80 | pairs);
-        ib_string_append_size(out, (const char *)buf, 1);
-    }
-    else if (pairs <= 65535) {
-        /* map16 */
-        buf[0] = 0xde;
-        iencode16u_msb((char *)buf + 1, (unsigned short)pairs);
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else {
-        /* map32 */
-        buf[0] = 0xdf;
-        iencode32u_msb((char *)buf + 1, (IUINT32)pairs);
-        ib_string_append_size(out, (const char *)buf, 5);
-    }
-    return 0;
+	if (pairs < 0) pairs = 0;
+	if (pairs <= 15) {
+		/* fixmap */
+		buf[0] = (unsigned char)(0x80 | pairs);
+		ib_string_append_size(out, (const char *)buf, 1);
+	}
+	else if (pairs <= 65535) {
+		/* map16 */
+		buf[0] = 0xde;
+		iencode16u_msb((char *)buf + 1, (unsigned short)pairs);
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else {
+		/* map32 */
+		buf[0] = 0xdf;
+		iencode32u_msb((char *)buf + 1, (IUINT32)pairs);
+		ib_string_append_size(out, (const char *)buf, 5);
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -1853,64 +1853,64 @@ int ib_msgpack_write_map(ib_string *out, int pairs)
 // type is the extension type id (0-127 for application-defined)
 //---------------------------------------------------------------------
 int ib_msgpack_write_ext(ib_string *out, int type,
-        const void *data, int len)
+		const void *data, int len)
 {
-    unsigned char buf[6];
-    unsigned char type_byte = (unsigned char)(type & 0xff);
+	unsigned char buf[6];
+	unsigned char type_byte = (unsigned char)(type & 0xff);
 
-    if (len < 0) len = 0;
+	if (len < 0) len = 0;
 
-    /* try fixext for exact sizes */
-    if (len == 1) {
-        buf[0] = 0xd4;
-        buf[1] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len == 2) {
-        buf[0] = 0xd5;
-        buf[1] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len == 4) {
-        buf[0] = 0xd6;
-        buf[1] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len == 8) {
-        buf[0] = 0xd7;
-        buf[1] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len == 16) {
-        buf[0] = 0xd8;
-        buf[1] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 2);
-    }
-    else if (len <= 255) {
-        /* ext8 */
-        buf[0] = 0xc7;
-        buf[1] = (unsigned char)len;
-        buf[2] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 3);
-    }
-    else if (len <= 65535) {
-        /* ext16 */
-        buf[0] = 0xc8;
-        iencode16u_msb((char *)buf + 1, (unsigned short)len);
-        buf[3] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 4);
-    }
-    else {
-        /* ext32 */
-        buf[0] = 0xc9;
-        iencode32u_msb((char *)buf + 1, (IUINT32)len);
-        buf[5] = type_byte;
-        ib_string_append_size(out, (const char *)buf, 6);
-    }
-    if (len > 0) {
-        ib_string_append_size(out, (const char *)data, len);
-    }
-    return 0;
+	/* try fixext for exact sizes */
+	if (len == 1) {
+		buf[0] = 0xd4;
+		buf[1] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len == 2) {
+		buf[0] = 0xd5;
+		buf[1] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len == 4) {
+		buf[0] = 0xd6;
+		buf[1] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len == 8) {
+		buf[0] = 0xd7;
+		buf[1] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len == 16) {
+		buf[0] = 0xd8;
+		buf[1] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 2);
+	}
+	else if (len <= 255) {
+		/* ext8 */
+		buf[0] = 0xc7;
+		buf[1] = (unsigned char)len;
+		buf[2] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 3);
+	}
+	else if (len <= 65535) {
+		/* ext16 */
+		buf[0] = 0xc8;
+		iencode16u_msb((char *)buf + 1, (unsigned short)len);
+		buf[3] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 4);
+	}
+	else {
+		/* ext32 */
+		buf[0] = 0xc9;
+		iencode32u_msb((char *)buf + 1, (IUINT32)len);
+		buf[5] = type_byte;
+		ib_string_append_size(out, (const char *)buf, 6);
+	}
+	if (len > 0) {
+		ib_string_append_size(out, (const char *)data, len);
+	}
+	return 0;
 }
 
 
@@ -1927,14 +1927,14 @@ int ib_msgpack_write_ext(ib_string *out, int type,
 //---------------------------------------------------------------------
 struct ib_msgpack_reader
 {
-    struct IVECTOR buffer;       /* input byte buffer */
-    long pos;                    /* consumed position */
-    struct IVECTOR scan_stack;   /* scan stack: int array via iv_obj_* */
-    long scan_pos;               /* scan progress position */
-    int max_depth;               /* max nesting depth, default 8 */
-    long max_size;               /* max str/bin/ext bytes, default 256MB */
-    int max_elements;            /* max container elements, default 1048576 */
-    int error;                   /* error flag */
+	struct IVECTOR buffer;       /* input byte buffer */
+	long pos;                    /* consumed position */
+	struct IVECTOR scan_stack;   /* scan stack: int array via iv_obj_* */
+	long scan_pos;               /* scan progress position */
+	int max_depth;               /* max nesting depth, default 8 */
+	long max_size;               /* max str/bin/ext bytes, default 256MB */
+	int max_elements;            /* max container elements, default 1048576 */
+	int error;                   /* error flag */
 };
 
 
@@ -1946,340 +1946,340 @@ struct ib_msgpack_reader
 //---------------------------------------------------------------------
 static int _ib_msgpack_scan(ib_msgpack_reader *reader)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    long size = (long)iv_size(&reader->buffer);
-    long p = reader->scan_pos;
-    struct IVECTOR *stack = &reader->scan_stack;
+	unsigned char *buf = iv_data(&reader->buffer);
+	long size = (long)iv_size(&reader->buffer);
+	long p = reader->scan_pos;
+	struct IVECTOR *stack = &reader->scan_stack;
 
-    if (iv_obj_size(stack, int) == 0) {
-        int one = 1;
-        iv_obj_push(stack, int, &one);
-    }
+	if (iv_obj_size(stack, int) == 0) {
+		int one = 1;
+		iv_obj_push(stack, int, &one);
+	}
 
-    for (;;) {
-        /* cascade pop */
-        while (iv_obj_size(stack, int) > 0) {
-            int top_val = iv_obj_top(stack, int);
-            if (top_val > 0) break;
-            iv_obj_pop(stack, int, NULL);
-        }
+	for (;;) {
+		/* cascade pop */
+		while (iv_obj_size(stack, int) > 0) {
+			int top_val = iv_obj_top(stack, int);
+			if (top_val > 0) break;
+			iv_obj_pop(stack, int, NULL);
+		}
 
-        if (iv_obj_size(stack, int) == 0) {
-            reader->scan_pos = p;
-            return 1;
-        }
+		if (iv_obj_size(stack, int) == 0) {
+			reader->scan_pos = p;
+			return 1;
+		}
 
-        if (p >= size) {
-            reader->scan_pos = p;
-            return 0;
-        }
+		if (p >= size) {
+			reader->scan_pos = p;
+			return 0;
+		}
 
-        if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
-            return -1;
+		if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
+			return -1;
 
-        {
-            int *top;
-            unsigned char b;
-            long data_len;
-            int count, n;
+		{
+			int *top;
+			unsigned char b;
+			long data_len;
+			int count, n;
 
-            top = &iv_obj_index(stack, int,
-                    iv_obj_size(stack, int) - 1);
-            b = buf[p];
+			top = &iv_obj_index(stack, int,
+					iv_obj_size(stack, int) - 1);
+			b = buf[p];
 
-            /* positive fixint (0x00 - 0x7f): 1 byte */
-            if (b <= 0x7f) {
-                p += 1; (*top)--;
-                continue;
-            }
+			/* positive fixint (0x00 - 0x7f): 1 byte */
+			if (b <= 0x7f) {
+				p += 1; (*top)--;
+				continue;
+			}
 
-            /* negative fixint (0xe0 - 0xff): 1 byte */
-            if (b >= 0xe0) {
-                p += 1; (*top)--;
-                continue;
-            }
+			/* negative fixint (0xe0 - 0xff): 1 byte */
+			if (b >= 0xe0) {
+				p += 1; (*top)--;
+				continue;
+			}
 
-            /* fixmap (0x80 - 0x8f) */
-            if ((b & 0xf0) == 0x80) {
-                int pairs = b & 0x0f;
-                p += 1;
-                (*top)--;
-                if (pairs > 0) {
-                    if (pairs > reader->max_elements) return -1;
-                    n = pairs * 2;
-                    iv_obj_push(stack, int, &n);
-                }
-                continue;
-            }
+			/* fixmap (0x80 - 0x8f) */
+			if ((b & 0xf0) == 0x80) {
+				int pairs = b & 0x0f;
+				p += 1;
+				(*top)--;
+				if (pairs > 0) {
+					if (pairs > reader->max_elements) return -1;
+					n = pairs * 2;
+					iv_obj_push(stack, int, &n);
+				}
+				continue;
+			}
 
-            /* fixarray (0x90 - 0x9f) */
-            if ((b & 0xf0) == 0x90) {
-                count = b & 0x0f;
-                p += 1;
-                (*top)--;
-                if (count > 0) {
-                    if (count > reader->max_elements) return -1;
-                    iv_obj_push(stack, int, &count);
-                }
-                continue;
-            }
+			/* fixarray (0x90 - 0x9f) */
+			if ((b & 0xf0) == 0x90) {
+				count = b & 0x0f;
+				p += 1;
+				(*top)--;
+				if (count > 0) {
+					if (count > reader->max_elements) return -1;
+					iv_obj_push(stack, int, &count);
+				}
+				continue;
+			}
 
-            /* fixstr (0xa0 - 0xbf) */
-            if ((b & 0xe0) == 0xa0) {
-                data_len = b & 0x1f;
-                if (p + 1 + data_len > size) goto need_more;
-                p += 1 + data_len; (*top)--;
-                continue;
-            }
+			/* fixstr (0xa0 - 0xbf) */
+			if ((b & 0xe0) == 0xa0) {
+				data_len = b & 0x1f;
+				if (p + 1 + data_len > size) goto need_more;
+				p += 1 + data_len; (*top)--;
+				continue;
+			}
 
-            switch (b) {
-            /* nil, false, true */
-            case 0xc0: case 0xc2: case 0xc3:
-                p += 1; (*top)--;
-                break;
+			switch (b) {
+			/* nil, false, true */
+			case 0xc0: case 0xc2: case 0xc3:
+				p += 1; (*top)--;
+				break;
 
-            /* 0xc1: reserved, protocol error */
-            case 0xc1:
-                return -1;
+			/* 0xc1: reserved, protocol error */
+			case 0xc1:
+				return -1;
 
-            /* bin8 */
-            case 0xc4:
-                if (p + 2 > size) goto need_more;
-                data_len = buf[p + 1];
-                if (data_len > reader->max_size) return -1;
-                if (p + 2 + data_len > size) goto need_more;
-                p += 2 + data_len; (*top)--;
-                break;
+			/* bin8 */
+			case 0xc4:
+				if (p + 2 > size) goto need_more;
+				data_len = buf[p + 1];
+				if (data_len > reader->max_size) return -1;
+				if (p + 2 + data_len > size) goto need_more;
+				p += 2 + data_len; (*top)--;
+				break;
 
-            /* bin16 */
-            case 0xc5:
-                if (p + 3 > size) goto need_more;
-                data_len = ipointer_read16u_msb((const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 3 + data_len > size) goto need_more;
-                p += 3 + data_len; (*top)--;
-                break;
+			/* bin16 */
+			case 0xc5:
+				if (p + 3 > size) goto need_more;
+				data_len = ipointer_read16u_msb((const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 3 + data_len > size) goto need_more;
+				p += 3 + data_len; (*top)--;
+				break;
 
-            /* bin32 */
-            case 0xc6:
-                if (p + 5 > size) goto need_more;
-                data_len = (long)ipointer_read32u_msb(
-                        (const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 5 + data_len > size) goto need_more;
-                p += 5 + data_len; (*top)--;
-                break;
+			/* bin32 */
+			case 0xc6:
+				if (p + 5 > size) goto need_more;
+				data_len = (long)ipointer_read32u_msb(
+						(const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 5 + data_len > size) goto need_more;
+				p += 5 + data_len; (*top)--;
+				break;
 
-            /* ext8 */
-            case 0xc7:
-                if (p + 3 > size) goto need_more;
-                data_len = buf[p + 1];
-                if (data_len > reader->max_size) return -1;
-                if (p + 3 + data_len > size) goto need_more;
-                p += 3 + data_len; (*top)--;
-                break;
+			/* ext8 */
+			case 0xc7:
+				if (p + 3 > size) goto need_more;
+				data_len = buf[p + 1];
+				if (data_len > reader->max_size) return -1;
+				if (p + 3 + data_len > size) goto need_more;
+				p += 3 + data_len; (*top)--;
+				break;
 
-            /* ext16 */
-            case 0xc8:
-                if (p + 4 > size) goto need_more;
-                data_len = ipointer_read16u_msb((const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 4 + data_len > size) goto need_more;
-                p += 4 + data_len; (*top)--;
-                break;
+			/* ext16 */
+			case 0xc8:
+				if (p + 4 > size) goto need_more;
+				data_len = ipointer_read16u_msb((const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 4 + data_len > size) goto need_more;
+				p += 4 + data_len; (*top)--;
+				break;
 
-            /* ext32 */
-            case 0xc9:
-                if (p + 6 > size) goto need_more;
-                data_len = (long)ipointer_read32u_msb(
-                        (const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 6 + data_len > size) goto need_more;
-                p += 6 + data_len; (*top)--;
-                break;
+			/* ext32 */
+			case 0xc9:
+				if (p + 6 > size) goto need_more;
+				data_len = (long)ipointer_read32u_msb(
+						(const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 6 + data_len > size) goto need_more;
+				p += 6 + data_len; (*top)--;
+				break;
 
-            /* float32 */
-            case 0xca:
-                if (p + 5 > size) goto need_more;
-                p += 5; (*top)--;
-                break;
+			/* float32 */
+			case 0xca:
+				if (p + 5 > size) goto need_more;
+				p += 5; (*top)--;
+				break;
 
-            /* float64 */
-            case 0xcb:
-                if (p + 9 > size) goto need_more;
-                p += 9; (*top)--;
-                break;
+			/* float64 */
+			case 0xcb:
+				if (p + 9 > size) goto need_more;
+				p += 9; (*top)--;
+				break;
 
-            /* uint8 */
-            case 0xcc:
-                if (p + 2 > size) goto need_more;
-                p += 2; (*top)--;
-                break;
+			/* uint8 */
+			case 0xcc:
+				if (p + 2 > size) goto need_more;
+				p += 2; (*top)--;
+				break;
 
-            /* uint16 */
-            case 0xcd:
-                if (p + 3 > size) goto need_more;
-                p += 3; (*top)--;
-                break;
+			/* uint16 */
+			case 0xcd:
+				if (p + 3 > size) goto need_more;
+				p += 3; (*top)--;
+				break;
 
-            /* uint32 */
-            case 0xce:
-                if (p + 5 > size) goto need_more;
-                p += 5; (*top)--;
-                break;
+			/* uint32 */
+			case 0xce:
+				if (p + 5 > size) goto need_more;
+				p += 5; (*top)--;
+				break;
 
-            /* uint64 */
-            case 0xcf:
-                if (p + 9 > size) goto need_more;
-                p += 9; (*top)--;
-                break;
+			/* uint64 */
+			case 0xcf:
+				if (p + 9 > size) goto need_more;
+				p += 9; (*top)--;
+				break;
 
-            /* int8 */
-            case 0xd0:
-                if (p + 2 > size) goto need_more;
-                p += 2; (*top)--;
-                break;
+			/* int8 */
+			case 0xd0:
+				if (p + 2 > size) goto need_more;
+				p += 2; (*top)--;
+				break;
 
-            /* int16 */
-            case 0xd1:
-                if (p + 3 > size) goto need_more;
-                p += 3; (*top)--;
-                break;
+			/* int16 */
+			case 0xd1:
+				if (p + 3 > size) goto need_more;
+				p += 3; (*top)--;
+				break;
 
-            /* int32 */
-            case 0xd2:
-                if (p + 5 > size) goto need_more;
-                p += 5; (*top)--;
-                break;
+			/* int32 */
+			case 0xd2:
+				if (p + 5 > size) goto need_more;
+				p += 5; (*top)--;
+				break;
 
-            /* int64 */
-            case 0xd3:
-                if (p + 9 > size) goto need_more;
-                p += 9; (*top)--;
-                break;
+			/* int64 */
+			case 0xd3:
+				if (p + 9 > size) goto need_more;
+				p += 9; (*top)--;
+				break;
 
-            /* fixext1 */
-            case 0xd4:
-                if (p + 3 > size) goto need_more;
-                p += 3; (*top)--;
-                break;
+			/* fixext1 */
+			case 0xd4:
+				if (p + 3 > size) goto need_more;
+				p += 3; (*top)--;
+				break;
 
-            /* fixext2 */
-            case 0xd5:
-                if (p + 4 > size) goto need_more;
-                p += 4; (*top)--;
-                break;
+			/* fixext2 */
+			case 0xd5:
+				if (p + 4 > size) goto need_more;
+				p += 4; (*top)--;
+				break;
 
-            /* fixext4 */
-            case 0xd6:
-                if (p + 6 > size) goto need_more;
-                p += 6; (*top)--;
-                break;
+			/* fixext4 */
+			case 0xd6:
+				if (p + 6 > size) goto need_more;
+				p += 6; (*top)--;
+				break;
 
-            /* fixext8 */
-            case 0xd7:
-                if (p + 10 > size) goto need_more;
-                p += 10; (*top)--;
-                break;
+			/* fixext8 */
+			case 0xd7:
+				if (p + 10 > size) goto need_more;
+				p += 10; (*top)--;
+				break;
 
-            /* fixext16 */
-            case 0xd8:
-                if (p + 18 > size) goto need_more;
-                p += 18; (*top)--;
-                break;
+			/* fixext16 */
+			case 0xd8:
+				if (p + 18 > size) goto need_more;
+				p += 18; (*top)--;
+				break;
 
-            /* str8 */
-            case 0xd9:
-                if (p + 2 > size) goto need_more;
-                data_len = buf[p + 1];
-                if (data_len > reader->max_size) return -1;
-                if (p + 2 + data_len > size) goto need_more;
-                p += 2 + data_len; (*top)--;
-                break;
+			/* str8 */
+			case 0xd9:
+				if (p + 2 > size) goto need_more;
+				data_len = buf[p + 1];
+				if (data_len > reader->max_size) return -1;
+				if (p + 2 + data_len > size) goto need_more;
+				p += 2 + data_len; (*top)--;
+				break;
 
-            /* str16 */
-            case 0xda:
-                if (p + 3 > size) goto need_more;
-                data_len = ipointer_read16u_msb((const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 3 + data_len > size) goto need_more;
-                p += 3 + data_len; (*top)--;
-                break;
+			/* str16 */
+			case 0xda:
+				if (p + 3 > size) goto need_more;
+				data_len = ipointer_read16u_msb((const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 3 + data_len > size) goto need_more;
+				p += 3 + data_len; (*top)--;
+				break;
 
-            /* str32 */
-            case 0xdb:
-                if (p + 5 > size) goto need_more;
-                data_len = (long)ipointer_read32u_msb(
-                        (const char *)buf + p + 1);
-                if (data_len > reader->max_size) return -1;
-                if (p + 5 + data_len > size) goto need_more;
-                p += 5 + data_len; (*top)--;
-                break;
+			/* str32 */
+			case 0xdb:
+				if (p + 5 > size) goto need_more;
+				data_len = (long)ipointer_read32u_msb(
+						(const char *)buf + p + 1);
+				if (data_len > reader->max_size) return -1;
+				if (p + 5 + data_len > size) goto need_more;
+				p += 5 + data_len; (*top)--;
+				break;
 
-            /* array16 */
-            case 0xdc:
-                if (p + 3 > size) goto need_more;
-                count = (int)ipointer_read16u_msb(
-                        (const char *)buf + p + 1);
-                p += 3;
-                (*top)--;
-                if (count > 0) {
-                    if (count > reader->max_elements) return -1;
-                    iv_obj_push(stack, int, &count);
-                }
-                break;
+			/* array16 */
+			case 0xdc:
+				if (p + 3 > size) goto need_more;
+				count = (int)ipointer_read16u_msb(
+						(const char *)buf + p + 1);
+				p += 3;
+				(*top)--;
+				if (count > 0) {
+					if (count > reader->max_elements) return -1;
+					iv_obj_push(stack, int, &count);
+				}
+				break;
 
-            /* array32 */
-            case 0xdd:
-                if (p + 5 > size) goto need_more;
-                count = (int)ipointer_read32u_msb(
-                        (const char *)buf + p + 1);
-                p += 5;
-                (*top)--;
-                if (count > 0) {
-                    if (count > reader->max_elements) return -1;
-                    iv_obj_push(stack, int, &count);
-                }
-                break;
+			/* array32 */
+			case 0xdd:
+				if (p + 5 > size) goto need_more;
+				count = (int)ipointer_read32u_msb(
+						(const char *)buf + p + 1);
+				p += 5;
+				(*top)--;
+				if (count > 0) {
+					if (count > reader->max_elements) return -1;
+					iv_obj_push(stack, int, &count);
+				}
+				break;
 
-            /* map16 */
-            case 0xde:
-                if (p + 3 > size) goto need_more;
-                count = (int)ipointer_read16u_msb(
-                        (const char *)buf + p + 1);
-                p += 3;
-                (*top)--;
-                if (count > 0) {
-                    if (count > reader->max_elements) return -1;
-                    n = count * 2;
-                    iv_obj_push(stack, int, &n);
-                }
-                break;
+			/* map16 */
+			case 0xde:
+				if (p + 3 > size) goto need_more;
+				count = (int)ipointer_read16u_msb(
+						(const char *)buf + p + 1);
+				p += 3;
+				(*top)--;
+				if (count > 0) {
+					if (count > reader->max_elements) return -1;
+					n = count * 2;
+					iv_obj_push(stack, int, &n);
+				}
+				break;
 
-            /* map32 */
-            case 0xdf:
-                if (p + 5 > size) goto need_more;
-                count = (int)ipointer_read32u_msb(
-                        (const char *)buf + p + 1);
-                p += 5;
-                (*top)--;
-                if (count > 0) {
-                    if (count > reader->max_elements) return -1;
-                    n = count * 2;
-                    iv_obj_push(stack, int, &n);
-                }
-                break;
+			/* map32 */
+			case 0xdf:
+				if (p + 5 > size) goto need_more;
+				count = (int)ipointer_read32u_msb(
+						(const char *)buf + p + 1);
+				p += 5;
+				(*top)--;
+				if (count > 0) {
+					if (count > reader->max_elements) return -1;
+					n = count * 2;
+					iv_obj_push(stack, int, &n);
+				}
+				break;
 
-            default:
-                return -1;
-            }
-            continue;
+			default:
+				return -1;
+			}
+			continue;
 
-        need_more:
-            reader->scan_pos = p;
-            return 0;
-        }
-    }
+		need_more:
+			reader->scan_pos = p;
+			return 0;
+		}
+	}
 }
 
 
@@ -2294,426 +2294,426 @@ static int _ib_msgpack_scan(ib_msgpack_reader *reader)
 // uint64 values exceeding IINT64_MAX are clamped to IINT64_MAX
 //---------------------------------------------------------------------
 static ib_object *_ib_msgpack_build(ib_msgpack_reader *reader,
-        long *offset, struct IALLOCATOR *alloc)
+		long *offset, struct IALLOCATOR *alloc)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    unsigned char b = buf[*offset];
+	unsigned char *buf = iv_data(&reader->buffer);
+	unsigned char b = buf[*offset];
 
-    /* positive fixint */
-    if (b <= 0x7f) {
-        *offset += 1;
-        return ib_object_new_int(alloc, (IINT64)b);
-    }
+	/* positive fixint */
+	if (b <= 0x7f) {
+		*offset += 1;
+		return ib_object_new_int(alloc, (IINT64)b);
+	}
 
-    /* negative fixint */
-    if (b >= 0xe0) {
-        *offset += 1;
-        return ib_object_new_int(alloc, (IINT64)(signed char)b);
-    }
+	/* negative fixint */
+	if (b >= 0xe0) {
+		*offset += 1;
+		return ib_object_new_int(alloc, (IINT64)(signed char)b);
+	}
 
-    /* fixmap */
-    if ((b & 0xf0) == 0x80) {
-        int pairs = b & 0x0f;
-        int i;
-        ib_object *map;
-        *offset += 1;
-        if (pairs == 0)
-            return ib_object_new_map(alloc, 0);
-        map = ib_object_new_map(alloc, pairs);
-        if (map == NULL) return NULL;
-        for (i = 0; i < pairs; i++) {
-            ib_object *key = _ib_msgpack_build(reader, offset, alloc);
-            ib_object *val = _ib_msgpack_build(reader, offset, alloc);
-            if (key == NULL || val == NULL) return NULL;
-            ib_object_map_add(alloc, map, key, val);
-        }
-        return map;
-    }
+	/* fixmap */
+	if ((b & 0xf0) == 0x80) {
+		int pairs = b & 0x0f;
+		int i;
+		ib_object *map;
+		*offset += 1;
+		if (pairs == 0)
+			return ib_object_new_map(alloc, 0);
+		map = ib_object_new_map(alloc, pairs);
+		if (map == NULL) return NULL;
+		for (i = 0; i < pairs; i++) {
+			ib_object *key = _ib_msgpack_build(reader, offset, alloc);
+			ib_object *val = _ib_msgpack_build(reader, offset, alloc);
+			if (key == NULL || val == NULL) return NULL;
+			ib_object_map_add(alloc, map, key, val);
+		}
+		return map;
+	}
 
-    /* fixarray */
-    if ((b & 0xf0) == 0x90) {
-        int count = b & 0x0f;
-        int i;
-        ib_object *arr;
-        *offset += 1;
-        if (count == 0)
-            return ib_object_new_array(alloc, 0);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_msgpack_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	/* fixarray */
+	if ((b & 0xf0) == 0x90) {
+		int count = b & 0x0f;
+		int i;
+		ib_object *arr;
+		*offset += 1;
+		if (count == 0)
+			return ib_object_new_array(alloc, 0);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_msgpack_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    /* fixstr */
-    if ((b & 0xe0) == 0xa0) {
-        int len = b & 0x1f;
-        ib_object *obj;
-        *offset += 1;
-        obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* fixstr */
+	if ((b & 0xe0) == 0xa0) {
+		int len = b & 0x1f;
+		ib_object *obj;
+		*offset += 1;
+		obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    switch (b) {
-    /* nil */
-    case 0xc0:
-        *offset += 1;
-        return ib_object_new_nil(alloc);
+	switch (b) {
+	/* nil */
+	case 0xc0:
+		*offset += 1;
+		return ib_object_new_nil(alloc);
 
-    /* false */
-    case 0xc2:
-        *offset += 1;
-        return ib_object_new_bool(alloc, 0);
+	/* false */
+	case 0xc2:
+		*offset += 1;
+		return ib_object_new_bool(alloc, 0);
 
-    /* true */
-    case 0xc3:
-        *offset += 1;
-        return ib_object_new_bool(alloc, 1);
+	/* true */
+	case 0xc3:
+		*offset += 1;
+		return ib_object_new_bool(alloc, 1);
 
-    /* bin8 */
-    case 0xc4: {
-        int len = buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* bin8 */
+	case 0xc4: {
+		int len = buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* bin16 */
-    case 0xc5: {
-        int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
-        ib_object *obj;
-        *offset += 3;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* bin16 */
+	case 0xc5: {
+		int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
+		ib_object *obj;
+		*offset += 3;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* bin32 */
-    case 0xc6: {
-        int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
-        ib_object *obj;
-        *offset += 5;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* bin32 */
+	case 0xc6: {
+		int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
+		ib_object *obj;
+		*offset += 5;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* ext8 */
-    case 0xc7: {
-        int len = buf[*offset + 1];
-        int ext_type = (int)(signed char)buf[*offset + 2];
-        ib_object *obj;
-        *offset += 3;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += len;
-        return obj;
-    }
+	/* ext8 */
+	case 0xc7: {
+		int len = buf[*offset + 1];
+		int ext_type = (int)(signed char)buf[*offset + 2];
+		ib_object *obj;
+		*offset += 3;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += len;
+		return obj;
+	}
 
-    /* ext16 */
-    case 0xc8: {
-        int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
-        int ext_type = (int)(signed char)buf[*offset + 3];
-        ib_object *obj;
-        *offset += 4;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += len;
-        return obj;
-    }
+	/* ext16 */
+	case 0xc8: {
+		int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
+		int ext_type = (int)(signed char)buf[*offset + 3];
+		ib_object *obj;
+		*offset += 4;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += len;
+		return obj;
+	}
 
-    /* ext32 */
-    case 0xc9: {
-        int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
-        int ext_type = (int)(signed char)buf[*offset + 5];
-        ib_object *obj;
-        *offset += 6;
-        obj = ib_object_new_bin(alloc, buf + *offset, len);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += len;
-        return obj;
-    }
+	/* ext32 */
+	case 0xc9: {
+		int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
+		int ext_type = (int)(signed char)buf[*offset + 5];
+		ib_object *obj;
+		*offset += 6;
+		obj = ib_object_new_bin(alloc, buf + *offset, len);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += len;
+		return obj;
+	}
 
-    /* float32 */
-    case 0xca: {
-        float f;
-        idecodef_msb((const char *)buf + *offset + 1, &f);
-        *offset += 5;
-        return ib_object_new_double(alloc, (double)f);
-    }
+	/* float32 */
+	case 0xca: {
+		float f;
+		idecodef_msb((const char *)buf + *offset + 1, &f);
+		*offset += 5;
+		return ib_object_new_double(alloc, (double)f);
+	}
 
-    /* float64 */
-    case 0xcb: {
-        IUINT64 uval;
-        double dval;
-        uval = ipointer_read64u_msb((const char *)buf + *offset + 1);
-        memcpy(&dval, &uval, sizeof(double));
-        *offset += 9;
-        return ib_object_new_double(alloc, dval);
-    }
+	/* float64 */
+	case 0xcb: {
+		IUINT64 uval;
+		double dval;
+		uval = ipointer_read64u_msb((const char *)buf + *offset + 1);
+		memcpy(&dval, &uval, sizeof(double));
+		*offset += 9;
+		return ib_object_new_double(alloc, dval);
+	}
 
-    /* uint8 */
-    case 0xcc:
-        *offset += 2;
-        return ib_object_new_int(alloc, (IINT64)buf[*offset - 1]);
+	/* uint8 */
+	case 0xcc:
+		*offset += 2;
+		return ib_object_new_int(alloc, (IINT64)buf[*offset - 1]);
 
-    /* uint16 */
-    case 0xcd: {
-        IINT64 v = (IINT64)ipointer_read16u_msb(
-                (const char *)buf + *offset + 1);
-        *offset += 3;
-        return ib_object_new_int(alloc, v);
-    }
+	/* uint16 */
+	case 0xcd: {
+		IINT64 v = (IINT64)ipointer_read16u_msb(
+				(const char *)buf + *offset + 1);
+		*offset += 3;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* uint32 */
-    case 0xce: {
-        IINT64 v = (IINT64)ipointer_read32u_msb(
-                (const char *)buf + *offset + 1);
-        *offset += 5;
-        return ib_object_new_int(alloc, v);
-    }
+	/* uint32 */
+	case 0xce: {
+		IINT64 v = (IINT64)ipointer_read32u_msb(
+				(const char *)buf + *offset + 1);
+		*offset += 5;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* uint64 */
-    case 0xcf: {
-        IUINT64 uval = ipointer_read64u_msb(
-                (const char *)buf + *offset + 1);
-        IINT64 v;
-        /* clamp to IINT64_MAX */
-        if (uval > (IUINT64)IINT64_MAX) {
-            v = IINT64_MAX;
-        }
-        else {
-            v = (IINT64)uval;
-        }
-        *offset += 9;
-        return ib_object_new_int(alloc, v);
-    }
+	/* uint64 */
+	case 0xcf: {
+		IUINT64 uval = ipointer_read64u_msb(
+				(const char *)buf + *offset + 1);
+		IINT64 v;
+		/* clamp to IINT64_MAX */
+		if (uval > (IUINT64)IINT64_MAX) {
+			v = IINT64_MAX;
+		}
+		else {
+			v = (IINT64)uval;
+		}
+		*offset += 9;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* int8 */
-    case 0xd0:
-        *offset += 2;
-        return ib_object_new_int(alloc, (IINT64)(signed char)buf[*offset - 1]);
+	/* int8 */
+	case 0xd0:
+		*offset += 2;
+		return ib_object_new_int(alloc, (IINT64)(signed char)buf[*offset - 1]);
 
-    /* int16 */
-    case 0xd1: {
-        IINT64 v = (IINT64)(IINT16)ipointer_read16u_msb(
-                (const char *)buf + *offset + 1);
-        *offset += 3;
-        return ib_object_new_int(alloc, v);
-    }
+	/* int16 */
+	case 0xd1: {
+		IINT64 v = (IINT64)(IINT16)ipointer_read16u_msb(
+				(const char *)buf + *offset + 1);
+		*offset += 3;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* int32 */
-    case 0xd2: {
-        IINT64 v = (IINT64)(IINT32)ipointer_read32u_msb(
-                (const char *)buf + *offset + 1);
-        *offset += 5;
-        return ib_object_new_int(alloc, v);
-    }
+	/* int32 */
+	case 0xd2: {
+		IINT64 v = (IINT64)(IINT32)ipointer_read32u_msb(
+				(const char *)buf + *offset + 1);
+		*offset += 5;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* int64 */
-    case 0xd3: {
-        IINT64 v = (IINT64)ipointer_read64u_msb(
-                (const char *)buf + *offset + 1);
-        *offset += 9;
-        return ib_object_new_int(alloc, v);
-    }
+	/* int64 */
+	case 0xd3: {
+		IINT64 v = (IINT64)ipointer_read64u_msb(
+				(const char *)buf + *offset + 1);
+		*offset += 9;
+		return ib_object_new_int(alloc, v);
+	}
 
-    /* fixext1 */
-    case 0xd4: {
-        int ext_type = (int)(signed char)buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, 1);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += 1;
-        return obj;
-    }
+	/* fixext1 */
+	case 0xd4: {
+		int ext_type = (int)(signed char)buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, 1);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += 1;
+		return obj;
+	}
 
-    /* fixext2 */
-    case 0xd5: {
-        int ext_type = (int)(signed char)buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, 2);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += 2;
-        return obj;
-    }
+	/* fixext2 */
+	case 0xd5: {
+		int ext_type = (int)(signed char)buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, 2);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += 2;
+		return obj;
+	}
 
-    /* fixext4 */
-    case 0xd6: {
-        int ext_type = (int)(signed char)buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, 4);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += 4;
-        return obj;
-    }
+	/* fixext4 */
+	case 0xd6: {
+		int ext_type = (int)(signed char)buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, 4);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += 4;
+		return obj;
+	}
 
-    /* fixext8 */
-    case 0xd7: {
-        int ext_type = (int)(signed char)buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, 8);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += 8;
-        return obj;
-    }
+	/* fixext8 */
+	case 0xd7: {
+		int ext_type = (int)(signed char)buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, 8);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += 8;
+		return obj;
+	}
 
-    /* fixext16 */
-    case 0xd8: {
-        int ext_type = (int)(signed char)buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_bin(alloc, buf + *offset, 16);
-        if (obj) {
-            obj->flags |= IB_OBJECT_FLAG_EXT;
-            obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
-        }
-        *offset += 16;
-        return obj;
-    }
+	/* fixext16 */
+	case 0xd8: {
+		int ext_type = (int)(signed char)buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_bin(alloc, buf + *offset, 16);
+		if (obj) {
+			obj->flags |= IB_OBJECT_FLAG_EXT;
+			obj->flags |= ((ext_type & 0xff) << IB_OBJECT_FLAG_EXT_SHIFT);
+		}
+		*offset += 16;
+		return obj;
+	}
 
-    /* str8 */
-    case 0xd9: {
-        int len = buf[*offset + 1];
-        ib_object *obj;
-        *offset += 2;
-        obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* str8 */
+	case 0xd9: {
+		int len = buf[*offset + 1];
+		ib_object *obj;
+		*offset += 2;
+		obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* str16 */
-    case 0xda: {
-        int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
-        ib_object *obj;
-        *offset += 3;
-        obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* str16 */
+	case 0xda: {
+		int len = (int)ipointer_read16u_msb((const char *)buf + *offset + 1);
+		ib_object *obj;
+		*offset += 3;
+		obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* str32 */
-    case 0xdb: {
-        int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
-        ib_object *obj;
-        *offset += 5;
-        obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
-        *offset += len;
-        return obj;
-    }
+	/* str32 */
+	case 0xdb: {
+		int len = (int)ipointer_read32u_msb((const char *)buf + *offset + 1);
+		ib_object *obj;
+		*offset += 5;
+		obj = ib_object_new_str(alloc, (const char *)buf + *offset, len);
+		*offset += len;
+		return obj;
+	}
 
-    /* array16 */
-    case 0xdc: {
-        int count = (int)ipointer_read16u_msb(
-                (const char *)buf + *offset + 1);
-        int i;
-        ib_object *arr;
-        *offset += 3;
-        if (count == 0)
-            return ib_object_new_array(alloc, 0);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_msgpack_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	/* array16 */
+	case 0xdc: {
+		int count = (int)ipointer_read16u_msb(
+				(const char *)buf + *offset + 1);
+		int i;
+		ib_object *arr;
+		*offset += 3;
+		if (count == 0)
+			return ib_object_new_array(alloc, 0);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_msgpack_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    /* array32 */
-    case 0xdd: {
-        int count = (int)ipointer_read32u_msb(
-                (const char *)buf + *offset + 1);
-        int i;
-        ib_object *arr;
-        *offset += 5;
-        if (count == 0)
-            return ib_object_new_array(alloc, 0);
-        arr = ib_object_new_array(alloc, count);
-        if (arr == NULL) return NULL;
-        for (i = 0; i < count; i++) {
-            ib_object *child = _ib_msgpack_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
-        }
-        return arr;
-    }
+	/* array32 */
+	case 0xdd: {
+		int count = (int)ipointer_read32u_msb(
+				(const char *)buf + *offset + 1);
+		int i;
+		ib_object *arr;
+		*offset += 5;
+		if (count == 0)
+			return ib_object_new_array(alloc, 0);
+		arr = ib_object_new_array(alloc, count);
+		if (arr == NULL) return NULL;
+		for (i = 0; i < count; i++) {
+			ib_object *child = _ib_msgpack_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
+		}
+		return arr;
+	}
 
-    /* map16 */
-    case 0xde: {
-        int pairs = (int)ipointer_read16u_msb(
-                (const char *)buf + *offset + 1);
-        int i;
-        ib_object *map;
-        *offset += 3;
-        if (pairs == 0)
-            return ib_object_new_map(alloc, 0);
-        map = ib_object_new_map(alloc, pairs);
-        if (map == NULL) return NULL;
-        for (i = 0; i < pairs; i++) {
-            ib_object *key = _ib_msgpack_build(reader, offset, alloc);
-            ib_object *val = _ib_msgpack_build(reader, offset, alloc);
-            if (key == NULL || val == NULL) return NULL;
-            ib_object_map_add(alloc, map, key, val);
-        }
-        return map;
-    }
+	/* map16 */
+	case 0xde: {
+		int pairs = (int)ipointer_read16u_msb(
+				(const char *)buf + *offset + 1);
+		int i;
+		ib_object *map;
+		*offset += 3;
+		if (pairs == 0)
+			return ib_object_new_map(alloc, 0);
+		map = ib_object_new_map(alloc, pairs);
+		if (map == NULL) return NULL;
+		for (i = 0; i < pairs; i++) {
+			ib_object *key = _ib_msgpack_build(reader, offset, alloc);
+			ib_object *val = _ib_msgpack_build(reader, offset, alloc);
+			if (key == NULL || val == NULL) return NULL;
+			ib_object_map_add(alloc, map, key, val);
+		}
+		return map;
+	}
 
-    /* map32 */
-    case 0xdf: {
-        int pairs = (int)ipointer_read32u_msb(
-                (const char *)buf + *offset + 1);
-        int i;
-        ib_object *map;
-        *offset += 5;
-        if (pairs == 0)
-            return ib_object_new_map(alloc, 0);
-        map = ib_object_new_map(alloc, pairs);
-        if (map == NULL) return NULL;
-        for (i = 0; i < pairs; i++) {
-            ib_object *key = _ib_msgpack_build(reader, offset, alloc);
-            ib_object *val = _ib_msgpack_build(reader, offset, alloc);
-            if (key == NULL || val == NULL) return NULL;
-            ib_object_map_add(alloc, map, key, val);
-        }
-        return map;
-    }
+	/* map32 */
+	case 0xdf: {
+		int pairs = (int)ipointer_read32u_msb(
+				(const char *)buf + *offset + 1);
+		int i;
+		ib_object *map;
+		*offset += 5;
+		if (pairs == 0)
+			return ib_object_new_map(alloc, 0);
+		map = ib_object_new_map(alloc, pairs);
+		if (map == NULL) return NULL;
+		for (i = 0; i < pairs; i++) {
+			ib_object *key = _ib_msgpack_build(reader, offset, alloc);
+			ib_object *val = _ib_msgpack_build(reader, offset, alloc);
+			if (key == NULL || val == NULL) return NULL;
+			ib_object_map_add(alloc, map, key, val);
+		}
+		return map;
+	}
 
-    default:
-        return NULL;
-    }
+	default:
+		return NULL;
+	}
 }
 
 
@@ -2727,18 +2727,18 @@ static ib_object *_ib_msgpack_build(ib_msgpack_reader *reader,
 //---------------------------------------------------------------------
 ib_msgpack_reader *ib_msgpack_reader_new(void)
 {
-    ib_msgpack_reader *reader;
-    reader = (ib_msgpack_reader *)ikmem_malloc(sizeof(ib_msgpack_reader));
-    if (reader == NULL) return NULL;
-    iv_init(&reader->buffer, NULL);
-    iv_init(&reader->scan_stack, NULL);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->max_depth = 8;
-    reader->max_size = 256 * 1024 * 1024L;
-    reader->max_elements = 1048576;
-    reader->error = 0;
-    return reader;
+	ib_msgpack_reader *reader;
+	reader = (ib_msgpack_reader *)ikmem_malloc(sizeof(ib_msgpack_reader));
+	if (reader == NULL) return NULL;
+	iv_init(&reader->buffer, NULL);
+	iv_init(&reader->scan_stack, NULL);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->max_depth = 8;
+	reader->max_size = 256 * 1024 * 1024L;
+	reader->max_elements = 1048576;
+	reader->error = 0;
+	return reader;
 }
 
 //---------------------------------------------------------------------
@@ -2746,11 +2746,11 @@ ib_msgpack_reader *ib_msgpack_reader_new(void)
 //---------------------------------------------------------------------
 void ib_msgpack_reader_delete(ib_msgpack_reader *reader)
 {
-    if (reader != NULL) {
-        iv_destroy(&reader->buffer);
-        iv_destroy(&reader->scan_stack);
-        ikmem_free(reader);
-    }
+	if (reader != NULL) {
+		iv_destroy(&reader->buffer);
+		iv_destroy(&reader->scan_stack);
+		ikmem_free(reader);
+	}
 }
 
 //---------------------------------------------------------------------
@@ -2758,25 +2758,25 @@ void ib_msgpack_reader_delete(ib_msgpack_reader *reader)
 // internally compacts consumed buffer space. returns 0 on success
 //---------------------------------------------------------------------
 int ib_msgpack_reader_feed(ib_msgpack_reader *reader,
-        const void *data, long len)
+		const void *data, long len)
 {
-    if (len <= 0) return 0;
+	if (len <= 0) return 0;
 
-    /* compact: remove consumed bytes */
-    if (reader->pos > 0) {
-        long remain = (long)iv_size(&reader->buffer) - reader->pos;
-        if (remain > 0) {
-            memmove(iv_data(&reader->buffer),
-                    iv_data(&reader->buffer) + reader->pos,
-                    (size_t)remain);
-        }
-        iv_resize(&reader->buffer, (size_t)remain);
-        reader->scan_pos -= reader->pos;
-        if (reader->scan_pos < 0) reader->scan_pos = 0;
-        reader->pos = 0;
-    }
+	/* compact: remove consumed bytes */
+	if (reader->pos > 0) {
+		long remain = (long)iv_size(&reader->buffer) - reader->pos;
+		if (remain > 0) {
+			memmove(iv_data(&reader->buffer),
+					iv_data(&reader->buffer) + reader->pos,
+					(size_t)remain);
+		}
+		iv_resize(&reader->buffer, (size_t)remain);
+		reader->scan_pos -= reader->pos;
+		if (reader->scan_pos < 0) reader->scan_pos = 0;
+		reader->pos = 0;
+	}
 
-    return iv_push(&reader->buffer, data, (size_t)len);
+	return iv_push(&reader->buffer, data, (size_t)len);
 }
 
 //---------------------------------------------------------------------
@@ -2785,37 +2785,37 @@ int ib_msgpack_reader_feed(ib_msgpack_reader *reader,
 // alloc can be NULL (uses default allocator) or a zone allocator
 //---------------------------------------------------------------------
 int ib_msgpack_reader_read(ib_msgpack_reader *reader,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    int rc;
-    long offset;
+	int rc;
+	long offset;
 
-    if (reader->error)
-        return -1;
+	if (reader->error)
+		return -1;
 
-    /* phase 1: incremental scan */
-    rc = _ib_msgpack_scan(reader);
-    if (rc == 0)
-        return 0;
-    if (rc < 0) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 1: incremental scan */
+	rc = _ib_msgpack_scan(reader);
+	if (rc == 0)
+		return 0;
+	if (rc < 0) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* phase 2: build ib_object tree */
-    offset = reader->pos;
-    *result = _ib_msgpack_build(reader, &offset, alloc);
-    if (*result == NULL) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 2: build ib_object tree */
+	offset = reader->pos;
+	*result = _ib_msgpack_build(reader, &offset, alloc);
+	if (*result == NULL) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* advance consumed position, reset scan state */
-    reader->pos = offset;
-    reader->scan_pos = offset;
-    iv_clear(&reader->scan_stack);
+	/* advance consumed position, reset scan state */
+	reader->pos = offset;
+	reader->scan_pos = offset;
+	iv_clear(&reader->scan_stack);
 
-    return 1;
+	return 1;
 }
 
 //---------------------------------------------------------------------
@@ -2824,11 +2824,11 @@ int ib_msgpack_reader_read(ib_msgpack_reader *reader,
 //---------------------------------------------------------------------
 void ib_msgpack_reader_clear(ib_msgpack_reader *reader)
 {
-    iv_clear(&reader->buffer);
-    iv_clear(&reader->scan_stack);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->error = 0;
+	iv_clear(&reader->buffer);
+	iv_clear(&reader->scan_stack);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->error = 0;
 }
 
 //---------------------------------------------------------------------
@@ -2837,11 +2837,11 @@ void ib_msgpack_reader_clear(ib_msgpack_reader *reader)
 // max_elements: max container element count
 //---------------------------------------------------------------------
 void ib_msgpack_reader_set_limits(ib_msgpack_reader *reader,
-        int max_depth, long max_size, int max_elements)
+		int max_depth, long max_size, int max_elements)
 {
-    reader->max_depth = max_depth;
-    reader->max_size = max_size;
-    reader->max_elements = max_elements;
+	reader->max_depth = max_depth;
+	reader->max_size = max_size;
+	reader->max_elements = max_elements;
 }
 
 
@@ -2859,69 +2859,69 @@ void ib_msgpack_reader_set_limits(ib_msgpack_reader *reader,
 //---------------------------------------------------------------------
 int ib_msgpack_encode(ib_string *out, const ib_object *obj)
 {
-    if (obj == NULL)
-        return -1;
+	if (obj == NULL)
+		return -1;
 
-    switch (obj->type) {
-    case IB_OBJECT_NIL:
-        ib_msgpack_write_nil(out);
-        break;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		ib_msgpack_write_nil(out);
+		break;
 
-    case IB_OBJECT_BOOL:
-        ib_msgpack_write_bool(out, (int)obj->integer);
-        break;
+	case IB_OBJECT_BOOL:
+		ib_msgpack_write_bool(out, (int)obj->integer);
+		break;
 
-    case IB_OBJECT_INT:
-        ib_msgpack_write_int(out, obj->integer);
-        break;
+	case IB_OBJECT_INT:
+		ib_msgpack_write_int(out, obj->integer);
+		break;
 
-    case IB_OBJECT_DOUBLE:
-        ib_msgpack_write_double(out, obj->dval);
-        break;
+	case IB_OBJECT_DOUBLE:
+		ib_msgpack_write_double(out, obj->dval);
+		break;
 
-    case IB_OBJECT_STR:
-        ib_msgpack_write_str(out, (const char *)obj->str, obj->size);
-        break;
+	case IB_OBJECT_STR:
+		ib_msgpack_write_str(out, (const char *)obj->str, obj->size);
+		break;
 
-    case IB_OBJECT_BIN:
-        if (obj->flags & IB_OBJECT_FLAG_EXT) {
-            int ext_type = (int)(signed char)(
-                    (obj->flags & IB_OBJECT_FLAG_EXT_MASK)
-                    >> IB_OBJECT_FLAG_EXT_SHIFT);
-            ib_msgpack_write_ext(out, ext_type, obj->str, obj->size);
-        }
-        else {
-            ib_msgpack_write_bin(out, obj->str, obj->size);
-        }
-        break;
+	case IB_OBJECT_BIN:
+		if (obj->flags & IB_OBJECT_FLAG_EXT) {
+			int ext_type = (int)(signed char)(
+					(obj->flags & IB_OBJECT_FLAG_EXT_MASK)
+					>> IB_OBJECT_FLAG_EXT_SHIFT);
+			ib_msgpack_write_ext(out, ext_type, obj->str, obj->size);
+		}
+		else {
+			ib_msgpack_write_bin(out, obj->str, obj->size);
+		}
+		break;
 
-    case IB_OBJECT_ARRAY: {
-        int i;
-        ib_msgpack_write_array(out, obj->size);
-        for (i = 0; i < obj->size; i++) {
-            if (ib_msgpack_encode(out, obj->element[i]) < 0)
-                return -1;
-        }
-        break;
-    }
+	case IB_OBJECT_ARRAY: {
+		int i;
+		ib_msgpack_write_array(out, obj->size);
+		for (i = 0; i < obj->size; i++) {
+			if (ib_msgpack_encode(out, obj->element[i]) < 0)
+				return -1;
+		}
+		break;
+	}
 
-    case IB_OBJECT_MAP: {
-        int i;
-        ib_msgpack_write_map(out, obj->size);
-        for (i = 0; i < obj->size; i++) {
-            if (ib_msgpack_encode(out, obj->element[i * 2]) < 0)
-                return -1;
-            if (ib_msgpack_encode(out, obj->element[i * 2 + 1]) < 0)
-                return -1;
-        }
-        break;
-    }
+	case IB_OBJECT_MAP: {
+		int i;
+		ib_msgpack_write_map(out, obj->size);
+		for (i = 0; i < obj->size; i++) {
+			if (ib_msgpack_encode(out, obj->element[i * 2]) < 0)
+				return -1;
+			if (ib_msgpack_encode(out, obj->element[i * 2 + 1]) < 0)
+				return -1;
+		}
+		break;
+	}
 
-    default:
-        return -1;
-    }
+	default:
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 
@@ -2932,26 +2932,26 @@ int ib_msgpack_encode(ib_string *out, const ib_object *obj)
 // returns: 1=success, 0=incomplete, -1=error
 //---------------------------------------------------------------------
 int ib_msgpack_decode(const char *input, size_t size,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    ib_msgpack_reader *reader;
-    int rc;
+	ib_msgpack_reader *reader;
+	int rc;
 
-    if (input == NULL || size == 0 || result == NULL)
-        return -1;
+	if (input == NULL || size == 0 || result == NULL)
+		return -1;
 
-    reader = ib_msgpack_reader_new();
-    if (reader == NULL)
-        return -1;
+	reader = ib_msgpack_reader_new();
+	if (reader == NULL)
+		return -1;
 
-    if (ib_msgpack_reader_feed(reader, input, (long)size) != 0) {
-        ib_msgpack_reader_delete(reader);
-        return -1;
-    }
+	if (ib_msgpack_reader_feed(reader, input, (long)size) != 0) {
+		ib_msgpack_reader_delete(reader);
+		return -1;
+	}
 
-    rc = ib_msgpack_reader_read(reader, result, alloc);
-    ib_msgpack_reader_delete(reader);
-    return rc;
+	rc = ib_msgpack_reader_read(reader, result, alloc);
+	ib_msgpack_reader_delete(reader);
+	return rc;
 }
 
 
@@ -2966,8 +2966,8 @@ int ib_msgpack_decode(const char *input, size_t size,
 //---------------------------------------------------------------------
 int ib_json_write_nil(ib_string *out)
 {
-    ib_string_append_size(out, "null", 4);
-    return 0;
+	ib_string_append_size(out, "null", 4);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -2975,11 +2975,11 @@ int ib_json_write_nil(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_bool(ib_string *out, int val)
 {
-    if (val)
-        ib_string_append_size(out, "true", 4);
-    else
-        ib_string_append_size(out, "false", 5);
-    return 0;
+	if (val)
+		ib_string_append_size(out, "true", 4);
+	else
+		ib_string_append_size(out, "false", 5);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -2987,10 +2987,10 @@ int ib_json_write_bool(ib_string *out, int val)
 //---------------------------------------------------------------------
 int ib_json_write_int(ib_string *out, IINT64 val)
 {
-    char buf[32];
-    int n = illtoa(val, buf, 10);
-    ib_string_append_size(out, buf, n);
-    return 0;
+	char buf[32];
+	int n = illtoa(val, buf, 10);
+	ib_string_append_size(out, buf, n);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -2999,18 +2999,18 @@ int ib_json_write_int(ib_string *out, IINT64 val)
 //---------------------------------------------------------------------
 int ib_json_write_double(ib_string *out, double val)
 {
-    /* NaN check: val != val is true only for NaN */
-    if (val != val) {
-        ib_string_append_size(out, "null", 4);
-        return 0;
-    }
-    /* Inf check: finite numbers satisfy val - val == 0 */
-    if (val - val != 0) {
-        ib_string_append_size(out, "null", 4);
-        return 0;
-    }
-    ib_string_printf(out, "%.17g", val);
-    return 0;
+	/* NaN check: val != val is true only for NaN */
+	if (val != val) {
+		ib_string_append_size(out, "null", 4);
+		return 0;
+	}
+	/* Inf check: finite numbers satisfy val - val == 0 */
+	if (val - val != 0) {
+		ib_string_append_size(out, "null", 4);
+		return 0;
+	}
+	ib_string_printf(out, "%.17g", val);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3019,62 +3019,62 @@ int ib_json_write_double(ib_string *out, double val)
 //---------------------------------------------------------------------
 int ib_json_write_str(ib_string *out, const char *str, int len)
 {
-    const unsigned char *src;
-    int i;
+	const unsigned char *src;
+	int i;
 
-    ib_string_append_size(out, "\"", 1);
+	ib_string_append_size(out, "\"", 1);
 
-    if (str == NULL || len <= 0) {
-        ib_string_append_size(out, "\"", 1);
-        return 0;
-    }
+	if (str == NULL || len <= 0) {
+		ib_string_append_size(out, "\"", 1);
+		return 0;
+	}
 
-    src = (const unsigned char *)str;
-    for (i = 0; i < len; i++) {
-        unsigned char c = src[i];
-        switch (c) {
-        case '\"':
-            ib_string_append_size(out, "\\\"", 2);
-            break;
-        case '\\':
-            ib_string_append_size(out, "\\\\", 2);
-            break;
-        case '\b':
-            ib_string_append_size(out, "\\b", 2);
-            break;
-        case '\f':
-            ib_string_append_size(out, "\\f", 2);
-            break;
-        case '\n':
-            ib_string_append_size(out, "\\n", 2);
-            break;
-        case '\r':
-            ib_string_append_size(out, "\\r", 2);
-            break;
-        case '\t':
-            ib_string_append_size(out, "\\t", 2);
-            break;
-        default:
-            if (c < 0x20) {
-                /* control character: \uXXXX */
-                char hex[8];
-                hex[0] = '\\';
-                hex[1] = 'u';
-                hex[2] = '0';
-                hex[3] = '0';
-                hex[4] = "0123456789abcdef"[(c >> 4) & 0xf];
-                hex[5] = "0123456789abcdef"[c & 0xf];
-                ib_string_append_size(out, hex, 6);
-            }
-            else {
-                ib_string_append_size(out, (const char *)&c, 1);
-            }
-            break;
-        }
-    }
+	src = (const unsigned char *)str;
+	for (i = 0; i < len; i++) {
+		unsigned char c = src[i];
+		switch (c) {
+		case '\"':
+			ib_string_append_size(out, "\\\"", 2);
+			break;
+		case '\\':
+			ib_string_append_size(out, "\\\\", 2);
+			break;
+		case '\b':
+			ib_string_append_size(out, "\\b", 2);
+			break;
+		case '\f':
+			ib_string_append_size(out, "\\f", 2);
+			break;
+		case '\n':
+			ib_string_append_size(out, "\\n", 2);
+			break;
+		case '\r':
+			ib_string_append_size(out, "\\r", 2);
+			break;
+		case '\t':
+			ib_string_append_size(out, "\\t", 2);
+			break;
+		default:
+			if (c < 0x20) {
+				/* control character: \uXXXX */
+				char hex[8];
+				hex[0] = '\\';
+				hex[1] = 'u';
+				hex[2] = '0';
+				hex[3] = '0';
+				hex[4] = "0123456789abcdef"[(c >> 4) & 0xf];
+				hex[5] = "0123456789abcdef"[c & 0xf];
+				ib_string_append_size(out, hex, 6);
+			}
+			else {
+				ib_string_append_size(out, (const char *)&c, 1);
+			}
+			break;
+		}
+	}
 
-    ib_string_append_size(out, "\"", 1);
-    return 0;
+	ib_string_append_size(out, "\"", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3082,8 +3082,8 @@ int ib_json_write_str(ib_string *out, const char *str, int len)
 //---------------------------------------------------------------------
 int ib_json_write_array_begin(ib_string *out)
 {
-    ib_string_append_size(out, "[", 1);
-    return 0;
+	ib_string_append_size(out, "[", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3091,8 +3091,8 @@ int ib_json_write_array_begin(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_array_end(ib_string *out)
 {
-    ib_string_append_size(out, "]", 1);
-    return 0;
+	ib_string_append_size(out, "]", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3100,8 +3100,8 @@ int ib_json_write_array_end(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_object_begin(ib_string *out)
 {
-    ib_string_append_size(out, "{", 1);
-    return 0;
+	ib_string_append_size(out, "{", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3109,8 +3109,8 @@ int ib_json_write_object_begin(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_object_end(ib_string *out)
 {
-    ib_string_append_size(out, "}", 1);
-    return 0;
+	ib_string_append_size(out, "}", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3118,8 +3118,8 @@ int ib_json_write_object_end(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_comma(ib_string *out)
 {
-    ib_string_append_size(out, ",", 1);
-    return 0;
+	ib_string_append_size(out, ",", 1);
+	return 0;
 }
 
 //---------------------------------------------------------------------
@@ -3128,9 +3128,9 @@ int ib_json_write_comma(ib_string *out)
 //---------------------------------------------------------------------
 int ib_json_write_key(ib_string *out, const char *key, int len)
 {
-    ib_json_write_str(out, key, len);
-    ib_string_append_size(out, ":", 1);
-    return 0;
+	ib_json_write_str(out, key, len);
+	ib_string_append_size(out, ":", 1);
+	return 0;
 }
 
 
@@ -3145,81 +3145,81 @@ int ib_json_write_key(ib_string *out, const char *key, int len)
 //---------------------------------------------------------------------
 int ib_json_encode(ib_string *out, const ib_object *obj)
 {
-    if (obj == NULL)
-        return -1;
+	if (obj == NULL)
+		return -1;
 
-    switch (obj->type) {
-    case IB_OBJECT_NIL:
-        ib_json_write_nil(out);
-        break;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		ib_json_write_nil(out);
+		break;
 
-    case IB_OBJECT_BOOL:
-        ib_json_write_bool(out, (int)obj->integer);
-        break;
+	case IB_OBJECT_BOOL:
+		ib_json_write_bool(out, (int)obj->integer);
+		break;
 
-    case IB_OBJECT_INT:
-        ib_json_write_int(out, obj->integer);
-        break;
+	case IB_OBJECT_INT:
+		ib_json_write_int(out, obj->integer);
+		break;
 
-    case IB_OBJECT_DOUBLE:
-        ib_json_write_double(out, obj->dval);
-        break;
+	case IB_OBJECT_DOUBLE:
+		ib_json_write_double(out, obj->dval);
+		break;
 
-    case IB_OBJECT_STR:
-        ib_json_write_str(out, (const char *)obj->str, obj->size);
-        break;
+	case IB_OBJECT_STR:
+		ib_json_write_str(out, (const char *)obj->str, obj->size);
+		break;
 
-    case IB_OBJECT_BIN:
-        ib_json_write_str(out, (const char *)obj->str, obj->size);
-        break;
+	case IB_OBJECT_BIN:
+		ib_json_write_str(out, (const char *)obj->str, obj->size);
+		break;
 
-    case IB_OBJECT_ARRAY: {
-        int i;
-        ib_json_write_array_begin(out);
-        for (i = 0; i < obj->size; i++) {
-            if (i > 0) ib_json_write_comma(out);
-            if (ib_json_encode(out, obj->element[i]) < 0)
-                return -1;
-        }
-        ib_json_write_array_end(out);
-        break;
-    }
+	case IB_OBJECT_ARRAY: {
+		int i;
+		ib_json_write_array_begin(out);
+		for (i = 0; i < obj->size; i++) {
+			if (i > 0) ib_json_write_comma(out);
+			if (ib_json_encode(out, obj->element[i]) < 0)
+				return -1;
+		}
+		ib_json_write_array_end(out);
+		break;
+	}
 
-    case IB_OBJECT_MAP: {
-        int i;
-        ib_json_write_object_begin(out);
-        for (i = 0; i < obj->size; i++) {
-            ib_object *key = obj->element[i * 2];
-            ib_object *val = obj->element[i * 2 + 1];
-            if (i > 0) ib_json_write_comma(out);
-            /* key must be string-like */
-            if (key && (key->type == IB_OBJECT_STR ||
-                        key->type == IB_OBJECT_BIN)) {
-                ib_json_write_key(out, (const char *)key->str,
-                        key->size);
-            }
-            else {
-                /* non-string key: encode as string representation */
-                ib_string *tmp = ib_string_new();
-                if (tmp) {
-                    ib_json_encode(tmp, key);
-                    ib_json_write_key(out, ib_string_ptr(tmp),
-                            ib_string_size(tmp));
-                    ib_string_delete(tmp);
-                }
-            }
-            if (ib_json_encode(out, val) < 0)
-                return -1;
-        }
-        ib_json_write_object_end(out);
-        break;
-    }
+	case IB_OBJECT_MAP: {
+		int i;
+		ib_json_write_object_begin(out);
+		for (i = 0; i < obj->size; i++) {
+			ib_object *key = obj->element[i * 2];
+			ib_object *val = obj->element[i * 2 + 1];
+			if (i > 0) ib_json_write_comma(out);
+			/* key must be string-like */
+			if (key && (key->type == IB_OBJECT_STR ||
+						key->type == IB_OBJECT_BIN)) {
+				ib_json_write_key(out, (const char *)key->str,
+						key->size);
+			}
+			else {
+				/* non-string key: encode as string representation */
+				ib_string *tmp = ib_string_new();
+				if (tmp) {
+					ib_json_encode(tmp, key);
+					ib_json_write_key(out, ib_string_ptr(tmp),
+							ib_string_size(tmp));
+					ib_string_delete(tmp);
+				}
+			}
+			if (ib_json_encode(out, val) < 0)
+				return -1;
+		}
+		ib_json_write_object_end(out);
+		break;
+	}
 
-    default:
-        return -1;
-    }
+	default:
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 
@@ -3230,28 +3230,28 @@ int ib_json_encode(ib_string *out, const ib_object *obj)
 // returns: 1=success, 0=incomplete, -1=error
 //---------------------------------------------------------------------
 int ib_json_decode(const char *input, size_t size,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    ib_json_reader *reader;
-    int rc;
+	ib_json_reader *reader;
+	int rc;
 
-    if (input == NULL || size == 0 || result == NULL)
-        return -1;
+	if (input == NULL || size == 0 || result == NULL)
+		return -1;
 
-    reader = ib_json_reader_new();
-    if (reader == NULL)
-        return -1;
+	reader = ib_json_reader_new();
+	if (reader == NULL)
+		return -1;
 
-    if (ib_json_reader_feed(reader, input, (long)size) != 0) {
-        ib_json_reader_delete(reader);
-        return -1;
-    }
+	if (ib_json_reader_feed(reader, input, (long)size) != 0) {
+		ib_json_reader_delete(reader);
+		return -1;
+	}
 
-    ib_json_reader_finish(reader);
+	ib_json_reader_finish(reader);
 
-    rc = ib_json_reader_read(reader, result, alloc);
-    ib_json_reader_delete(reader);
-    return rc;
+	rc = ib_json_reader_read(reader, result, alloc);
+	ib_json_reader_delete(reader);
+	return rc;
 }
 
 
@@ -3280,15 +3280,15 @@ int ib_json_decode(const char *input, size_t size,
 //---------------------------------------------------------------------
 struct ib_json_reader
 {
-    struct IVECTOR buffer;       /* input byte buffer */
-    long pos;                    /* consumed position */
-    struct IVECTOR scan_stack;   /* scan stack: int state codes */
-    long scan_pos;               /* scan progress position */
-    int max_depth;               /* max nesting depth, default 64 */
-    long max_string;             /* max string size, default 256MB */
-    int max_elements;            /* max container elements, default 1048576 */
-    int error;                   /* error flag */
-    int finished;                /* no more data expected (EOF) */
+	struct IVECTOR buffer;       /* input byte buffer */
+	long pos;                    /* consumed position */
+	struct IVECTOR scan_stack;   /* scan stack: int state codes */
+	long scan_pos;               /* scan progress position */
+	int max_depth;               /* max nesting depth, default 64 */
+	long max_string;             /* max string size, default 256MB */
+	int max_elements;            /* max container elements, default 1048576 */
+	int error;                   /* error flag */
+	int finished;                /* no more data expected (EOF) */
 };
 
 
@@ -3297,14 +3297,14 @@ struct ib_json_reader
 //---------------------------------------------------------------------
 static long _ib_json_skip_ws(const unsigned char *buf, long p, long size)
 {
-    while (p < size) {
-        unsigned char c = buf[p];
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
-            p++;
-        else
-            break;
-    }
-    return p;
+	while (p < size) {
+		unsigned char c = buf[p];
+		if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+			p++;
+		else
+			break;
+	}
+	return p;
 }
 
 
@@ -3314,25 +3314,25 @@ static long _ib_json_skip_ws(const unsigned char *buf, long p, long size)
 // returns position after closing '"', or -1 on error, 0 if incomplete
 //---------------------------------------------------------------------
 static long _ib_json_scan_string(const unsigned char *buf, long p, long size,
-        long max_string)
+		long max_string)
 {
-    long start;
-    /* p points to opening '"' */
-    p++;  /* skip opening '"' */
-    start = p;
-    while (p < size) {
-        if (buf[p] == '\\') {
-            p += 2;  /* skip escape + next char */
-            if (p > size) return 0;  /* incomplete escape */
-            continue;
-        }
-        if (buf[p] == '"') {
-            if (p - start > max_string) return -1;
-            return p + 1;  /* past closing '"' */
-        }
-        p++;
-    }
-    return 0;  /* incomplete: no closing '"' found */
+	long start;
+	/* p points to opening '"' */
+	p++;  /* skip opening '"' */
+	start = p;
+	while (p < size) {
+		if (buf[p] == '\\') {
+			p += 2;  /* skip escape + next char */
+			if (p > size) return 0;  /* incomplete escape */
+			continue;
+		}
+		if (buf[p] == '"') {
+			if (p - start > max_string) return -1;
+			return p + 1;  /* past closing '"' */
+		}
+		p++;
+	}
+	return 0;  /* incomplete: no closing '"' found */
 }
 
 
@@ -3342,40 +3342,40 @@ static long _ib_json_scan_string(const unsigned char *buf, long p, long size,
 // JSON number: [-] digits [.digits] [(e|E)[+|-]digits]
 //---------------------------------------------------------------------
 static long _ib_json_scan_number(const unsigned char *buf, long p, long size,
-        int finished)
+		int finished)
 {
-    /* optional minus */
-    if (p < size && buf[p] == '-') p++;
-    if (p >= size) return 0;
+	/* optional minus */
+	if (p < size && buf[p] == '-') p++;
+	if (p >= size) return 0;
 
-    /* digits before decimal */
-    if (buf[p] < '0' || buf[p] > '9') return -1;
-    while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
-    if (p >= size) return finished ? p : 0;
+	/* digits before decimal */
+	if (buf[p] < '0' || buf[p] > '9') return -1;
+	while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+	if (p >= size) return finished ? p : 0;
 
-    /* optional fraction */
-    if (buf[p] == '.') {
-        p++;
-        if (p >= size) return 0;
-        if (buf[p] < '0' || buf[p] > '9') return -1;
-        while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
-        if (p >= size) return finished ? p : 0;
-    }
+	/* optional fraction */
+	if (buf[p] == '.') {
+		p++;
+		if (p >= size) return 0;
+		if (buf[p] < '0' || buf[p] > '9') return -1;
+		while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+		if (p >= size) return finished ? p : 0;
+	}
 
-    /* optional exponent */
-    if (buf[p] == 'e' || buf[p] == 'E') {
-        p++;
-        if (p >= size) return 0;
-        if (buf[p] == '+' || buf[p] == '-') {
-            p++;
-            if (p >= size) return 0;
-        }
-        if (buf[p] < '0' || buf[p] > '9') return -1;
-        while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
-        if (p >= size) return finished ? p : 0;
-    }
+	/* optional exponent */
+	if (buf[p] == 'e' || buf[p] == 'E') {
+		p++;
+		if (p >= size) return 0;
+		if (buf[p] == '+' || buf[p] == '-') {
+			p++;
+			if (p >= size) return 0;
+		}
+		if (buf[p] < '0' || buf[p] > '9') return -1;
+		while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+		if (p >= size) return finished ? p : 0;
+	}
 
-    return p;
+	return p;
 }
 
 
@@ -3387,262 +3387,262 @@ static long _ib_json_scan_number(const unsigned char *buf, long p, long size,
 //---------------------------------------------------------------------
 static int _ib_json_scan(ib_json_reader *reader)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    long size = (long)iv_size(&reader->buffer);
-    long p = reader->scan_pos;
-    struct IVECTOR *stack = &reader->scan_stack;
+	unsigned char *buf = iv_data(&reader->buffer);
+	long size = (long)iv_size(&reader->buffer);
+	long p = reader->scan_pos;
+	struct IVECTOR *stack = &reader->scan_stack;
 
-    /* first entry: push initial state */
-    if (iv_obj_size(stack, int) == 0) {
-        int state = JSON_SCAN_VALUE;
-        iv_obj_push(stack, int, &state);
-    }
+	/* first entry: push initial state */
+	if (iv_obj_size(stack, int) == 0) {
+		int state = JSON_SCAN_VALUE;
+		iv_obj_push(stack, int, &state);
+	}
 
-    for (;;) {
-        int *top;
-        int state;
-        unsigned char c;
-        long end;
+	for (;;) {
+		int *top;
+		int state;
+		unsigned char c;
+		long end;
 
-        if (iv_obj_size(stack, int) == 0) {
-            /* stack empty = top-level value complete */
-            reader->scan_pos = p;
-            return 1;
-        }
+		if (iv_obj_size(stack, int) == 0) {
+			/* stack empty = top-level value complete */
+			reader->scan_pos = p;
+			return 1;
+		}
 
-        /* skip whitespace */
-        p = _ib_json_skip_ws(buf, p, size);
-        if (p >= size) {
-            reader->scan_pos = p;
-            return 0;
-        }
+		/* skip whitespace */
+		p = _ib_json_skip_ws(buf, p, size);
+		if (p >= size) {
+			reader->scan_pos = p;
+			return 0;
+		}
 
-        top = &iv_obj_index(stack, int,
-                iv_obj_size(stack, int) - 1);
-        state = *top;
-        c = buf[p];
+		top = &iv_obj_index(stack, int,
+				iv_obj_size(stack, int) - 1);
+		state = *top;
+		c = buf[p];
 
-        switch (state) {
-        case JSON_SCAN_VALUE:
-        case JSON_SCAN_ARRAY_NEXT:
-        case JSON_SCAN_OBJECT_VALUE:
-            /* expecting a value (or ] for ARRAY_NEXT) */
-            if (state == JSON_SCAN_ARRAY_NEXT && c == ']') {
-                /* empty array */
-                iv_obj_pop(stack, int, NULL);
-                p++;
-                break;
-            }
-            /* check nesting depth */
-            if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
-                return -1;
+		switch (state) {
+		case JSON_SCAN_VALUE:
+		case JSON_SCAN_ARRAY_NEXT:
+		case JSON_SCAN_OBJECT_VALUE:
+			/* expecting a value (or ] for ARRAY_NEXT) */
+			if (state == JSON_SCAN_ARRAY_NEXT && c == ']') {
+				/* empty array */
+				iv_obj_pop(stack, int, NULL);
+				p++;
+				break;
+			}
+			/* check nesting depth */
+			if ((int)iv_obj_size(stack, int) > reader->max_depth + 1)
+				return -1;
 
-            if (c == '"') {
-                /* string */
-                end = _ib_json_scan_string(buf, p, size,
-                        reader->max_string);
-                if (end == 0) { reader->scan_pos = p; return 0; }
-                if (end < 0) return -1;
-                p = end;
-                /* transition: value consumed */
-                if (state == JSON_SCAN_VALUE) {
-                    iv_obj_pop(stack, int, NULL);
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                }
-                else {
-                    /* OBJECT_VALUE -> OBJECT_COMMA */
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                }
-            }
-            else if (c == '-' || (c >= '0' && c <= '9')) {
-                /* number */
-                end = _ib_json_scan_number(buf, p, size, reader->finished);
-                if (end == 0) { reader->scan_pos = p; return 0; }
-                if (end < 0) return -1;
-                p = end;
-                if (state == JSON_SCAN_VALUE) {
-                    iv_obj_pop(stack, int, NULL);
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                }
-                else {
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                }
-            }
-            else if (c == 't') {
-                /* true */
-                if (p + 4 > size) {
-                    reader->scan_pos = p; return 0;
-                }
-                if (buf[p+1] != 'r' || buf[p+2] != 'u' ||
-                        buf[p+3] != 'e')
-                    return -1;
-                p += 4;
-                if (state == JSON_SCAN_VALUE) {
-                    iv_obj_pop(stack, int, NULL);
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                }
-                else {
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                }
-            }
-            else if (c == 'f') {
-                /* false */
-                if (p + 5 > size) {
-                    reader->scan_pos = p; return 0;
-                }
-                if (buf[p+1] != 'a' || buf[p+2] != 'l' ||
-                        buf[p+3] != 's' || buf[p+4] != 'e')
-                    return -1;
-                p += 5;
-                if (state == JSON_SCAN_VALUE) {
-                    iv_obj_pop(stack, int, NULL);
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                }
-                else {
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                }
-            }
-            else if (c == 'n') {
-                /* null */
-                if (p + 4 > size) {
-                    reader->scan_pos = p; return 0;
-                }
-                if (buf[p+1] != 'u' || buf[p+2] != 'l' ||
-                        buf[p+3] != 'l')
-                    return -1;
-                p += 4;
-                if (state == JSON_SCAN_VALUE) {
-                    iv_obj_pop(stack, int, NULL);
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                }
-                else {
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                }
-            }
-            else if (c == '[') {
-                /* array */
-                p++;
-                if (state == JSON_SCAN_VALUE) {
-                    *top = JSON_SCAN_ARRAY_NEXT;
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                    {
-                        int ns = JSON_SCAN_ARRAY_NEXT;
-                        iv_obj_push(stack, int, &ns);
-                    }
-                }
-                else {
-                    /* OBJECT_VALUE */
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                    {
-                        int ns = JSON_SCAN_ARRAY_NEXT;
-                        iv_obj_push(stack, int, &ns);
-                    }
-                }
-            }
-            else if (c == '{') {
-                /* object */
-                p++;
-                if (state == JSON_SCAN_VALUE) {
-                    *top = JSON_SCAN_OBJECT_KEY;
-                }
-                else if (state == JSON_SCAN_ARRAY_NEXT) {
-                    *top = JSON_SCAN_ARRAY_COMMA;
-                    {
-                        int ns = JSON_SCAN_OBJECT_KEY;
-                        iv_obj_push(stack, int, &ns);
-                    }
-                }
-                else {
-                    /* OBJECT_VALUE */
-                    *top = JSON_SCAN_OBJECT_COMMA;
-                    {
-                        int ns = JSON_SCAN_OBJECT_KEY;
-                        iv_obj_push(stack, int, &ns);
-                    }
-                }
-            }
-            else {
-                return -1;  /* unexpected character */
-            }
-            break;
+			if (c == '"') {
+				/* string */
+				end = _ib_json_scan_string(buf, p, size,
+						reader->max_string);
+				if (end == 0) { reader->scan_pos = p; return 0; }
+				if (end < 0) return -1;
+				p = end;
+				/* transition: value consumed */
+				if (state == JSON_SCAN_VALUE) {
+					iv_obj_pop(stack, int, NULL);
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+				}
+				else {
+					/* OBJECT_VALUE -> OBJECT_COMMA */
+					*top = JSON_SCAN_OBJECT_COMMA;
+				}
+			}
+			else if (c == '-' || (c >= '0' && c <= '9')) {
+				/* number */
+				end = _ib_json_scan_number(buf, p, size, reader->finished);
+				if (end == 0) { reader->scan_pos = p; return 0; }
+				if (end < 0) return -1;
+				p = end;
+				if (state == JSON_SCAN_VALUE) {
+					iv_obj_pop(stack, int, NULL);
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+				}
+				else {
+					*top = JSON_SCAN_OBJECT_COMMA;
+				}
+			}
+			else if (c == 't') {
+				/* true */
+				if (p + 4 > size) {
+					reader->scan_pos = p; return 0;
+				}
+				if (buf[p+1] != 'r' || buf[p+2] != 'u' ||
+						buf[p+3] != 'e')
+					return -1;
+				p += 4;
+				if (state == JSON_SCAN_VALUE) {
+					iv_obj_pop(stack, int, NULL);
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+				}
+				else {
+					*top = JSON_SCAN_OBJECT_COMMA;
+				}
+			}
+			else if (c == 'f') {
+				/* false */
+				if (p + 5 > size) {
+					reader->scan_pos = p; return 0;
+				}
+				if (buf[p+1] != 'a' || buf[p+2] != 'l' ||
+						buf[p+3] != 's' || buf[p+4] != 'e')
+					return -1;
+				p += 5;
+				if (state == JSON_SCAN_VALUE) {
+					iv_obj_pop(stack, int, NULL);
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+				}
+				else {
+					*top = JSON_SCAN_OBJECT_COMMA;
+				}
+			}
+			else if (c == 'n') {
+				/* null */
+				if (p + 4 > size) {
+					reader->scan_pos = p; return 0;
+				}
+				if (buf[p+1] != 'u' || buf[p+2] != 'l' ||
+						buf[p+3] != 'l')
+					return -1;
+				p += 4;
+				if (state == JSON_SCAN_VALUE) {
+					iv_obj_pop(stack, int, NULL);
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+				}
+				else {
+					*top = JSON_SCAN_OBJECT_COMMA;
+				}
+			}
+			else if (c == '[') {
+				/* array */
+				p++;
+				if (state == JSON_SCAN_VALUE) {
+					*top = JSON_SCAN_ARRAY_NEXT;
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+					{
+						int ns = JSON_SCAN_ARRAY_NEXT;
+						iv_obj_push(stack, int, &ns);
+					}
+				}
+				else {
+					/* OBJECT_VALUE */
+					*top = JSON_SCAN_OBJECT_COMMA;
+					{
+						int ns = JSON_SCAN_ARRAY_NEXT;
+						iv_obj_push(stack, int, &ns);
+					}
+				}
+			}
+			else if (c == '{') {
+				/* object */
+				p++;
+				if (state == JSON_SCAN_VALUE) {
+					*top = JSON_SCAN_OBJECT_KEY;
+				}
+				else if (state == JSON_SCAN_ARRAY_NEXT) {
+					*top = JSON_SCAN_ARRAY_COMMA;
+					{
+						int ns = JSON_SCAN_OBJECT_KEY;
+						iv_obj_push(stack, int, &ns);
+					}
+				}
+				else {
+					/* OBJECT_VALUE */
+					*top = JSON_SCAN_OBJECT_COMMA;
+					{
+						int ns = JSON_SCAN_OBJECT_KEY;
+						iv_obj_push(stack, int, &ns);
+					}
+				}
+			}
+			else {
+				return -1;  /* unexpected character */
+			}
+			break;
 
-        case JSON_SCAN_ARRAY_COMMA:
-            /* expecting , or ] */
-            if (c == ',') {
-                p++;
-                *top = JSON_SCAN_ARRAY_NEXT;
-            }
-            else if (c == ']') {
-                p++;
-                iv_obj_pop(stack, int, NULL);
-            }
-            else {
-                return -1;
-            }
-            break;
+		case JSON_SCAN_ARRAY_COMMA:
+			/* expecting , or ] */
+			if (c == ',') {
+				p++;
+				*top = JSON_SCAN_ARRAY_NEXT;
+			}
+			else if (c == ']') {
+				p++;
+				iv_obj_pop(stack, int, NULL);
+			}
+			else {
+				return -1;
+			}
+			break;
 
-        case JSON_SCAN_OBJECT_KEY:
-            /* expecting key string or } */
-            if (c == '}') {
-                /* empty object */
-                iv_obj_pop(stack, int, NULL);
-                p++;
-            }
-            else if (c == '"') {
-                end = _ib_json_scan_string(buf, p, size,
-                        reader->max_string);
-                if (end == 0) { reader->scan_pos = p; return 0; }
-                if (end < 0) return -1;
-                p = end;
-                *top = JSON_SCAN_OBJECT_COLON;
-            }
-            else {
-                return -1;
-            }
-            break;
+		case JSON_SCAN_OBJECT_KEY:
+			/* expecting key string or } */
+			if (c == '}') {
+				/* empty object */
+				iv_obj_pop(stack, int, NULL);
+				p++;
+			}
+			else if (c == '"') {
+				end = _ib_json_scan_string(buf, p, size,
+						reader->max_string);
+				if (end == 0) { reader->scan_pos = p; return 0; }
+				if (end < 0) return -1;
+				p = end;
+				*top = JSON_SCAN_OBJECT_COLON;
+			}
+			else {
+				return -1;
+			}
+			break;
 
-        case JSON_SCAN_OBJECT_COLON:
-            /* expecting : */
-            if (c == ':') {
-                p++;
-                *top = JSON_SCAN_OBJECT_VALUE;
-            }
-            else {
-                return -1;
-            }
-            break;
+		case JSON_SCAN_OBJECT_COLON:
+			/* expecting : */
+			if (c == ':') {
+				p++;
+				*top = JSON_SCAN_OBJECT_VALUE;
+			}
+			else {
+				return -1;
+			}
+			break;
 
-        case JSON_SCAN_OBJECT_COMMA:
-            /* expecting , or } */
-            if (c == ',') {
-                p++;
-                *top = JSON_SCAN_OBJECT_KEY;
-            }
-            else if (c == '}') {
-                p++;
-                iv_obj_pop(stack, int, NULL);
-            }
-            else {
-                return -1;
-            }
-            break;
+		case JSON_SCAN_OBJECT_COMMA:
+			/* expecting , or } */
+			if (c == ',') {
+				p++;
+				*top = JSON_SCAN_OBJECT_KEY;
+			}
+			else if (c == '}') {
+				p++;
+				iv_obj_pop(stack, int, NULL);
+			}
+			else {
+				return -1;
+			}
+			break;
 
-        default:
-            return -1;
-        }
-    }
+		default:
+			return -1;
+		}
+	}
 }
 
 
@@ -3652,17 +3652,17 @@ static int _ib_json_scan(ib_json_reader *reader)
 //---------------------------------------------------------------------
 static unsigned int _ib_json_parse_hex4(const unsigned char *p)
 {
-    unsigned int h = 0;
-    int i;
-    for (i = 0; i < 4; i++) {
-        unsigned char c = p[i];
-        h <<= 4;
-        if (c >= '0' && c <= '9') h |= (unsigned int)(c - '0');
-        else if (c >= 'A' && c <= 'F') h |= (unsigned int)(10 + c - 'A');
-        else if (c >= 'a' && c <= 'f') h |= (unsigned int)(10 + c - 'a');
-        else return 0xFFFFFFFF;
-    }
-    return h;
+	unsigned int h = 0;
+	int i;
+	for (i = 0; i < 4; i++) {
+		unsigned char c = p[i];
+		h <<= 4;
+		if (c >= '0' && c <= '9') h |= (unsigned int)(c - '0');
+		else if (c >= 'A' && c <= 'F') h |= (unsigned int)(10 + c - 'A');
+		else if (c >= 'a' && c <= 'f') h |= (unsigned int)(10 + c - 'a');
+		else return 0xFFFFFFFF;
+	}
+	return h;
 }
 
 
@@ -3672,128 +3672,128 @@ static unsigned int _ib_json_parse_hex4(const unsigned char *p)
 // returns an ib_object STR, or NULL on error.
 //---------------------------------------------------------------------
 static ib_object *_ib_json_build_string(const unsigned char *buf,
-        long *offset, struct IALLOCATOR *alloc)
+		long *offset, struct IALLOCATOR *alloc)
 {
-    long p = *offset + 1;  /* skip opening '"' */
-    long end_quote;
-    ib_string *tmp;
-    ib_object *obj;
+	long p = *offset + 1;  /* skip opening '"' */
+	long end_quote;
+	ib_string *tmp;
+	ib_object *obj;
 
-    /* find closing '"' */
-    end_quote = p;
-    while (buf[end_quote] != '"') {
-        if (buf[end_quote] == '\\') end_quote += 2;
-        else end_quote++;
-    }
+	/* find closing '"' */
+	end_quote = p;
+	while (buf[end_quote] != '"') {
+		if (buf[end_quote] == '\\') end_quote += 2;
+		else end_quote++;
+	}
 
-    tmp = ib_string_new();
-    if (tmp == NULL) return NULL;
+	tmp = ib_string_new();
+	if (tmp == NULL) return NULL;
 
-    /* decode string content */
-    while (p < end_quote) {
-        if (buf[p] != '\\') {
-            /* find span of non-escape chars */
-            long span = p;
-            while (span < end_quote && buf[span] != '\\') span++;
-            ib_string_append_size(tmp, (const char *)buf + p,
-                    (int)(span - p));
-            p = span;
-        }
-        else {
-            /* escape sequence */
-            p++;  /* skip backslash */
-            switch (buf[p]) {
-            case '"':  ib_string_append_size(tmp, "\"", 1); p++; break;
-            case '\\': ib_string_append_size(tmp, "\\", 1); p++; break;
-            case '/':  ib_string_append_size(tmp, "/", 1);  p++; break;
-            case 'b':  ib_string_append_size(tmp, "\b", 1); p++; break;
-            case 'f':  ib_string_append_size(tmp, "\f", 1); p++; break;
-            case 'n':  ib_string_append_size(tmp, "\n", 1); p++; break;
-            case 'r':  ib_string_append_size(tmp, "\r", 1); p++; break;
-            case 't':  ib_string_append_size(tmp, "\t", 1); p++; break;
-            case 'u': {
-                /* \uXXXX (possibly surrogate pair) */
-                unsigned int cp;
-                unsigned char utf8[4];
-                int utf8_len = 0;
+	/* decode string content */
+	while (p < end_quote) {
+		if (buf[p] != '\\') {
+			/* find span of non-escape chars */
+			long span = p;
+			while (span < end_quote && buf[span] != '\\') span++;
+			ib_string_append_size(tmp, (const char *)buf + p,
+					(int)(span - p));
+			p = span;
+		}
+		else {
+			/* escape sequence */
+			p++;  /* skip backslash */
+			switch (buf[p]) {
+			case '"':  ib_string_append_size(tmp, "\"", 1); p++; break;
+			case '\\': ib_string_append_size(tmp, "\\", 1); p++; break;
+			case '/':  ib_string_append_size(tmp, "/", 1);  p++; break;
+			case 'b':  ib_string_append_size(tmp, "\b", 1); p++; break;
+			case 'f':  ib_string_append_size(tmp, "\f", 1); p++; break;
+			case 'n':  ib_string_append_size(tmp, "\n", 1); p++; break;
+			case 'r':  ib_string_append_size(tmp, "\r", 1); p++; break;
+			case 't':  ib_string_append_size(tmp, "\t", 1); p++; break;
+			case 'u': {
+				/* \uXXXX (possibly surrogate pair) */
+				unsigned int cp;
+				unsigned char utf8[4];
+				int utf8_len = 0;
 
-                p++;  /* skip 'u' */
-                cp = _ib_json_parse_hex4(buf + p);
-                if (cp == 0xFFFFFFFF) {
-                    ib_string_delete(tmp);
-                    return NULL;
-                }
-                p += 4;
+				p++;  /* skip 'u' */
+				cp = _ib_json_parse_hex4(buf + p);
+				if (cp == 0xFFFFFFFF) {
+					ib_string_delete(tmp);
+					return NULL;
+				}
+				p += 4;
 
-                /* check for UTF-16 surrogate pair */
-                if (cp >= 0xD800 && cp <= 0xDBFF) {
-                    unsigned int lo;
-                    if (buf[p] != '\\' || buf[p + 1] != 'u') {
-                        ib_string_delete(tmp);
-                        return NULL;
-                    }
-                    p += 2;  /* skip \u */
-                    lo = _ib_json_parse_hex4(buf + p);
-                    if (lo == 0xFFFFFFFF ||
-                            lo < 0xDC00 || lo > 0xDFFF) {
-                        ib_string_delete(tmp);
-                        return NULL;
-                    }
-                    p += 4;
-                    cp = 0x10000 +
-                        (((cp & 0x3FF) << 10) | (lo & 0x3FF));
-                }
-                else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-                    /* lone low surrogate */
-                    ib_string_delete(tmp);
-                    return NULL;
-                }
+				/* check for UTF-16 surrogate pair */
+				if (cp >= 0xD800 && cp <= 0xDBFF) {
+					unsigned int lo;
+					if (buf[p] != '\\' || buf[p + 1] != 'u') {
+						ib_string_delete(tmp);
+						return NULL;
+					}
+					p += 2;  /* skip \u */
+					lo = _ib_json_parse_hex4(buf + p);
+					if (lo == 0xFFFFFFFF ||
+							lo < 0xDC00 || lo > 0xDFFF) {
+						ib_string_delete(tmp);
+						return NULL;
+					}
+					p += 4;
+					cp = 0x10000 +
+						(((cp & 0x3FF) << 10) | (lo & 0x3FF));
+				}
+				else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+					/* lone low surrogate */
+					ib_string_delete(tmp);
+					return NULL;
+				}
 
-                /* encode codepoint as UTF-8 */
-                if (cp < 0x80) {
-                    utf8[0] = (unsigned char)cp;
-                    utf8_len = 1;
-                }
-                else if (cp < 0x800) {
-                    utf8[0] = (unsigned char)(0xC0 | (cp >> 6));
-                    utf8[1] = (unsigned char)(0x80 | (cp & 0x3F));
-                    utf8_len = 2;
-                }
-                else if (cp < 0x10000) {
-                    utf8[0] = (unsigned char)(0xE0 | (cp >> 12));
-                    utf8[1] = (unsigned char)(0x80 |
-                            ((cp >> 6) & 0x3F));
-                    utf8[2] = (unsigned char)(0x80 | (cp & 0x3F));
-                    utf8_len = 3;
-                }
-                else {
-                    utf8[0] = (unsigned char)(0xF0 | (cp >> 18));
-                    utf8[1] = (unsigned char)(0x80 |
-                            ((cp >> 12) & 0x3F));
-                    utf8[2] = (unsigned char)(0x80 |
-                            ((cp >> 6) & 0x3F));
-                    utf8[3] = (unsigned char)(0x80 | (cp & 0x3F));
-                    utf8_len = 4;
-                }
-                ib_string_append_size(tmp, (const char *)utf8,
-                        utf8_len);
-                break;
-            }
-            default:
-                /* unknown escape: output literally */
-                ib_string_append_size(tmp, (const char *)buf + p, 1);
-                p++;
-                break;
-            }
-        }
-    }
+				/* encode codepoint as UTF-8 */
+				if (cp < 0x80) {
+					utf8[0] = (unsigned char)cp;
+					utf8_len = 1;
+				}
+				else if (cp < 0x800) {
+					utf8[0] = (unsigned char)(0xC0 | (cp >> 6));
+					utf8[1] = (unsigned char)(0x80 | (cp & 0x3F));
+					utf8_len = 2;
+				}
+				else if (cp < 0x10000) {
+					utf8[0] = (unsigned char)(0xE0 | (cp >> 12));
+					utf8[1] = (unsigned char)(0x80 |
+							((cp >> 6) & 0x3F));
+					utf8[2] = (unsigned char)(0x80 | (cp & 0x3F));
+					utf8_len = 3;
+				}
+				else {
+					utf8[0] = (unsigned char)(0xF0 | (cp >> 18));
+					utf8[1] = (unsigned char)(0x80 |
+							((cp >> 12) & 0x3F));
+					utf8[2] = (unsigned char)(0x80 |
+							((cp >> 6) & 0x3F));
+					utf8[3] = (unsigned char)(0x80 | (cp & 0x3F));
+					utf8_len = 4;
+				}
+				ib_string_append_size(tmp, (const char *)utf8,
+						utf8_len);
+				break;
+			}
+			default:
+				/* unknown escape: output literally */
+				ib_string_append_size(tmp, (const char *)buf + p, 1);
+				p++;
+				break;
+			}
+		}
+	}
 
-    obj = ib_object_new_str(alloc, ib_string_ptr(tmp),
-            ib_string_size(tmp));
-    ib_string_delete(tmp);
+	obj = ib_object_new_str(alloc, ib_string_ptr(tmp),
+			ib_string_size(tmp));
+	ib_string_delete(tmp);
 
-    *offset = end_quote + 1;  /* past closing '"' */
-    return obj;
+	*offset = end_quote + 1;  /* past closing '"' */
+	return obj;
 }
 
 
@@ -3803,65 +3803,65 @@ static ib_object *_ib_json_build_string(const unsigned char *buf,
 // otherwise -> ib_object DOUBLE
 //---------------------------------------------------------------------
 static ib_object *_ib_json_build_number(const unsigned char *buf,
-        long *offset, long size, struct IALLOCATOR *alloc)
+		long *offset, long size, struct IALLOCATOR *alloc)
 {
-    long p = *offset;
-    long start = p;
-    int is_float = 0;
+	long p = *offset;
+	long start = p;
+	int is_float = 0;
 
-    if (p < size && buf[p] == '-') p++;
+	if (p < size && buf[p] == '-') p++;
 
-    /* scan digits */
-    while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+	/* scan digits */
+	while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
 
-    /* check for decimal point */
-    if (p < size && buf[p] == '.') {
-        is_float = 1;
-        p++;
-        while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
-    }
+	/* check for decimal point */
+	if (p < size && buf[p] == '.') {
+		is_float = 1;
+		p++;
+		while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+	}
 
-    /* check for exponent */
-    if (p < size && (buf[p] == 'e' || buf[p] == 'E')) {
-        is_float = 1;
-        p++;
-        if (p < size && (buf[p] == '+' || buf[p] == '-')) p++;
-        while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
-    }
+	/* check for exponent */
+	if (p < size && (buf[p] == 'e' || buf[p] == 'E')) {
+		is_float = 1;
+		p++;
+		if (p < size && (buf[p] == '+' || buf[p] == '-')) p++;
+		while (p < size && buf[p] >= '0' && buf[p] <= '9') p++;
+	}
 
-    if (!is_float) {
-        /* try integer path */
-        IINT64 val = 0;
-        long i = start;
-        int neg = 0;
-        int overflow = 0;
+	if (!is_float) {
+		/* try integer path */
+		IINT64 val = 0;
+		long i = start;
+		int neg = 0;
+		int overflow = 0;
 
-        if (buf[i] == '-') { neg = 1; i++; }
-        for (; i < p; i++) {
-            int d = buf[i] - '0';
-            if (val > IINT64_MAX / 10) { overflow = 1; break; }
-            val = val * 10 + d;
-            if (val < 0 && val != IINT64_MIN) { overflow = 1; break; }
-        }
-        if (!overflow) {
-            *offset = p;
-            return ib_object_new_int(alloc, neg ? -val : val);
-        }
-        /* overflow: fall through to double */
-    }
+		if (buf[i] == '-') { neg = 1; i++; }
+		for (; i < p; i++) {
+			int d = buf[i] - '0';
+			if (val > IINT64_MAX / 10) { overflow = 1; break; }
+			val = val * 10 + d;
+			if (val < 0 && val != IINT64_MIN) { overflow = 1; break; }
+		}
+		if (!overflow) {
+			*offset = p;
+			return ib_object_new_int(alloc, neg ? -val : val);
+		}
+		/* overflow: fall through to double */
+	}
 
-    /* double path */
-    {
-        char tmp[64];
-        int tlen = (int)(p - start);
-        double dval;
-        if (tlen >= (int)sizeof(tmp)) tlen = (int)sizeof(tmp) - 1;
-        memcpy(tmp, buf + start, (size_t)tlen);
-        tmp[tlen] = '\0';
-        dval = strtod(tmp, NULL);
-        *offset = p;
-        return ib_object_new_double(alloc, dval);
-    }
+	/* double path */
+	{
+		char tmp[64];
+		int tlen = (int)(p - start);
+		double dval;
+		if (tlen >= (int)sizeof(tmp)) tlen = (int)sizeof(tmp) - 1;
+		memcpy(tmp, buf + start, (size_t)tlen);
+		tmp[tlen] = '\0';
+		dval = strtod(tmp, NULL);
+		*offset = p;
+		return ib_object_new_double(alloc, dval);
+	}
 }
 
 
@@ -3870,133 +3870,133 @@ static ib_object *_ib_json_build_number(const unsigned char *buf,
 // called after _ib_json_scan confirms completeness.
 //---------------------------------------------------------------------
 static ib_object *_ib_json_build(ib_json_reader *reader,
-        long *offset, struct IALLOCATOR *alloc)
+		long *offset, struct IALLOCATOR *alloc)
 {
-    unsigned char *buf = iv_data(&reader->buffer);
-    long size = (long)iv_size(&reader->buffer);
-    long p = *offset;
-    unsigned char c;
+	unsigned char *buf = iv_data(&reader->buffer);
+	long size = (long)iv_size(&reader->buffer);
+	long p = *offset;
+	unsigned char c;
 
-    /* skip whitespace */
-    p = _ib_json_skip_ws(buf, p, size);
-    c = buf[p];
+	/* skip whitespace */
+	p = _ib_json_skip_ws(buf, p, size);
+	c = buf[p];
 
-    switch (c) {
-    case '"':
-        /* string */
-        *offset = p;
-        return _ib_json_build_string(buf, offset, alloc);
+	switch (c) {
+	case '"':
+		/* string */
+		*offset = p;
+		return _ib_json_build_string(buf, offset, alloc);
 
-    case '-': case '0': case '1': case '2': case '3':
-    case '4': case '5': case '6': case '7': case '8': case '9':
-        /* number */
-        *offset = p;
-        return _ib_json_build_number(buf, offset, size, alloc);
+	case '-': case '0': case '1': case '2': case '3':
+	case '4': case '5': case '6': case '7': case '8': case '9':
+		/* number */
+		*offset = p;
+		return _ib_json_build_number(buf, offset, size, alloc);
 
-    case 't':
-        /* true */
-        *offset = p + 4;
-        return ib_object_new_bool(alloc, 1);
+	case 't':
+		/* true */
+		*offset = p + 4;
+		return ib_object_new_bool(alloc, 1);
 
-    case 'f':
-        /* false */
-        *offset = p + 5;
-        return ib_object_new_bool(alloc, 0);
+	case 'f':
+		/* false */
+		*offset = p + 5;
+		return ib_object_new_bool(alloc, 0);
 
-    case 'n':
-        /* null */
-        *offset = p + 4;
-        return ib_object_new_nil(alloc);
+	case 'n':
+		/* null */
+		*offset = p + 4;
+		return ib_object_new_nil(alloc);
 
-    case '[': {
-        /* array */
-        ib_object *arr;
-        p++;  /* skip '[' */
-        p = _ib_json_skip_ws(buf, p, size);
+	case '[': {
+		/* array */
+		ib_object *arr;
+		p++;  /* skip '[' */
+		p = _ib_json_skip_ws(buf, p, size);
 
-        if (buf[p] == ']') {
-            *offset = p + 1;
-            return ib_object_new_array(alloc, 0);
-        }
+		if (buf[p] == ']') {
+			*offset = p + 1;
+			return ib_object_new_array(alloc, 0);
+		}
 
-        arr = ib_object_new_array(alloc, 4);
-        if (arr == NULL) return NULL;
+		arr = ib_object_new_array(alloc, 4);
+		if (arr == NULL) return NULL;
 
-        for (;;) {
-            ib_object *child;
-            *offset = p;
-            child = _ib_json_build(reader, offset, alloc);
-            if (child == NULL) return NULL;
-            ib_object_array_push(alloc, arr, child);
+		for (;;) {
+			ib_object *child;
+			*offset = p;
+			child = _ib_json_build(reader, offset, alloc);
+			if (child == NULL) return NULL;
+			ib_object_array_push(alloc, arr, child);
 
-            p = _ib_json_skip_ws(buf, *offset, size);
-            if (buf[p] == ',') {
-                p++;
-                p = _ib_json_skip_ws(buf, p, size);
-            }
-            else if (buf[p] == ']') {
-                *offset = p + 1;
-                return arr;
-            }
-            else {
-                return NULL;
-            }
-        }
-    }
+			p = _ib_json_skip_ws(buf, *offset, size);
+			if (buf[p] == ',') {
+				p++;
+				p = _ib_json_skip_ws(buf, p, size);
+			}
+			else if (buf[p] == ']') {
+				*offset = p + 1;
+				return arr;
+			}
+			else {
+				return NULL;
+			}
+		}
+	}
 
-    case '{': {
-        /* object */
-        ib_object *map;
-        p++;  /* skip '{' */
-        p = _ib_json_skip_ws(buf, p, size);
+	case '{': {
+		/* object */
+		ib_object *map;
+		p++;  /* skip '{' */
+		p = _ib_json_skip_ws(buf, p, size);
 
-        if (buf[p] == '}') {
-            *offset = p + 1;
-            return ib_object_new_map(alloc, 0);
-        }
+		if (buf[p] == '}') {
+			*offset = p + 1;
+			return ib_object_new_map(alloc, 0);
+		}
 
-        map = ib_object_new_map(alloc, 4);
-        if (map == NULL) return NULL;
+		map = ib_object_new_map(alloc, 4);
+		if (map == NULL) return NULL;
 
-        for (;;) {
-            ib_object *key;
-            ib_object *val;
+		for (;;) {
+			ib_object *key;
+			ib_object *val;
 
-            /* parse key (must be string) */
-            if (buf[p] != '"') return NULL;
-            *offset = p;
-            key = _ib_json_build_string(buf, offset, alloc);
-            if (key == NULL) return NULL;
+			/* parse key (must be string) */
+			if (buf[p] != '"') return NULL;
+			*offset = p;
+			key = _ib_json_build_string(buf, offset, alloc);
+			if (key == NULL) return NULL;
 
-            /* skip : */
-            p = _ib_json_skip_ws(buf, *offset, size);
-            if (buf[p] != ':') return NULL;
-            p++;
+			/* skip : */
+			p = _ib_json_skip_ws(buf, *offset, size);
+			if (buf[p] != ':') return NULL;
+			p++;
 
-            /* parse value */
-            *offset = p;
-            val = _ib_json_build(reader, offset, alloc);
-            if (val == NULL) return NULL;
-            ib_object_map_add(alloc, map, key, val);
+			/* parse value */
+			*offset = p;
+			val = _ib_json_build(reader, offset, alloc);
+			if (val == NULL) return NULL;
+			ib_object_map_add(alloc, map, key, val);
 
-            p = _ib_json_skip_ws(buf, *offset, size);
-            if (buf[p] == ',') {
-                p++;
-                p = _ib_json_skip_ws(buf, p, size);
-            }
-            else if (buf[p] == '}') {
-                *offset = p + 1;
-                return map;
-            }
-            else {
-                return NULL;
-            }
-        }
-    }
+			p = _ib_json_skip_ws(buf, *offset, size);
+			if (buf[p] == ',') {
+				p++;
+				p = _ib_json_skip_ws(buf, p, size);
+			}
+			else if (buf[p] == '}') {
+				*offset = p + 1;
+				return map;
+			}
+			else {
+				return NULL;
+			}
+		}
+	}
 
-    default:
-        return NULL;
-    }
+	default:
+		return NULL;
+	}
 }
 
 
@@ -4010,19 +4010,19 @@ static ib_object *_ib_json_build(ib_json_reader *reader,
 //---------------------------------------------------------------------
 ib_json_reader *ib_json_reader_new(void)
 {
-    ib_json_reader *reader;
-    reader = (ib_json_reader *)ikmem_malloc(sizeof(ib_json_reader));
-    if (reader == NULL) return NULL;
-    iv_init(&reader->buffer, NULL);
-    iv_init(&reader->scan_stack, NULL);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->max_depth = 64;
-    reader->max_string = 256 * 1024 * 1024L;
-    reader->max_elements = 1048576;
-    reader->error = 0;
-    reader->finished = 0;
-    return reader;
+	ib_json_reader *reader;
+	reader = (ib_json_reader *)ikmem_malloc(sizeof(ib_json_reader));
+	if (reader == NULL) return NULL;
+	iv_init(&reader->buffer, NULL);
+	iv_init(&reader->scan_stack, NULL);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->max_depth = 64;
+	reader->max_string = 256 * 1024 * 1024L;
+	reader->max_elements = 1048576;
+	reader->error = 0;
+	reader->finished = 0;
+	return reader;
 }
 
 //---------------------------------------------------------------------
@@ -4030,11 +4030,11 @@ ib_json_reader *ib_json_reader_new(void)
 //---------------------------------------------------------------------
 void ib_json_reader_delete(ib_json_reader *reader)
 {
-    if (reader != NULL) {
-        iv_destroy(&reader->buffer);
-        iv_destroy(&reader->scan_stack);
-        ikmem_free(reader);
-    }
+	if (reader != NULL) {
+		iv_destroy(&reader->buffer);
+		iv_destroy(&reader->scan_stack);
+		ikmem_free(reader);
+	}
 }
 
 //---------------------------------------------------------------------
@@ -4043,23 +4043,23 @@ void ib_json_reader_delete(ib_json_reader *reader)
 //---------------------------------------------------------------------
 int ib_json_reader_feed(ib_json_reader *reader, const void *data, long len)
 {
-    if (len <= 0) return 0;
+	if (len <= 0) return 0;
 
-    /* compact: remove consumed bytes */
-    if (reader->pos > 0) {
-        long remain = (long)iv_size(&reader->buffer) - reader->pos;
-        if (remain > 0) {
-            memmove(iv_data(&reader->buffer),
-                    iv_data(&reader->buffer) + reader->pos,
-                    (size_t)remain);
-        }
-        iv_resize(&reader->buffer, (size_t)remain);
-        reader->scan_pos -= reader->pos;
-        if (reader->scan_pos < 0) reader->scan_pos = 0;
-        reader->pos = 0;
-    }
+	/* compact: remove consumed bytes */
+	if (reader->pos > 0) {
+		long remain = (long)iv_size(&reader->buffer) - reader->pos;
+		if (remain > 0) {
+			memmove(iv_data(&reader->buffer),
+					iv_data(&reader->buffer) + reader->pos,
+					(size_t)remain);
+		}
+		iv_resize(&reader->buffer, (size_t)remain);
+		reader->scan_pos -= reader->pos;
+		if (reader->scan_pos < 0) reader->scan_pos = 0;
+		reader->pos = 0;
+	}
 
-    return iv_push(&reader->buffer, data, (size_t)len);
+	return iv_push(&reader->buffer, data, (size_t)len);
 }
 
 //---------------------------------------------------------------------
@@ -4067,37 +4067,37 @@ int ib_json_reader_feed(ib_json_reader *reader, const void *data, long len)
 // returns: 1=success, 0=incomplete, -1=error
 //---------------------------------------------------------------------
 int ib_json_reader_read(ib_json_reader *reader,
-        ib_object **result, struct IALLOCATOR *alloc)
+		ib_object **result, struct IALLOCATOR *alloc)
 {
-    int rc;
-    long offset;
+	int rc;
+	long offset;
 
-    if (reader->error)
-        return -1;
+	if (reader->error)
+		return -1;
 
-    /* phase 1: incremental scan */
-    rc = _ib_json_scan(reader);
-    if (rc == 0)
-        return 0;
-    if (rc < 0) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 1: incremental scan */
+	rc = _ib_json_scan(reader);
+	if (rc == 0)
+		return 0;
+	if (rc < 0) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* phase 2: build ib_object tree */
-    offset = reader->pos;
-    *result = _ib_json_build(reader, &offset, alloc);
-    if (*result == NULL) {
-        reader->error = 1;
-        return -1;
-    }
+	/* phase 2: build ib_object tree */
+	offset = reader->pos;
+	*result = _ib_json_build(reader, &offset, alloc);
+	if (*result == NULL) {
+		reader->error = 1;
+		return -1;
+	}
 
-    /* advance consumed position, reset scan state */
-    reader->pos = offset;
-    reader->scan_pos = offset;
-    iv_clear(&reader->scan_stack);
+	/* advance consumed position, reset scan state */
+	reader->pos = offset;
+	reader->scan_pos = offset;
+	iv_clear(&reader->scan_stack);
 
-    return 1;
+	return 1;
 }
 
 //---------------------------------------------------------------------
@@ -4105,12 +4105,12 @@ int ib_json_reader_read(ib_json_reader *reader,
 //---------------------------------------------------------------------
 void ib_json_reader_clear(ib_json_reader *reader)
 {
-    iv_clear(&reader->buffer);
-    iv_clear(&reader->scan_stack);
-    reader->pos = 0;
-    reader->scan_pos = 0;
-    reader->error = 0;
-    reader->finished = 0;
+	iv_clear(&reader->buffer);
+	iv_clear(&reader->scan_stack);
+	reader->pos = 0;
+	reader->scan_pos = 0;
+	reader->error = 0;
+	reader->finished = 0;
 }
 
 //---------------------------------------------------------------------
@@ -4118,18 +4118,18 @@ void ib_json_reader_clear(ib_json_reader *reader)
 //---------------------------------------------------------------------
 void ib_json_reader_finish(ib_json_reader *reader)
 {
-    reader->finished = 1;
+	reader->finished = 1;
 }
 
 //---------------------------------------------------------------------
 // configure decoder safety limits
 //---------------------------------------------------------------------
 void ib_json_reader_set_limits(ib_json_reader *reader,
-        int max_depth, long max_string, int max_elements)
+		int max_depth, long max_string, int max_elements)
 {
-    reader->max_depth = max_depth;
-    reader->max_string = max_string;
-    reader->max_elements = max_elements;
+	reader->max_depth = max_depth;
+	reader->max_string = max_string;
+	reader->max_elements = max_elements;
 }
 
 
@@ -4144,150 +4144,150 @@ void ib_json_reader_set_limits(ib_json_reader *reader,
 // BIN → "$base64:<base64-string>"
 //---------------------------------------------------------------------
 static int ib_json_encode_pretty_impl(ib_string *out,
-        const ib_object *obj, int indent, int depth)
+		const ib_object *obj, int indent, int depth)
 {
-    int padlen = 0, i = 0;
-    char pad[256];
+	int padlen = 0, i = 0;
+	char pad[256];
 
-    if (obj == NULL) return -1;
+	if (obj == NULL) return -1;
 
-    if (indent > 0) {
-        padlen = indent * depth;
-        if (padlen > 255) padlen = 255;
-        /* Fill pad buffer with spaces up to max needed (padlen + indent) */
-        for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
-    }
+	if (indent > 0) {
+		padlen = indent * depth;
+		if (padlen > 255) padlen = 255;
+		/* Fill pad buffer with spaces up to max needed (padlen + indent) */
+		for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
+	}
 
-    switch (obj->type) {
-    case IB_OBJECT_NIL:
-        ib_json_write_nil(out);
-        break;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		ib_json_write_nil(out);
+		break;
 
-    case IB_OBJECT_BOOL:
-        ib_json_write_bool(out, (int)obj->integer);
-        break;
+	case IB_OBJECT_BOOL:
+		ib_json_write_bool(out, (int)obj->integer);
+		break;
 
-    case IB_OBJECT_INT:
-        ib_json_write_int(out, obj->integer);
-        break;
+	case IB_OBJECT_INT:
+		ib_json_write_int(out, obj->integer);
+		break;
 
-    case IB_OBJECT_DOUBLE:
-        ib_json_write_double(out, obj->dval);
-        break;
+	case IB_OBJECT_DOUBLE:
+		ib_json_write_double(out, obj->dval);
+		break;
 
-    case IB_OBJECT_STR:
-        ib_json_write_str(out, (const char*)obj->str, obj->size);
-        break;
+	case IB_OBJECT_STR:
+		ib_json_write_str(out, (const char*)obj->str, obj->size);
+		break;
 
-    case IB_OBJECT_BIN:
-    {
-        /* BIN → "$base64:<base64>" */
-        ilong b64len = ibase64_encode(obj->str, obj->size, NULL);
-        ib_string_append_size(out, "\"$base64:", 9);
-        if (b64len > 0) {
-            char *b64buf = (char*)ikmem_malloc((size_t)(b64len + 1));
-            if (b64buf == NULL) return -1;
-            ibase64_encode(obj->str, obj->size, b64buf);
-            ib_string_append_size(out, b64buf, (int)b64len);
-            ikmem_free(b64buf);
-        }
-        ib_string_append_size(out, "\"", 1);
-        break;
-    }
+	case IB_OBJECT_BIN:
+	{
+		/* BIN → "$base64:<base64>" */
+		ilong b64len = ibase64_encode(obj->str, obj->size, NULL);
+		ib_string_append_size(out, "\"$base64:", 9);
+		if (b64len > 0) {
+			char *b64buf = (char*)ikmem_malloc((size_t)(b64len + 1));
+			if (b64buf == NULL) return -1;
+			ibase64_encode(obj->str, obj->size, b64buf);
+			ib_string_append_size(out, b64buf, (int)b64len);
+			ikmem_free(b64buf);
+		}
+		ib_string_append_size(out, "\"", 1);
+		break;
+	}
 
-    case IB_OBJECT_ARRAY:
-    {
-        if (obj->size == 0) {
-            ib_string_append_size(out, "[]", 2);
-            break;
-        }
-        ib_string_append_size(out, "[", 1);
-        if (indent > 0) {
-            ib_string_append_c(out, '\n');
-        }
-        for (i = 0; i < obj->size; i++) {
-            if (indent > 0) {
-                ib_string_append_size(out, pad, padlen + indent);
-            }
-            if (ib_json_encode_pretty_impl(out, obj->element[i],
-                    indent, depth + 1) < 0)
-                return -1;
-            if (i + 1 < obj->size) {
-                ib_string_append_size(out, ",", 1);
-            }
-            if (indent > 0) {
-                ib_string_append_c(out, '\n');
-            }
-        }
-        if (indent > 0) {
-            ib_string_append_size(out, pad, padlen);
-        }
-        ib_string_append_size(out, "]", 1);
-        break;
-    }
+	case IB_OBJECT_ARRAY:
+	{
+		if (obj->size == 0) {
+			ib_string_append_size(out, "[]", 2);
+			break;
+		}
+		ib_string_append_size(out, "[", 1);
+		if (indent > 0) {
+			ib_string_append_c(out, '\n');
+		}
+		for (i = 0; i < obj->size; i++) {
+			if (indent > 0) {
+				ib_string_append_size(out, pad, padlen + indent);
+			}
+			if (ib_json_encode_pretty_impl(out, obj->element[i],
+					indent, depth + 1) < 0)
+				return -1;
+			if (i + 1 < obj->size) {
+				ib_string_append_size(out, ",", 1);
+			}
+			if (indent > 0) {
+				ib_string_append_c(out, '\n');
+			}
+		}
+		if (indent > 0) {
+			ib_string_append_size(out, pad, padlen);
+		}
+		ib_string_append_size(out, "]", 1);
+		break;
+	}
 
-    case IB_OBJECT_MAP:
-    {
-        if (obj->size == 0) {
-            ib_string_append_size(out, "{}", 2);
-            break;
-        }
-        ib_string_append_size(out, "{", 1);
-        if (indent > 0) {
-            ib_string_append_c(out, '\n');
-        }
-        for (i = 0; i < obj->size; i++) {
-            ib_object *key = ib_object_map_key(obj, i);
-            ib_object *val = ib_object_map_val(obj, i);
-            if (indent > 0) {
-                ib_string_append_size(out, pad, padlen + indent);
-            }
-            if (key && (key->type == IB_OBJECT_STR ||
-                        key->type == IB_OBJECT_BIN)) {
-                ib_json_write_str(out, (const char*)key->str, key->size);
-            }
-            else {
-                ib_string *tmp = ib_string_new();
-                if (tmp) {
-                    ib_json_encode_pretty_impl(tmp, key, 0, 0);
-                    ib_json_write_str(out, ib_string_ptr(tmp),
-                            (int)ib_string_size(tmp));
-                    ib_string_delete(tmp);
-                }
-            }
-            if (indent > 0) {
-                ib_string_append_size(out, ": ", 2);
-            }
-            else {
-                ib_string_append_size(out, ":", 1);
-            }
-            if (ib_json_encode_pretty_impl(out, val,
-                    indent, depth + 1) < 0)
-                return -1;
-            if (i + 1 < obj->size) {
-                ib_string_append_size(out, ",", 1);
-            }
-            if (indent > 0) {
-                ib_string_append_c(out, '\n');
-            }
-        }
-        if (indent > 0) {
-            ib_string_append_size(out, pad, padlen);
-        }
-        ib_string_append_size(out, "}", 1);
-        break;
-    }
+	case IB_OBJECT_MAP:
+	{
+		if (obj->size == 0) {
+			ib_string_append_size(out, "{}", 2);
+			break;
+		}
+		ib_string_append_size(out, "{", 1);
+		if (indent > 0) {
+			ib_string_append_c(out, '\n');
+		}
+		for (i = 0; i < obj->size; i++) {
+			ib_object *key = ib_object_map_key(obj, i);
+			ib_object *val = ib_object_map_val(obj, i);
+			if (indent > 0) {
+				ib_string_append_size(out, pad, padlen + indent);
+			}
+			if (key && (key->type == IB_OBJECT_STR ||
+						key->type == IB_OBJECT_BIN)) {
+				ib_json_write_str(out, (const char*)key->str, key->size);
+			}
+			else {
+				ib_string *tmp = ib_string_new();
+				if (tmp) {
+					ib_json_encode_pretty_impl(tmp, key, 0, 0);
+					ib_json_write_str(out, ib_string_ptr(tmp),
+							(int)ib_string_size(tmp));
+					ib_string_delete(tmp);
+				}
+			}
+			if (indent > 0) {
+				ib_string_append_size(out, ": ", 2);
+			}
+			else {
+				ib_string_append_size(out, ":", 1);
+			}
+			if (ib_json_encode_pretty_impl(out, val,
+					indent, depth + 1) < 0)
+				return -1;
+			if (i + 1 < obj->size) {
+				ib_string_append_size(out, ",", 1);
+			}
+			if (indent > 0) {
+				ib_string_append_c(out, '\n');
+			}
+		}
+		if (indent > 0) {
+			ib_string_append_size(out, pad, padlen);
+		}
+		ib_string_append_size(out, "}", 1);
+		break;
+	}
 
-    default:
-        return -1;
-    }
+	default:
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
 {
-    return ib_json_encode_pretty_impl(out, obj, indent, 0);
+	return ib_json_encode_pretty_impl(out, obj, indent, 0);
 }
 
 
@@ -4306,179 +4306,179 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
 #define IB_DUMP_BIN_MAX 64   /* max hex bytes to display for BIN */
 
 static int ib_object_dump_impl(ib_string *out,
-        const ib_object *obj, int indent, int depth)
+		const ib_object *obj, int indent, int depth)
 {
-    int padlen = 0, i = 0;
-    char pad[256];
+	int padlen = 0, i = 0;
+	char pad[256];
 
-    if (obj == NULL) {
-        ib_string_append_size(out, "null", 4);
-        return 0;
-    }
+	if (obj == NULL) {
+		ib_string_append_size(out, "null", 4);
+		return 0;
+	}
 
-    if (indent > 0) {
-        padlen = indent * depth;
-        if (padlen > 255) padlen = 255;
-        /* Fill pad buffer with spaces up to max needed (padlen + indent) */
-        for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
-    }
+	if (indent > 0) {
+		padlen = indent * depth;
+		if (padlen > 255) padlen = 255;
+		/* Fill pad buffer with spaces up to max needed (padlen + indent) */
+		for (i = 0; i < padlen + indent && i < 255; i++) pad[i] = ' ';
+	}
 
-    switch (obj->type) {
-    case IB_OBJECT_NIL:
-        ib_string_append_size(out, "null", 4);
-        break;
+	switch (obj->type) {
+	case IB_OBJECT_NIL:
+		ib_string_append_size(out, "null", 4);
+		break;
 
-    case IB_OBJECT_BOOL:
-        if (obj->integer) ib_string_append_size(out, "true", 4);
-        else ib_string_append_size(out, "false", 5);
-        break;
+	case IB_OBJECT_BOOL:
+		if (obj->integer) ib_string_append_size(out, "true", 4);
+		else ib_string_append_size(out, "false", 5);
+		break;
 
-    case IB_OBJECT_INT:
-    {
-        // append integer as decimal string using illtoa for cross-platform compatibility (VC6 %lld fix)
-        char buf[32];
-        int n = illtoa((IINT64)obj->integer, buf, 10);
-        ib_string_append_size(out, buf, n);
-        break;
-    }
+	case IB_OBJECT_INT:
+	{
+		// append integer as decimal string using illtoa for cross-platform compatibility (VC6 %lld fix)
+		char buf[32];
+		int n = illtoa((IINT64)obj->integer, buf, 10);
+		ib_string_append_size(out, buf, n);
+		break;
+	}
 
-    case IB_OBJECT_DOUBLE:
-        // append double as %g format
-        ib_string_printf(out, "%g", obj->dval);
-        break;
+	case IB_OBJECT_DOUBLE:
+		// append double as %g format
+		ib_string_printf(out, "%g", obj->dval);
+		break;
 
-    case IB_OBJECT_STR:
-    {
-        ib_string_append_c(out, '"');
-        for (i = 0; i < obj->size; i++) {
-            unsigned char c = obj->str[i];
-            switch (c) {
-            case '"':  ib_string_append_size(out, "\\\"", 2); break;
-            case '\\': ib_string_append_size(out, "\\\\", 2); break;
-            case '\b': ib_string_append_size(out, "\\b", 2); break;
-            case '\f': ib_string_append_size(out, "\\f", 2); break;
-            case '\n': ib_string_append_size(out, "\\n", 2); break;
-            case '\r': ib_string_append_size(out, "\\r", 2); break;
-            case '\t': ib_string_append_size(out, "\\t", 2); break;
-            case '\0': ib_string_append_size(out, "\\0", 2); break;
-            default:
-                if (c < 0x20) {
-                    char hex[8];
-                    hex[0] = '\\'; hex[1] = 'u';
-                    hex[2] = '0'; hex[3] = '0';
-                    hex[4] = "0123456789abcdef"[(c >> 4) & 0xf];
-                    hex[5] = "0123456789abcdef"[c & 0xf];
-                    ib_string_append_size(out, hex, 6);
-                }
-                else {
-                    ib_string_append_c(out, (char)c);
-                }
-                break;
-            }
-        }
-        ib_string_append_c(out, '"');
-        break;
-    }
+	case IB_OBJECT_STR:
+	{
+		ib_string_append_c(out, '"');
+		for (i = 0; i < obj->size; i++) {
+			unsigned char c = obj->str[i];
+			switch (c) {
+			case '"':  ib_string_append_size(out, "\\\"", 2); break;
+			case '\\': ib_string_append_size(out, "\\\\", 2); break;
+			case '\b': ib_string_append_size(out, "\\b", 2); break;
+			case '\f': ib_string_append_size(out, "\\f", 2); break;
+			case '\n': ib_string_append_size(out, "\\n", 2); break;
+			case '\r': ib_string_append_size(out, "\\r", 2); break;
+			case '\t': ib_string_append_size(out, "\\t", 2); break;
+			case '\0': ib_string_append_size(out, "\\0", 2); break;
+			default:
+				if (c < 0x20) {
+					char hex[8];
+					hex[0] = '\\'; hex[1] = 'u';
+					hex[2] = '0'; hex[3] = '0';
+					hex[4] = "0123456789abcdef"[(c >> 4) & 0xf];
+					hex[5] = "0123456789abcdef"[c & 0xf];
+					ib_string_append_size(out, hex, 6);
+				}
+				else {
+					ib_string_append_c(out, (char)c);
+				}
+				break;
+			}
+		}
+		ib_string_append_c(out, '"');
+		break;
+	}
 
-    case IB_OBJECT_BIN:
-    {
-        int show = (obj->size > IB_DUMP_BIN_MAX) ?
-                IB_DUMP_BIN_MAX : obj->size;
-        // append bin header: <size:
-        ib_string_printf(out, "<%d:", obj->size);
-        for (i = 0; i < show; i++) {
-            if (i > 0) ib_string_append_c(out, ' ');
-            // append each byte as hex
-            ib_string_printf(out, "%02x", obj->str[i]);
-        }
-        if (obj->size > IB_DUMP_BIN_MAX) {
-            ib_string_append_size(out, " ...", 4);
-        }
-        ib_string_append_c(out, '>');
-        break;
-    }
+	case IB_OBJECT_BIN:
+	{
+		int show = (obj->size > IB_DUMP_BIN_MAX) ?
+				IB_DUMP_BIN_MAX : obj->size;
+		// append bin header: <size:
+		ib_string_printf(out, "<%d:", obj->size);
+		for (i = 0; i < show; i++) {
+			if (i > 0) ib_string_append_c(out, ' ');
+			// append each byte as hex
+			ib_string_printf(out, "%02x", obj->str[i]);
+		}
+		if (obj->size > IB_DUMP_BIN_MAX) {
+			ib_string_append_size(out, " ...", 4);
+		}
+		ib_string_append_c(out, '>');
+		break;
+	}
 
-    case IB_OBJECT_ARRAY:
-    {
-        if (obj->size == 0) {
-            ib_string_append_size(out, "[]", 2);
-            break;
-        }
-        ib_string_append_size(out, "[", 1);
-        if (indent > 0) {
-            ib_string_append_c(out, '\n');
-        }
-        for (i = 0; i < obj->size; i++) {
-            if (indent > 0) {
-                ib_string_append_size(out, pad, padlen + indent);
-            }
-            if (ib_object_dump_impl(out, obj->element[i],
-                    indent, depth + 1) < 0)
-                return -1;
-            if (i + 1 < obj->size) {
-                ib_string_append_size(out, ",", 1);
-            }
-            if (indent > 0) {
-                ib_string_append_c(out, '\n');
-            }
-        }
-        if (indent > 0) {
-            ib_string_append_size(out, pad, padlen);
-        }
-        ib_string_append_size(out, "]", 1);
-        break;
-    }
+	case IB_OBJECT_ARRAY:
+	{
+		if (obj->size == 0) {
+			ib_string_append_size(out, "[]", 2);
+			break;
+		}
+		ib_string_append_size(out, "[", 1);
+		if (indent > 0) {
+			ib_string_append_c(out, '\n');
+		}
+		for (i = 0; i < obj->size; i++) {
+			if (indent > 0) {
+				ib_string_append_size(out, pad, padlen + indent);
+			}
+			if (ib_object_dump_impl(out, obj->element[i],
+					indent, depth + 1) < 0)
+				return -1;
+			if (i + 1 < obj->size) {
+				ib_string_append_size(out, ",", 1);
+			}
+			if (indent > 0) {
+				ib_string_append_c(out, '\n');
+			}
+		}
+		if (indent > 0) {
+			ib_string_append_size(out, pad, padlen);
+		}
+		ib_string_append_size(out, "]", 1);
+		break;
+	}
 
-    case IB_OBJECT_MAP:
-    {
-        if (obj->size == 0) {
-            ib_string_append_size(out, "{}", 2);
-            break;
-        }
-        ib_string_append_size(out, "{", 1);
-        if (indent > 0) {
-            ib_string_append_c(out, '\n');
-        }
-        for (i = 0; i < obj->size; i++) {
-            ib_object *key = ib_object_map_key(obj, i);
-            ib_object *val = ib_object_map_val(obj, i);
-            if (indent > 0) {
-                ib_string_append_size(out, pad, padlen + indent);
-            }
-            if (ib_object_dump_impl(out, key, indent, depth + 1) < 0)
-                return -1;
-            if (indent > 0) {
-                ib_string_append_size(out, ": ", 2);
-            }
-            else {
-                ib_string_append_size(out, ":", 1);
-            }
-            if (ib_object_dump_impl(out, val, indent, depth + 1) < 0)
-                return -1;
-            if (i + 1 < obj->size) {
-                ib_string_append_size(out, ",", 1);
-            }
-            if (indent > 0) {
-                ib_string_append_c(out, '\n');
-            }
-        }
-        if (indent > 0) {
-            ib_string_append_size(out, pad, padlen);
-        }
-        ib_string_append_size(out, "}", 1);
-        break;
-    }
+	case IB_OBJECT_MAP:
+	{
+		if (obj->size == 0) {
+			ib_string_append_size(out, "{}", 2);
+			break;
+		}
+		ib_string_append_size(out, "{", 1);
+		if (indent > 0) {
+			ib_string_append_c(out, '\n');
+		}
+		for (i = 0; i < obj->size; i++) {
+			ib_object *key = ib_object_map_key(obj, i);
+			ib_object *val = ib_object_map_val(obj, i);
+			if (indent > 0) {
+				ib_string_append_size(out, pad, padlen + indent);
+			}
+			if (ib_object_dump_impl(out, key, indent, depth + 1) < 0)
+				return -1;
+			if (indent > 0) {
+				ib_string_append_size(out, ": ", 2);
+			}
+			else {
+				ib_string_append_size(out, ":", 1);
+			}
+			if (ib_object_dump_impl(out, val, indent, depth + 1) < 0)
+				return -1;
+			if (i + 1 < obj->size) {
+				ib_string_append_size(out, ",", 1);
+			}
+			if (indent > 0) {
+				ib_string_append_c(out, '\n');
+			}
+		}
+		if (indent > 0) {
+			ib_string_append_size(out, pad, padlen);
+		}
+		ib_string_append_size(out, "}", 1);
+		break;
+	}
 
-    default:
-        return -1;
-    }
+	default:
+		return -1;
+	}
 
-    return 0;
+	return 0;
 }
 
 int ib_object_dump(ib_string *out, const ib_object *obj, int indent)
 {
-    return ib_object_dump_impl(out, obj, indent, 0);
+	return ib_object_dump_impl(out, obj, indent, 0);
 }
 
 
@@ -4561,7 +4561,7 @@ int ib_object_save_resp(const ib_object *obj, const char *filename)
 	ib_string_init(&tmp);
 	hr = ib_resp_encode(&tmp, obj);
 	if (hr == 0) {
-		hr = ib_string_save(&tmp, filename);
+		hr = (int)ib_string_save(&tmp, filename);
 	}
 	ib_string_destroy(&tmp);
 	return hr;
@@ -4575,7 +4575,7 @@ int ib_object_save_msgpack(const ib_object *obj, const char *filename)
 	ib_string_init(&tmp);
 	hr = ib_msgpack_encode(&tmp, obj);
 	if (hr == 0) {
-		hr = ib_string_save(&tmp, filename);
+		hr = (int)ib_string_save(&tmp, filename);
 	}
 	ib_string_destroy(&tmp);
 	return hr;
@@ -4589,7 +4589,7 @@ int ib_object_save_json(const ib_object *obj, const char *filename)
 	ib_string_init(&tmp);
 	hr = ib_json_encode_pretty(&tmp, obj, 4);
 	if (hr == 0) {
-		hr = ib_string_save(&tmp, filename);
+		hr = (int)ib_string_save(&tmp, filename);
 	}
 	ib_string_destroy(&tmp);
 	return hr;
