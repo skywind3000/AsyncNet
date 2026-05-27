@@ -4139,9 +4139,9 @@ void ib_json_reader_set_limits(ib_json_reader *reader,
 
 //---------------------------------------------------------------------
 // ib_json_encode_pretty: recursively serialize with indentation
-// indent=0 → compact (same as ib_json_encode)
-// indent>0 → pretty-print, each level indented by indent spaces
-// BIN → "$base64:<base64-string>"
+// indent=0 -> compact (same as ib_json_encode)
+// indent>0 -> pretty-print, each level indented by indent spaces
+// BIN -> "$base64:<base64-string>"
 //---------------------------------------------------------------------
 static int ib_json_encode_pretty_impl(ib_string *out,
 		const ib_object *obj, int indent, int depth)
@@ -4181,7 +4181,7 @@ static int ib_json_encode_pretty_impl(ib_string *out,
 
 	case IB_OBJECT_BIN:
 	{
-		/* BIN → "$base64:<base64>" */
+		/* BIN -> "$base64:<base64>" */
 		ilong b64len = ibase64_encode(obj->str, obj->size, NULL);
 		ib_string_append_size(out, "\"$base64:", 9);
 		if (b64len > 0) {
@@ -4297,10 +4297,10 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent)
 
 //---------------------------------------------------------------------
 // ib_object_dump: recursively serialize for debugging
-// indent=0 → single-line compact (for logs)
-// indent>0 → multi-line indented (for human inspection)
-// BIN → "<size: hex bytes>"
-// STR embedded \0 → escaped as "\0"
+// indent=0 -> single-line compact (for logs)
+// indent>0 -> multi-line indented (for human inspection)
+// BIN -> "<size: hex bytes>"
+// STR embedded \0 -> escaped as "\0"
 //---------------------------------------------------------------------
 
 #define IB_DUMP_BIN_MAX 64   /* max hex bytes to display for BIN */

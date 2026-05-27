@@ -298,7 +298,7 @@ ib_object *ib_object_new_map(struct IALLOCATOR *alloc, int capacity)
 // ib_object_delete - recursive delete
 // Asserts DYNAMIC (shell was malloc'd). If OWNED, frees STR/BIN buffer
 // or recursively deletes ARRAY/MAP children + frees element array.
-// Without OWNED, data/children are external references — not freed.
+// Without OWNED, data/children are external references -- not freed.
 //---------------------------------------------------------------------
 void ib_object_delete(struct IALLOCATOR *alloc, ib_object *obj)
 {
@@ -778,7 +778,7 @@ int ib_object_map_erase(struct IALLOCATOR *alloc,
 }
 
 
-// detach pair by key — deletes key, returns value object.
+// detach pair by key -- deletes key, returns value object.
 ib_object *ib_object_map_detach(struct IALLOCATOR *alloc,
         ib_object *map, const ib_object *key)
 {
@@ -805,7 +805,7 @@ ib_object *ib_object_map_detach(struct IALLOCATOR *alloc,
 // upsert: if key exists, keep old key, delete new key and old value,
 // store new value. If key not found, append new pair.
 // On success key/val ownership transfers. On failure (grow fails when
-// key not found) key/val are NOT consumed — caller still owns them.
+// key not found) key/val are NOT consumed -- caller still owns them.
 int ib_object_map_set(struct IALLOCATOR *alloc,
 		ib_object *map, ib_object *key, ib_object *val)
 {
@@ -1343,7 +1343,7 @@ int ib_object_path_set(struct IALLOCATOR *alloc,
 		int next_type = ib_object_path_segment(path, &p_next,
 				&key, &key_len, &idx);
 		if (next_type < 0) return -1;
-		// current segment is not the last one — navigate or create
+		// current segment is not the last one -- navigate or create
 		if (last_seg_type == 1) {
 			// array index step: must exist, cannot auto-create
 			if (current->type != IB_OBJECT_ARRAY) return -1;
@@ -1912,35 +1912,38 @@ ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size)
 
 
 //=====================================================================
-// Common string operation (not be defined in some compiler)
+// C-string enhancement (because some may not always be available)
 //=====================================================================
 
 // strcasestr
-const char* istrcasestr(const char* s1, const char* s2)  
-{  
-	const char* ptr = s1;  
-	if (!s1 || !s2 || !*s2) return s1;  
-	   
-	while (*ptr) {  
-		if (ITOUPPER(*ptr) == ITOUPPER(*s2)) {  
-			const char* cur1 = ptr + 1;  
-			const char* cur2 = s2 + 1;  
-			while (*cur1 && *cur2 && ITOUPPER(*cur1) == ITOUPPER(*cur2)) {  
-				cur1++;  
-				cur2++;  
-			}  
-			if (!*cur2) return ptr;  
-		}  
-		ptr++;  
-	}  
-	return   NULL;  
+const char* istrcasestr(const char* s1, const char* s2)
+{
+	const char* ptr;
+	if (s1 == NULL || s2 == NULL) return NULL;
+	if (!*s2) return s1;
+	ptr = s1;
+	while (*ptr) {
+		if (ITOUPPER(*ptr) == ITOUPPER(*s2)) {
+			const char* cur1 = ptr + 1;
+			const char* cur2 = s2 + 1;
+			while (*cur1 && *cur2 && ITOUPPER(*cur1) == ITOUPPER(*cur2)) {
+				cur1++;
+				cur2++;
+			}
+			if (!*cur2) return ptr;
+		}
+		ptr++;
+	}
+	return NULL;
 }
 
 // strncasecmp
 int istrncasecmp(const char* s1, const char* s2, size_t num)
 {
 	char c1, c2;
-	if (!s1 || !s2 || num == 0) return 0;
+	if (num == 0) return 0;
+	if (s1 == NULL) return (s2 == NULL) ? 0 : -1;
+	if (s2 == NULL) return 1;
 	while(num > 0){
 		c1 = ITOUPPER(*s1);
 		c2 = ITOUPPER(*s2);
@@ -1977,6 +1980,90 @@ char *istrsep(char **stringp, const char *delim)
 	}
 }
 
+// strspn implementation
+ilong istrspn(const char *s, const char *accept)
+{
+	const char *p;
+	char c;
+	ilong count = 0;
+
+	if (accept == NULL || *accept == '\0') return 0;
+
+	while ((c = *s++) != '\0') {
+		p = accept;
+		while (*p != '\0' && *p != c) {
+			p++;
+		}
+		if (*p == '\0') {
+			return count;
+		}
+		count++;
+	}
+	return count;
+}
+
+// strcspn implementation
+ilong istrcspn(const char *s, const char *reject)
+{
+	const char *p;
+	char c;
+	ilong count = 0;
+
+	if (reject == NULL || *reject == '\0') {
+		while (*s++ != '\0') count++;
+		return count;
+	}
+
+	while ((c = *s++) != '\0') {
+		p = reject;
+		while (*p != '\0' && *p != c) {
+			p++;
+		}
+		if (*p != '\0') {
+			return count;
+		}
+		count++;
+	}
+	return count;
+}
+
+// strtok_r implementation
+char *istrtok_r(char *str, const char *delim, char **saveptr)
+{
+	char *endup;
+
+	if (str == NULL) {
+		str = *saveptr;
+		if (str == NULL) {
+			return NULL;
+		}
+	}
+
+	if (*str == '\0') {
+		*saveptr = str;
+		return NULL;
+	}
+
+	str += istrspn(str, delim);
+	if (*str == '\0') {
+		*saveptr = str;
+		return NULL;
+	}
+
+	endup = str + istrcspn(str, delim);
+
+	if (*endup == '\0') {
+		*saveptr = endup;
+		return str;
+	}
+
+	*endup = '\0';
+	*saveptr = endup + 1;
+
+	return str;
+}
+
+
 // istrtoxl macro
 #define IFL_NEG			1
 #define IFL_READDIGIT	2
@@ -2003,13 +2090,10 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 	c = *p++;
 	while (isspace((int)(IUINT8)c)) c = *p++;
 
-	if (c == '+') c = *p++;
-	if (c == '-') {
-		flags |= IFL_NEG;
+	if (c == '+' || c == '-') {
+		if (c == '-') flags |= IFL_NEG;
 		c = *p++;
 	}
-
-	if (c == '+') c = *p++;
 
 	if (ibase < 0 || ibase == 1 || ibase > 36) {
 		if (endptr) *endptr = nptr;
@@ -2081,7 +2165,7 @@ static unsigned long istrtoxl(const char *nptr, const char **endptr,
 		else number = (unsigned long)ILONG_MAX;
 	}
 
-	if (endptr) *endptr = p;
+	if ((flags & IFL_READDIGIT) && endptr) *endptr = p;
 
 	if (flags & IFL_NEG)
 		number = (unsigned long)(-(long)number);
@@ -2109,13 +2193,10 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 	c = *p++;
 	while (isspace((int)(IUINT8)c)) c = *p++;
 
-	if (c == '+') c = *p++;
-	if (c == '-') {
-		flags |= IFL_NEG;
+	if (c == '+' || c == '-') {
+		if (c == '-') flags |= IFL_NEG;
 		c = *p++;
 	}
-
-	if (c == '+') c = *p++;
 
 	if (ibase < 0 || ibase == 1 || ibase > 36) {
 		if (endptr) *endptr = nptr;
@@ -2177,7 +2258,7 @@ static IUINT64 istrtoxll(const char *nptr, const char **endptr,
 		else number = (IUINT64)IINT64_MAX;
 	}
 
-	if (endptr) *endptr = p;
+	if ((flags & IFL_READDIGIT) && endptr) *endptr = p;
 
 	if (flags & IFL_NEG)
 		number = (IUINT64)(-(IINT64)number);
@@ -2385,18 +2466,25 @@ ilong istrload(const char *src, ilong size, char *out)
 				case '\"': *output++ = '\"'; i += 2; break;
 				case '\\': *output++ = '\\'; i += 2; break;
 				case '0': *output++ = '\0'; i += 2; break;
-				case 'x': 
+				case 'x':
 				case 'X':
 					if (i < size - 3) {
-						IUINT8 a = ptr[i + 2], b = ptr[i + 3], c = 0, d = 0;
-						if (a >= '0' && a <= '9') c = a - '0';
-						else if (a >= 'a' && a <= 'f') c = a - 'a' + 10;
-						else if (a >= 'A' && a <= 'F') c = a - 'A' + 10;
-						if (b >= '0' && b <= '9') d = b - '0';
-						else if (b >= 'a' && b <= 'f') d = b - 'a' + 10;
-						else if (b >= 'A' && b <= 'F') d = b - 'A' + 10;
-						*output++ = (c << 4) | d;
-						i += 4;
+						IUINT8 a = ptr[i + 2], b = ptr[i + 3];
+						IUINT8 c = 0, d = 0;
+						int a_valid = 0, b_valid = 0;
+						if (a >= '0' && a <= '9') { c = a - '0'; a_valid = 1; }
+						else if (a >= 'a' && a <= 'f') { c = a - 'a' + 10; a_valid = 1; }
+						else if (a >= 'A' && a <= 'F') { c = a - 'A' + 10; a_valid = 1; }
+						if (b >= '0' && b <= '9') { d = b - '0'; b_valid = 1; }
+						else if (b >= 'a' && b <= 'f') { d = b - 'a' + 10; b_valid = 1; }
+						else if (b >= 'A' && b <= 'F') { d = b - 'A' + 10; b_valid = 1; }
+						if (a_valid && b_valid) {
+							*output++ = (c << 4) | d;
+							i += 4;
+						}	else {
+							*output++ = '\\';
+							i++;
+						}
 					}	else {
 						*output++ = '\\';
 						i++;

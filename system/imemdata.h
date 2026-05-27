@@ -53,24 +53,24 @@ typedef unsigned long long IUINT64;
 // DETECT BYTE ORDER & ALIGN
 //---------------------------------------------------------------------
 #ifndef IWORDS_BIG_ENDIAN
-    #ifdef _BIG_ENDIAN_
-        #if _BIG_ENDIAN_
-            #define IWORDS_BIG_ENDIAN 1
-        #endif
-    #endif
-    #ifndef IWORDS_BIG_ENDIAN
-        #if defined(__hppa__) || \
-            defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || \
-            (defined(__MIPS__) && defined(__MISPEB__)) || \
-            defined(__ppc__) || defined(__POWERPC__) || defined(_M_PPC) || \
-            defined(__sparc__) || defined(__powerpc__) || \
-            defined(__mc68000__) || defined(__s390x__) || defined(__s390__)
-            #define IWORDS_BIG_ENDIAN 1
-        #endif
-    #endif
-    #ifndef IWORDS_BIG_ENDIAN
-        #define IWORDS_BIG_ENDIAN  0
-    #endif
+	#ifdef _BIG_ENDIAN_
+		#if _BIG_ENDIAN_
+			#define IWORDS_BIG_ENDIAN 1
+		#endif
+	#endif
+	#ifndef IWORDS_BIG_ENDIAN
+		#if defined(__hppa__) || \
+			defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || \
+			(defined(__MIPS__) && defined(__MISPEB__)) || \
+			defined(__ppc__) || defined(__POWERPC__) || defined(_M_PPC) || \
+			defined(__sparc__) || defined(__powerpc__) || \
+			defined(__mc68000__) || defined(__s390x__) || defined(__s390__)
+			#define IWORDS_BIG_ENDIAN 1
+		#endif
+	#endif
+	#ifndef IWORDS_BIG_ENDIAN
+		#define IWORDS_BIG_ENDIAN  0
+	#endif
 #endif
 
 #ifndef IWORDS_MUST_ALIGN
@@ -194,7 +194,7 @@ ib_object *ib_object_new_double(struct IALLOCATOR *alloc, double val);
 // When str is NULL and len > 0, buffer is allocated and zero-filled
 // (plus trailing '\0').
 ib_object *ib_object_new_str(struct IALLOCATOR *alloc,
-        const char *str, int len);
+		const char *str, int len);
 
 // create a new binary object, data is copied, null-terminated.
 // returns NULL if len < 0 or allocation fails.
@@ -202,7 +202,7 @@ ib_object *ib_object_new_str(struct IALLOCATOR *alloc,
 // (plus trailing '\0').
 // the buffer afterwards via obj->str.
 ib_object *ib_object_new_bin(struct IALLOCATOR *alloc,
-        const void *bin, int len);
+		const void *bin, int len);
 
 // create a new array object with initial capacity
 ib_object *ib_object_new_array(struct IALLOCATOR *alloc, int capacity);
@@ -218,7 +218,7 @@ void ib_object_delete(struct IALLOCATOR *alloc, ib_object *obj);
 
 // deep copy an object tree, result is always DYNAMIC|OWNED
 ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
-        const ib_object *obj);
+		const ib_object *obj);
 
 // compare two objects. Returns -1, 0, or 1.
 // NULL sorts before non-NULL. Different types compare by type value.
@@ -227,18 +227,18 @@ ib_object *ib_object_duplicate(struct IALLOCATOR *alloc,
 int ib_object_compare(const ib_object *a, const ib_object *b);
 
 // deep equal comparison. Returns 1 if equal, 0 if not.
-// NULL vs NULL → 1; NULL vs non-NULL → 0.
-// Different types → 0. Same type rules:
-// NIL → always equal; BOOL/INT → integer == integer;
-// DOUBLE → dval == dval; STR → same size + same bytes;
-// BIN → same size + same bytes; ARRAY → same size + each element equal;
-// MAP → same size + each key in A found in B with equal value.
+// NULL vs NULL -> 1; NULL vs non-NULL -> 0.
+// Different types -> 0. Same type rules:
+// NIL -> always equal; BOOL/INT -> integer == integer;
+// DOUBLE -> dval == dval; STR -> same size + same bytes;
+// BIN -> same size + same bytes; ARRAY -> same size + each element equal;
+// MAP -> same size + each key in A found in B with equal value.
 int ib_object_equal(const ib_object *a, const ib_object *b);
 
 // compute 32-bit hash of entire object tree (FNV1a, recursive).
-// NIL → hash type tag; BOOL/INT → hash integer bytes;
-// DOUBLE → hash dval bytes; STR/BIN → hash size + content bytes;
-// ARRAY → hash type tag + each element; MAP → hash type tag + each pair.
+// NIL -> hash type tag; BOOL/INT -> hash integer bytes;
+// DOUBLE -> hash dval bytes; STR/BIN -> hash size + content bytes;
+// ARRAY -> hash type tag + each element; MAP -> hash type tag + each pair.
 IUINT32 ib_object_hash(const ib_object *obj);
 
 // create a new string object from C string (strlen auto).
@@ -263,12 +263,12 @@ ib_object *ib_object_new_str_cstr(struct IALLOCATOR *alloc, const char *str);
 // append item to array, returns 0 on success, -1 on failure.
 // asserts arr has FLAG_OWNED.
 int ib_object_array_push(struct IALLOCATOR *alloc,
-        ib_object *arr, ib_object *item);
+		ib_object *arr, ib_object *item);
 
 // insert item at index, returns 0 on success, -1 on failure.
 // asserts arr has FLAG_OWNED.
 int ib_object_array_insert(struct IALLOCATOR *alloc,
-        ib_object *arr, int index, ib_object *item);
+		ib_object *arr, int index, ib_object *item);
 
 // get item at index (read-only), returns NULL if arr is NULL or out of range
 ib_object *ib_object_array_get(const ib_object *arr, int index);
@@ -279,12 +279,12 @@ ib_object *ib_object_array_detach(ib_object *arr, int index);
 
 // remove and delete item at index. asserts arr has FLAG_OWNED.
 void ib_object_array_erase(struct IALLOCATOR *alloc,
-        ib_object *arr, int index);
+		ib_object *arr, int index);
 
 // replace item at index, returns old item (detached, not freed).
 // returns NULL if arr is NULL or out of range. asserts arr has FLAG_OWNED.
 ib_object *ib_object_array_replace(ib_object *arr,
-        int index, ib_object *item);
+		int index, ib_object *item);
 
 // clear all items (recursive delete each), size resets to 0.
 // preserves element buffer and capacity. asserts arr has FLAG_OWNED.
@@ -305,7 +305,7 @@ ib_object *ib_object_array_pop(ib_object *arr);
 // key/val ownership transfers to map. clears FLAG_SORTED.
 // asserts map has FLAG_OWNED and key type is valid.
 int ib_object_map_add(struct IALLOCATOR *alloc,
-        ib_object *map, ib_object *key, ib_object *val);
+		ib_object *map, ib_object *key, ib_object *val);
 
 // find value by key, returns NULL if not found, map is NULL, or key is NULL.
 // key is a read-only needle (not consumed).
@@ -317,19 +317,19 @@ ib_object *ib_object_map_get(const ib_object *map, const ib_object *key);
 // On failure (grow fails, key not found) returns -1, key/val NOT consumed.
 // asserts map has FLAG_OWNED and key type is valid.
 int ib_object_map_set(struct IALLOCATOR *alloc,
-        ib_object *map, ib_object *key, ib_object *val);
+		ib_object *map, ib_object *key, ib_object *val);
 
 // remove pair by key and delete both key and value.
 // key is a read-only needle (not consumed).
 // returns 0 if found, -1 if not found. asserts map has FLAG_OWNED.
 int ib_object_map_erase(struct IALLOCATOR *alloc,
-        ib_object *map, const ib_object *key);
+		ib_object *map, const ib_object *key);
 
 // detach pair by key (remove, delete original key, return value).
 // key is a read-only needle (not consumed). Caller owns returned value.
 // Returns NULL if not found or map is NULL. asserts map has FLAG_OWNED.
 ib_object *ib_object_map_detach(struct IALLOCATOR *alloc,
-        ib_object *map, const ib_object *key);
+		ib_object *map, const ib_object *key);
 
 // sort map keys by ib_object_compare order for binary search.
 // Order: NIL < BOOL < INT < STR < BIN (by type, then by value).
@@ -351,18 +351,18 @@ void ib_object_map_clear(struct IALLOCATOR *alloc, ib_object *map);
 // val ownership transfers on add/set. On failure val is NOT freed.
 
 int ib_object_map_add_str(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, ib_object *val);
+		ib_object *map, const char *key, ib_object *val);
 
 ib_object *ib_object_map_get_str(const ib_object *map, const char *key);
 
 int ib_object_map_set_str(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key, ib_object *val);
+		ib_object *map, const char *key, ib_object *val);
 
 int ib_object_map_erase_str(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key);
+		ib_object *map, const char *key);
 
 ib_object *ib_object_map_detach_str(struct IALLOCATOR *alloc,
-        ib_object *map, const char *key);
+		ib_object *map, const char *key);
 
 
 // map mutation (IINT64 key convenience)
@@ -370,18 +370,18 @@ ib_object *ib_object_map_detach_str(struct IALLOCATOR *alloc,
 // val ownership transfers on add/set. On failure val is NOT freed.
 
 int ib_object_map_add_int(struct IALLOCATOR *alloc,
-        ib_object *map, IINT64 key, ib_object *val);
+		ib_object *map, IINT64 key, ib_object *val);
 
 ib_object *ib_object_map_get_int(const ib_object *map, IINT64 key);
 
 int ib_object_map_set_int(struct IALLOCATOR *alloc,
-        ib_object *map, IINT64 key, ib_object *val);
+		ib_object *map, IINT64 key, ib_object *val);
 
 int ib_object_map_erase_int(struct IALLOCATOR *alloc,
-        ib_object *map, IINT64 key);
+		ib_object *map, IINT64 key);
 
 ib_object *ib_object_map_detach_int(struct IALLOCATOR *alloc,
-        ib_object *map, IINT64 key);
+		ib_object *map, IINT64 key);
 
 
 // str/bin mutation
@@ -390,26 +390,26 @@ ib_object *ib_object_map_detach_int(struct IALLOCATOR *alloc,
 // replace STR content. If len <= capacity, overwrite in place;
 // otherwise realloc. Null-terminated. Returns 0 on success, -1 on failure.
 int ib_object_str_set(struct IALLOCATOR *alloc,
-        ib_object *obj, const char *str, int len);
+		ib_object *obj, const char *str, int len);
 
 // append to STR content. Auto-grows buffer (doubling strategy).
 // Null-terminated. Returns 0 on success, -1 on failure.
 int ib_object_str_append(struct IALLOCATOR *alloc,
-        ib_object *obj, const char *str, int len);
+		ib_object *obj, const char *str, int len);
 
 // replace BIN content. Same logic as str_set for BIN type.
 int ib_object_bin_set(struct IALLOCATOR *alloc,
-        ib_object *obj, const void *bin, int len);
+		ib_object *obj, const void *bin, int len);
 
 // append to BIN content. Same logic as str_append for BIN type.
 int ib_object_bin_append(struct IALLOCATOR *alloc,
-        ib_object *obj, const void *bin, int len);
+		ib_object *obj, const void *bin, int len);
 
 // resize STR to newsize bytes. If newsize > capacity, grows buffer;
 // if newsize <= capacity, only changes size (capacity unchanged).
 // Null-terminated. asserts DYNAMIC|OWNED. Returns 0 on success, -1 on failure.
 int ib_object_str_resize(struct IALLOCATOR *alloc,
-        ib_object *obj, int newsize);
+		ib_object *obj, int newsize);
 
 // shrink STR capacity to fit current size. Reallocs buffer to size+1.
 // asserts DYNAMIC|OWNED. Returns 0 on success, -1 on failure.
@@ -417,7 +417,7 @@ int ib_object_str_shrink(struct IALLOCATOR *alloc, ib_object *obj);
 
 // resize BIN to newsize bytes. Same logic as str_resize for BIN type.
 int ib_object_bin_resize(struct IALLOCATOR *alloc,
-        ib_object *obj, int newsize);
+		ib_object *obj, int newsize);
 
 // shrink BIN capacity to fit current size. Same logic as str_shrink for BIN.
 int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj);
@@ -439,7 +439,7 @@ int ib_object_bin_shrink(struct IALLOCATOR *alloc, ib_object *obj);
 //   - an ARRAY index in brackets: [N] where N is a 0-based integer
 //
 // A segment like "items[0]" means: first lookup MAP key "items",
-// then access ARRAY element at index 0 — two navigation steps.
+// then access ARRAY element at index 0 -- two navigation steps.
 //
 // Empty path "" returns the object itself. NULL path returns NULL/-1.
 //---------------------------------------------------------------------
@@ -455,13 +455,13 @@ ib_object *ib_object_path_get(const ib_object *obj, const char *path);
 // success; NOT consumed on failure. asserts obj has FLAG_OWNED.
 // returns 0 on success, -1 on failure.
 int ib_object_path_set(struct IALLOCATOR *alloc,
-        ib_object *obj, const char *path, ib_object *val);
+		ib_object *obj, const char *path, ib_object *val);
 
 // erase sub-object at dot-path (recursive delete of leaf node).
 // navigates to parent, then removes the final segment.
 // asserts obj has FLAG_OWNED. returns 0 if found/erased, -1 if not found.
 int ib_object_path_erase(struct IALLOCATOR *alloc,
-        ib_object *obj, const char *path);
+		ib_object *obj, const char *path);
 
 // check whether a dot-path resolves to a non-NULL sub-object.
 // returns 1 if path exists, 0 if not found or obj/path is NULL.
@@ -486,16 +486,16 @@ int ib_object_path_exists(const ib_object *obj, const char *path);
 // ib_object - read-only convenience helpers
 //---------------------------------------------------------------------
 
-// safe int extraction: INT → integer, BOOL → 0 or 1, else defval.
+// safe int extraction: INT -> integer, BOOL -> 0 or 1, else defval.
 IINT64 ib_object_as_int(const ib_object *obj, IINT64 defval);
 
-// safe double extraction: DOUBLE → dval, INT → cast to double, else defval.
+// safe double extraction: DOUBLE -> dval, INT -> cast to double, else defval.
 double ib_object_as_double(const ib_object *obj, double defval);
 
-// safe bool extraction: BOOL → 0 or 1, INT → 0 is false else true, else defval.
+// safe bool extraction: BOOL -> 0 or 1, INT -> 0 is false else true, else defval.
 int ib_object_as_bool(const ib_object *obj, int defval);
 
-// safe str extraction: STR → obj->str pointer, else defval.
+// safe str extraction: STR -> obj->str pointer, else defval.
 // Returned pointer length is obj->size, null-terminated for OWNED objects.
 const char *ib_object_as_str(const ib_object *obj, const char *defval);
 
@@ -586,7 +586,7 @@ ilong ims_move(struct IMSTREAM *dst, struct IMSTREAM *src, ilong size);
 
 
 //=====================================================================
-// Common string operation (not be defined in some compiler)
+// C-string enhancement (because some may not always be available)
 //=====================================================================
 #define ITOUPPER(a) (((a) >= 97 && (a) <= 122) ? ((a) - 32) : (a))
 
@@ -605,6 +605,15 @@ int istrncasecmp(const char* s1, const char* s2, size_t num);
 
 // strsep implementation
 char *istrsep(char **stringp, const char *delim);
+
+// strspn implementation
+ilong istrspn(const char *s, const char *accept);
+
+// strcspn implementation
+ilong istrcspn(const char *s, const char *reject);
+
+// strtok_r implementation
+char *istrtok_r(char *str, const char *delim, char **saveptr);
 
 // strtol implementation
 long istrtol(const char *nptr, const char **endptr, int ibase);

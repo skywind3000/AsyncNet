@@ -39,7 +39,7 @@ const IUINT32 IKCP_THRESH_INIT = 2;
 const IUINT32 IKCP_THRESH_MIN = 2;
 const IUINT32 IKCP_PROBE_INIT = 5000;		// 7 secs to probe window size
 const IUINT32 IKCP_PROBE_LIMIT = 120000;	// up to 120 secs to probe window
-const IUINT32 IKCP_FASTACK_LIMIT = 5;		// max times to trigger fastack
+const IUINT32 IKCP_FASTACK_LIMIT = 3;		// max times to trigger fastack
 
 
 //---------------------------------------------------------------------

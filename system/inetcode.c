@@ -2816,7 +2816,7 @@ void* async_core_registry(CAsyncCore *core, int op, int value, void *ptr)
 		core->parent = ptr;
 		break;
 	case ASYNC_CORE_REG_GET_FACTORY:
-		hr = core->factory;
+		hr = (void*)core->factory;
 		break;
 	case ASYNC_CORE_REG_SET_FACTORY:
 		core->factory = (CAsyncFactory)ptr;

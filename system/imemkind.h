@@ -553,8 +553,8 @@ int ib_json_encode_pretty(ib_string *out, const ib_object *obj, int indent);
 // encode an ib_object tree into human-readable debug representation.
 // indent=0: single-line compact (suitable for logs).
 // indent>0: multi-line with indentation (suitable for human inspection).
-// BIN → "<size: hex bytes>", short BIN full display, long BIN truncated.
-// STR with embedded \0 → "\0" escape in output.
+// BIN -> "<size: hex bytes>", short BIN full display, long BIN truncated.
+// STR with embedded \0 -> "\0" escape in output.
 // returns 0 on success, -1 on failure.
 int ib_object_dump(ib_string *out, const ib_object *obj, int indent);
 
