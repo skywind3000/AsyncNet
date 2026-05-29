@@ -1138,12 +1138,28 @@ static inline IINT64 ipointer_read64i_msb(const char *ptr) {
 	IINT64 v; idecode64i_msb(ptr, &v); return v;
 }
 
-static inline void* ipointer_readptr(const char *ptr) {
+static inline void* ipointer_read_ptr(const char *ptr) {
 	void *v; memcpy(&v, ptr, sizeof(void*)); return v;
 }
 
-static inline void ipointer_writeptr(char *ptr, void *v) {
+static inline void ipointer_write_ptr(char *ptr, void *v) {
 	memcpy(ptr, &v, sizeof(void*));
+}
+
+static inline size_t ipointer_read_size(const char *ptr) {
+	size_t s; memcpy(&s, ptr, sizeof(size_t)); return s;
+}
+
+static inline void ipointer_write_size(char *ptr, size_t s) {
+	memcpy(ptr, &s, sizeof(size_t));
+}
+
+static inline ilong ipointer_read_long(const char *ptr) {
+	ilong v; memcpy(&v, ptr, sizeof(ilong)); return v;
+}
+
+static inline void ipointer_write_long(char *ptr, ilong v) {
+	memcpy(ptr, &v, sizeof(ilong));
 }
 
 
