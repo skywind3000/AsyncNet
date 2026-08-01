@@ -2191,6 +2191,7 @@ void ib_hash_replace(struct ib_hash_table *ht,
 {
 	struct ib_hash_index *index = &ht->index[victim->hash & ht->index_mask];
 	ib_node_replace(&victim->avlnode, &newnode->avlnode, &index->avlroot);
+	ib_node_init(&victim->avlnode);   /* mark victim as detached */
 }
 
 void ib_hash_clear(struct ib_hash_table *ht,

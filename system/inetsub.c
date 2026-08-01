@@ -7,6 +7,7 @@
 //=====================================================================
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "inetsub.h"
 
@@ -311,11 +312,9 @@ void async_signal_reading(CAsyncLoop *loop, CAsyncEvent *event, int evt)
 #endif
 	if (retval != (int)sizeof(int)) return;
 	if (signum < 0 || signum >= CASYNC_SIGNAL_MAX) return;
-	if (sig->signaled[signum] != 0) {
-		sig->signaled[signum] = 0; // reset the signaled state
-		if (sig->callback) {
-			sig->callback(sig, signum);
-		}
+	sig->signaled[signum] = 0; // reset the signaled state
+	if (sig->callback) {
+		sig->callback(sig, signum);
 	}
 }
 

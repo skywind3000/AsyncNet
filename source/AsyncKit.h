@@ -39,6 +39,7 @@ public:
 
 	inline const CAsyncStream *GetStream() const { return _stream; }
 	inline CAsyncStream *GetStream() { return _stream; }
+	inline CAsyncLoop *GetLoop() const { return _loop; }
 
 	inline int GetError() const { return _stream ? _stream->error : -1; }
 	inline int GetDirection() const { return _stream ? _stream->direction : 0; }
@@ -59,6 +60,7 @@ public:
 	// inline int GetError() const { return _stream->error; }
 
 	void SetCallback(std::function<void(int event, int args)> cb);
+	std::function<void(int event, int args)> GetCallback() const;
 
 	// create a new stream based on CAsyncStream object
 	int NewStream(CAsyncStream *stream, bool borrow = false);
@@ -78,8 +80,47 @@ public:
 	// create a TCP stream and connect to remote address
 	int NewConnect(const PosixAddress &addr);
 
+	// upgrade the current stream in place: wrap it with a filter stream
+	// (e.g. SSL/proxy filter) created by the factory. On success, the
+	// filter stream becomes the active stream of this object, while the
+	// previous stream is owned by the filter as its underlying stream.
+	// On failure (factory returns NULL), nothing is changed and the
+	// current stream remains valid. A borrowed stream (NewStream with
+	// borrow=true) cannot be upgraded, because its ownership cannot be
+	// transferred to the filter. Returns 0 on success, -1 on error.
+	int Upgrade(std::function<CAsyncStream*(CAsyncLoop *loop,
+			CAsyncStream *stream)> factory);
+
+	// filter transform callback: consume bytes from src and produce
+	// into dst, mode is ASYNC_FILTER_NORMAL/FLUSH/FINISH. Returns
+	// ASYNC_FILTER_OK, ASYNC_FILTER_NEED_MORE, or a negative error
+	// code which puts the stream into the error state.
+	typedef std::function<int(IMSTREAM *src, IMSTREAM *dst, int mode)>
+			FilterFn;
+
+	// upgrade the current stream in place with a filter stream (see
+	// async_stream_filter_new): in_filter transforms input bytes
+	// (underlying -> user), out_filter transforms output bytes
+	// (user -> underlying), either can be nullptr for pass-through.
+	// The callbacks are kept on the heap and released together with
+	// the filter stream (via ctx_free), so captured state stays valid
+	// for the whole filter lifetime. Same restrictions as Upgrade():
+	// a borrowed stream cannot be upgraded. Returns 0 on success,
+	// -1 on error (nothing is changed on failure).
+	int UpgradeFilter(FilterFn in_filter, FilterFn out_filter);
+
+	// flush the filter stream with ASYNC_FILTER_FLUSH/FINISH, only
+	// valid when the active stream is a filter stream
+	int FilterFlush(int mode);
+
 	// close stream
 	void Close();
+
+	// graceful close stream: try to drain the output buffer before
+	// closing. After this call, the stream is considered disposed and
+	// _stream will be NULL; do not use this AsyncStream object for I/O
+	// anymore.
+	void GracefulClose(int timeout_ms);
 
 	// how many bytes remain in the recv buffer
 	inline long Remain() const { 

@@ -101,6 +101,11 @@ void AsyncStream::SetCallback(std::function<void(int event, int args)> cb)
 	}
 }
 
+std::function<void(int event, int args)> AsyncStream::GetCallback() const
+{
+	return *_cb_ptr;
+}
+
 
 //---------------------------------------------------------------------
 // close socket
@@ -110,6 +115,21 @@ void AsyncStream::Close()
 	if (_stream) {
 		if (_borrow == false) {
 			async_stream_close(_stream);
+		}
+		_stream = NULL;
+	}
+	_borrow = false;
+}
+
+
+//---------------------------------------------------------------------
+// graceful close socket
+//---------------------------------------------------------------------
+void AsyncStream::GracefulClose(int timeout_ms)
+{
+	if (_stream) {
+		if (_borrow == false) {
+			async_stream_graceful(_stream, timeout_ms);
 		}
 		_stream = NULL;
 	}
@@ -189,6 +209,108 @@ int AsyncStream::NewConnect(int family, const char *text, int port)
 int AsyncStream::NewConnect(const PosixAddress &addr)
 {
 	return NewConnect(addr.address(), addr.size());
+}
+
+
+//---------------------------------------------------------------------
+// upgrade the current stream in place with a filter stream
+//---------------------------------------------------------------------
+int AsyncStream::Upgrade(std::function<CAsyncStream*(CAsyncLoop *loop,
+		CAsyncStream *stream)> factory)
+{
+	if (_stream == NULL || factory == nullptr) {
+		return -1;
+	}
+	// a borrowed stream cannot transfer its ownership to the filter
+	if (_borrow) {
+		return -1;
+	}
+	CAsyncStream *filter = factory(_loop, _stream);
+	if (filter == NULL) {
+		// failed: the current stream is untouched and remains active
+		return -1;
+	}
+	// the previous stream is now owned by the filter as its underlying
+	_stream = filter;
+	_stream->user = this;
+	_stream->callback = TcpCB;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// filter context: holds the std::function pair on the heap, its
+// lifetime is bound to the filter stream via ctx_free
+//---------------------------------------------------------------------
+namespace {
+	struct StreamFilterCtx {
+		AsyncStream::FilterFn in_filter;
+		AsyncStream::FilterFn out_filter;
+	};
+
+	int StreamFilterInCB(CAsyncStream *stream, IMSTREAM *src,
+			IMSTREAM *dst, int mode, void *ctx)
+	{
+		StreamFilterCtx *fc = (StreamFilterCtx*)ctx;
+		(void)stream;
+		return fc->in_filter(src, dst, mode);
+	}
+
+	int StreamFilterOutCB(CAsyncStream *stream, IMSTREAM *src,
+			IMSTREAM *dst, int mode, void *ctx)
+	{
+		StreamFilterCtx *fc = (StreamFilterCtx*)ctx;
+		(void)stream;
+		return fc->out_filter(src, dst, mode);
+	}
+
+	void StreamFilterCtxFree(void *ctx)
+	{
+		delete (StreamFilterCtx*)ctx;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// upgrade the current stream in place with a byte-transform filter
+//---------------------------------------------------------------------
+int AsyncStream::UpgradeFilter(FilterFn in_filter, FilterFn out_filter)
+{
+	if (_stream == NULL) {
+		return -1;
+	}
+	// a borrowed stream cannot transfer its ownership to the filter
+	if (_borrow) {
+		return -1;
+	}
+	StreamFilterCtx *fc = new StreamFilterCtx();
+	fc->in_filter = std::move(in_filter);
+	fc->out_filter = std::move(out_filter);
+	CAsyncStream *filter = async_stream_filter_new(_loop, _stream,
+			(fc->in_filter)? StreamFilterInCB : NULL,
+			(fc->out_filter)? StreamFilterOutCB : NULL,
+			1, fc, StreamFilterCtxFree, TcpCB);
+	if (filter == NULL) {
+		// failed: the current stream is untouched and remains active
+		delete fc;
+		return -1;
+	}
+	// the previous stream is now owned by the filter as its underlying
+	_stream = filter;
+	_stream->user = this;
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// flush the filter stream (ASYNC_FILTER_FLUSH/FINISH)
+//---------------------------------------------------------------------
+int AsyncStream::FilterFlush(int mode)
+{
+	if (_stream == NULL) {
+		return -1;
+	}
+	return async_stream_filter_flush(_stream, mode);
 }
 
 

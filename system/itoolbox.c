@@ -18,7 +18,7 @@
 //=====================================================================
 
 /* zero structure */
-void iposix_addr_init(iPosixAddress *addr)
+void iposix_addr_zero(iPosixAddress *addr)
 {
 	memset(addr, 0, sizeof(iPosixAddress));
 }
@@ -202,7 +202,7 @@ int iposix_addr_make(iPosixAddress *addr, int family, const char *t, int p)
 		}
 	}
 #endif
-	iposix_addr_init(addr);
+	iposix_addr_zero(addr);
 	iposix_addr_set_family(addr, family);
 	iposix_addr_set_ip_text(addr, t);
 	iposix_addr_set_port(addr, p);
@@ -351,7 +351,7 @@ int iposix_addr_from(iPosixAddress *addr, const char *text)
 	if (len < 1) {
 		return -1;
 	}
-	iposix_addr_init(addr);
+	iposix_addr_zero(addr);
 	if (text[0] == '[') {
 		// ipv6 format: [fe80::1]:8080
 		const char *endptr = strchr(text, ']');

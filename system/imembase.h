@@ -819,6 +819,7 @@ struct ib_hash_node* ib_hash_add(struct ib_hash_table *ht,
 
 void ib_hash_erase(struct ib_hash_table *ht, struct ib_hash_node *node);
 
+/* replace victim with newnode, victim will be marked as detached */
 void ib_hash_replace(struct ib_hash_table *ht,
 		struct ib_hash_node *victim, struct ib_hash_node *newnode);
 

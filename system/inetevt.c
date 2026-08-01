@@ -105,7 +105,7 @@
 //---------------------------------------------------------------------
 // internal consts
 //---------------------------------------------------------------------
-static const char ASYNC_LOOP_GUARD[8] = { 7, 6, 5, 4, 3, 2, 1, 0 };
+static const char ASYNC_LOOP_GUARD[8] = { 0, 6, 5, 4, 3, 2, 0, 7 };
 
 
 //---------------------------------------------------------------------
@@ -253,15 +253,15 @@ CAsyncLoop* async_loop_new(void)
 	loop->buffer = loop->internal + required;
 	loop->cache = loop->internal + required * 2;
 
-	// setup guard
-	memcpy(loop->internal + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
-	memcpy(loop->buffer + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
-	memcpy(loop->cache + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
-
 	if (loop->internal == NULL) {
 		ASSERTION(loop->internal);
 		abort();
 	}
+
+	// setup guard
+	memcpy(loop->internal + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
+	memcpy(loop->buffer + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
+	memcpy(loop->cache + ASYNC_LOOP_BUFFER_SIZE, ASYNC_LOOP_GUARD, cc);
 
 	loop->logcache = ib_string_new();
 

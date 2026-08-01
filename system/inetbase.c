@@ -475,10 +475,11 @@ int isocket(int family, int type, int protocol)
 		return -1;
 	}
 	assert(linear <= 0x7fffffff);
-	if (linear <= 0x7fffffff) {
-		return (int)linear;
+	if (linear > 0x7fffffff) {
+		closesocket(sock);
+		return -1;
 	}
-	return -1;
+	return (int)linear;
 #endif
 }
 
@@ -553,7 +554,19 @@ int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 	size_t linear;
 #endif
 	if (addr == NULL) {
+#ifndef _WIN32
 		return (int)accept(sock, NULL, NULL);
+#else
+		newfd = accept((SOCKET)sock, NULL, NULL);
+		if (newfd == INVALID_SOCKET) return -1;
+		linear = (size_t)newfd;
+		assert(linear <= 0x7fffffff);
+		if (linear > 0x7fffffff) {
+			closesocket(newfd);
+			return -1;
+		}
+		return (int)linear;
+#endif
 	}
 	if (addrlen) {
 		len = (addrlen[0] > 0)? (DSOCKLEN_T)addrlen[0] : len;
@@ -574,6 +587,7 @@ int iaccept(int sock, struct sockaddr *addr, int *addrlen)
 	if (linear <= 0x7fffffff) {
 		hr = (int)linear;
 	} else {
+		closesocket(newfd);
 		hr = -1;
 	}
 #endif
@@ -774,7 +788,8 @@ int ipollfd(int sock, int event, long millisec)
 		retval |= ISOCK_ERECV;
 	if ((event & ISOCK_ESEND) && (pfd.revents & POLLOUT)) 
 		retval |= ISOCK_ESEND;
-	if ((event & ISOCK_ERROR) && (pfd.revents & POLLERR)) 
+	if ((event & ISOCK_ERROR) && 
+		(pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) 
 		retval |= ISOCK_ERROR;
 	#else
 	struct timeval tmx = { 0, 0 };
@@ -798,6 +813,13 @@ int ipollfd(int sock, int event, long millisec)
 		pe = &fde;
 	}
 	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
+	if (retval == 0) return 0;
+	if (retval < 0) {
+	#ifdef __unix
+		if (ierrno() == EINTR) return 0;
+	#endif
+		return event & ISOCK_ERROR;
+	}
 	retval = 0;
 	if ((event & ISOCK_ERECV) && FD_ISSET(sock, &fdr)) retval |= ISOCK_ERECV;
 	if ((event & ISOCK_ESEND) && FD_ISSET(sock, &fdw)) retval |= ISOCK_ESEND;
@@ -868,30 +890,33 @@ char *ierrstr(int errnum, char *msg, int size)
 	char *lptr = (msg == NULL)? buffer : msg;
 	long length = (msg == NULL)? 1024 : size;
 	#ifdef __unix
+	if (length <= 0) return lptr;
 	strncpy(lptr, strerror(errnum), length);
+	lptr[length - 1] = 0;
 	#elif (!defined(_XBOX))
 	LPVOID lpMessageBuf = NULL;
 	fd_set fds;
+	if (length <= 0) return lptr;
 	FD_ZERO(&fds);
 	FD_CLR(0, &fds);
-	FormatMessage( 
+	FormatMessageA( 
 		FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
 		NULL, errnum, MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT), 
-		(LPTSTR) &lpMessageBuf, 0, NULL);
+		(LPSTR) &lpMessageBuf, 0, NULL);
 	lptr[0] = 0;
 	if (lpMessageBuf != NULL) {
 		int len, i;
 		strncpy(lptr, (char*)lpMessageBuf, length);
+		lptr[length - 1] = 0;
 		len = (int)strlen(lptr);
-		for (i = len - 1; i > 0; i--) {
+		for (i = len - 1; i >= 0; i--) {
 			if (lptr[i] != '\n' && lptr[i] != '\r') break;
 		}
-		if (i >= 0 && i < len) {
-			lptr[i] = 0;
-		}
+		lptr[i + 1] = 0;
 	}
 	LocalFree(lpMessageBuf);
 	#else
+	if (length <= 0) return lptr;
 	sprintf(buffer, "XBOX System Error Code: %d", errnum);
 	strncpy(msg, buffer, length);
 	#endif
@@ -970,7 +995,8 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 				revent |= ISOCK_ERECV;
 			if ((event & ISOCK_ESEND) && (pevent & POLLOUT))
 				revent |= ISOCK_ESEND;
-			if ((event & ISOCK_ERROR) && (pevent & POLLERR))
+			if ((event & ISOCK_ERROR) && 
+				(pevent & (POLLERR | POLLHUP | POLLNVAL)))
 				revent |= ISOCK_ERROR;
 			revents[i] = revent & event;
 			if (revents[i]) retval++;
@@ -1010,7 +1036,7 @@ int iselect(const int *fds, const int *events, int *revents, int count,
 		if (cw) dw = fdw;
 		if (ce) de = fde;
 
-		select(maxfd, dr, dw, de, (millisec >= 0)? &tmx : 0);
+		select(maxfd + 1, dr, dw, de, (millisec >= 0)? &tmx : 0);
 
 		for (i = 0; i < count; i++) {
 			int fd = fds[i];
@@ -1134,11 +1160,11 @@ static BOOL GetVersionEx2(LPOSVERSIONINFOA lpVersionInformation)
 int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 {
 	int enable = (keepcnt < 0 || keepidle < 0 || keepintvl < 0)? 0 : 1;
-	unsigned long value = 0;
 
 #if (defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64))
 	#define _SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR, 4)
 	unsigned long keepalive[3], oldkeep[3];
+	unsigned long value = 0;
 	OSVERSIONINFOA info;
 	int candoit = 0;
 
@@ -1157,8 +1183,11 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, 
 		sizeof(value));
 
-	if (candoit && enable) {
+	if (enable) {
 		int ret = 0;
+		if (candoit == 0) {
+			return -2;
+		}
 		keepalive[0] = 1;
 		keepalive[1] = ((unsigned long)keepidle) * 1000;
 		keepalive[2] = ((unsigned long)keepintvl) * 1000;
@@ -1167,31 +1196,30 @@ int ikeepalive(int sock, int keepcnt, int keepidle, int keepintvl)
 		if (ret == SOCKET_ERROR) {
 			return -1;
 		}
-	}	else {
-		return -2;
 	}
 	
 
 #elif defined(SOL_TCP) && defined(TCP_KEEPIDLE) && defined(TCP_KEEPINTVL)
 
-	value = enable? 1 : 0;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
+	int value = enable? 1 : 0;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(value));
 	if (!enable) goto keepalive_skip;
 #if defined(TCP_KEEPCNT)
 	value = keepcnt;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (char*)&value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPCNT, (char*)&value, sizeof(value));
 #endif
 	value = keepidle;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (char*)&value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPIDLE, (char*)&value, sizeof(value));
 	value = keepintvl;
-	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (char*)&value, sizeof(long));
+	isetsockopt(sock, SOL_TCP, TCP_KEEPINTVL, (char*)&value, sizeof(value));
 keepalive_skip:
 
 #elif defined(SO_KEEPALIVE)
-	value = enable? 1 : 0;
-	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(long));
+	int value = enable? 1 : 0;
+	isetsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (char*)&value, sizeof(value));
 #else
-	value = value + 1;
+	(void)sock;
+	(void)enable;
 	return -1;
 #endif
 
@@ -1461,13 +1489,14 @@ int isocket_init(void)
 /* socket option */
 int isocket_option(int fd, int option, int enable)
 {
-	long value = (enable)? 1 : 0;
+	int value = (enable)? 1 : 0;
 	long retval = 0;
+	unsigned long noblock = (enable)? 1 : 0;
 
 	switch (option)
 	{
 	case ISOCK_NOBLOCK:
-		retval = iioctl(fd, FIONBIO, (unsigned long*)(void*)&value);
+		retval = iioctl(fd, FIONBIO, &noblock);
 		break;
 	case ISOCK_REUSEADDR:
 		retval = isetsockopt(fd, (int)SOL_SOCKET, SO_REUSEADDR, 
@@ -1522,9 +1551,9 @@ int isocket_option(int fd, int option, int enable)
 	case ISOCK_IPV6ONLY:
 		#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
 		if (fd >= 0) {
-			unsigned long enable = (value)? 1 : 0;
+			int on = (value)? 1 : 0;
 			int cc = isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
-				(const char*)&enable, sizeof(enable));
+				(const char*)&on, sizeof(on));
 			if (cc == 0) {
 				retval = 0;
 			}
@@ -1621,19 +1650,19 @@ int isocket_udp_open(const struct sockaddr *addr, int addrlen, int flags)
 	int fd = -1;
 	int family = (addr == NULL)? AF_INET : addr->sa_family;
 
-	fd = (int)socket(family, SOCK_DGRAM, 0);
+	fd = isocket(family, SOCK_DGRAM, 0);
 
 	if (fd >= 0) {
 	#ifdef AF_INET6
 		if (family == AF_INET6) {
 			#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)
 			if (fd >= 0) {
-				unsigned long enable = 1;
+				int on = 1;
 				if ((flags & 0x400) != 0) {
-					enable = 0;
+					on = 0;
 				}
 				isetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
-					(const char*)&enable, sizeof(enable));
+					(const char*)&on, sizeof(on));
 			}
 			#endif
 		}
@@ -1795,7 +1824,7 @@ int isocket_pair_compat(int fds[2], int mode, int timeout)
 	int sock[2] = { -1, -1 };
 	int listener;
 
-	if ((listener = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0) 
+	if ((listener = isocket(AF_INET, SOCK_STREAM, 0)) < 0) 
 		return -1;
 	
 	memset(&addr1, 0, sizeof(addr1));
@@ -1819,7 +1848,7 @@ int isocket_pair_compat(int fds[2], int mode, int timeout)
 	if (listen(listener, 1))
 		goto failed;
 
-	if ((sock[0] = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0)
+	if ((sock[0] = isocket(AF_INET, SOCK_STREAM, 0)) < 0)
 		goto failed;
 
 	isocket_enable(sock[0], ISOCK_NOBLOCK);
@@ -1836,13 +1865,13 @@ int isocket_pair_compat(int fds[2], int mode, int timeout)
 		isocket_enable(listener, ISOCK_NOBLOCK);
 		ipollfd(listener, IPOLL_IN, timeout);
 
-		if ((sock[1] = (int)accept(listener, 0, 0)) < 0)
+		if ((sock[1] = iaccept(listener, NULL, NULL)) < 0)
 			goto failed;
 
 		isocket_disable(listener, ISOCK_NOBLOCK);
 	}	
 	else {
-		if ((sock[1] = (int)accept(listener, 0, 0)) < 0) 
+		if ((sock[1] = iaccept(listener, NULL, NULL)) < 0) 
 			goto failed;
 	}
 
@@ -2018,9 +2047,16 @@ int isocket_pair(int fds[2], int mode)
 			for (cc = 0; cc < 3; cc++) {
 				SOCKET socks[2];
 				if (isocket_pair_afunix(socks, mode) == 0) {
-					fds[0] = (int)socks[0];
-					fds[1] = (int)socks[1];
-					return 0;
+					if (((size_t)socks[0]) <= 0x7fffffff &&
+						((size_t)socks[1]) <= 0x7fffffff) {
+						fds[0] = (int)socks[0];
+						fds[1] = (int)socks[1];
+						return 0;
+					}
+					/* handle exceeds int range, fallback to compat */
+					closesocket(socks[0]);
+					closesocket(socks[1]);
+					break;
 				}
 			}
 		}
@@ -2975,7 +3011,7 @@ static int ipp_poll_event(ipolld ipd, int *fd, int *event, void **user)
 	revents = pfd->revents;
 	if (revents & POLLIN) eventx |= IPOLL_IN;
 	if (revents & POLLOUT)eventx |= IPOLL_OUT;
-	if (revents & POLLERR)eventx |= IPOLL_ERR;
+	if (revents & (POLLERR | POLLHUP | POLLNVAL)) eventx |= IPOLL_ERR;
 
 	n = pfd->fd;
 	if (ps->fv.fds[n].fd < 0) eventx = 0;
@@ -4223,7 +4259,7 @@ static int ipu_poll_event(ipolld ipd, int *fd, int *event, void **user)
 	revents = pfd->revents;
 	if (revents & POLLIN) eventx |= IPOLL_IN;
 	if (revents & POLLOUT)eventx |= IPOLL_OUT;
-	if (revents & POLLERR)eventx |= IPOLL_ERR;
+	if (revents & (POLLERR | POLLHUP | POLLNVAL)) eventx |= IPOLL_ERR;
 
 	n = pfd->fd;
 	if (ps->fv.fds[n].fd < 0) {
@@ -4558,7 +4594,7 @@ static int ipx_poll_event(ipolld ipd, int *fd, int *event, void **user)
 	revents = pfd->revents;
 	if (revents & POLLIN) eventx |= IPOLL_IN;
 	if (revents & POLLOUT)eventx |= IPOLL_OUT;
-	if (revents & POLLERR)eventx |= IPOLL_ERR;
+	if (revents & (POLLERR | POLLHUP | POLLNVAL)) eventx |= IPOLL_ERR;
 
 	n = pfd->fd;
 	if (ps->fv.fds[n].fd < 0) {
@@ -4644,18 +4680,19 @@ static int iposix_cond_win32_init(iConditionVariableWin32 *cond)
 				iposix_kernel32 = LoadLibraryA("Kernel32.dll");
 			}
 			if (iposix_kernel32) {
+				HINSTANCE kernel32 = iposix_kernel32;
 				PInitializeConditionVariable_o = 
 					(PInitializeConditionVariable_t)GetProcAddress(
-						iposix_kernel32, "InitializeConditionVariable");
+						kernel32, "InitializeConditionVariable");
 				PSleepConditionVariableCS_o = 
 					(PSleepConditionVariableCS_t)GetProcAddress(
-						iposix_kernel32, "SleepConditionVariableCS");
+						kernel32, "SleepConditionVariableCS");
 				PWakeConditionVariable_o = 
 					(PWakeConditionVariable_t)GetProcAddress(
-						iposix_kernel32, "WakeConditionVariable");
+						kernel32, "WakeConditionVariable");
 				PWakeAllConditionVariable_o =
 					(PWakeAllConditionVariable_t)GetProcAddress(
-						iposix_kernel32, "WakeAllConditionVariable");
+						kernel32, "WakeAllConditionVariable");
 
 				if (PInitializeConditionVariable_o &&
 					PSleepConditionVariableCS_o &&
@@ -5206,7 +5243,7 @@ PReleaseSRWLockExclusive_t PReleaseSRWLockExclusive_o = NULL;
 PAcquireSRWLockShared_t PAcquireSRWLockShared_o = NULL;
 PReleaseSRWLockShared_t PReleaseSRWLockShared_o = NULL;
 
-static int iposix_rwlock_inited = 0;
+static volatile int iposix_rwlock_inited = 0;
 static int iposix_rwlock_vista = 0;
 #endif
 
@@ -5221,31 +5258,36 @@ iRwLockPosix *iposix_rwlock_new(void)
 #ifdef _WIN32
 
 	if (iposix_rwlock_inited == 0) {
-		if (iposix_kernel32 == NULL) {
-			iposix_kernel32 = LoadLibraryA("Kernel32.dll");
-		}
-		if (iposix_kernel32) {
-			PInitializeSRWLock_o = (PInitializeSRWLock_t)
-				GetProcAddress(iposix_kernel32, "InitializeSRWLock");
-			PAcquireSRWLockExclusive_o = (PAcquireSRWLockExclusive_t)
-				GetProcAddress(iposix_kernel32, "AcquireSRWLockExclusive");
-			PReleaseSRWLockExclusive_o = (PReleaseSRWLockExclusive_t)
-				GetProcAddress(iposix_kernel32, "ReleaseSRWLockExclusive");
-			PAcquireSRWLockShared_o = (PAcquireSRWLockShared_t)
-				GetProcAddress(iposix_kernel32, "AcquireSRWLockShared");
-			PReleaseSRWLockShared_o = (PReleaseSRWLockShared_t)
-				GetProcAddress(iposix_kernel32, "ReleaseSRWLockShared");
-			if (PInitializeSRWLock_o &&
-				PAcquireSRWLockExclusive_o && 
-				PReleaseSRWLockExclusive_o && 
-				PAcquireSRWLockShared_o && 
-				PReleaseSRWLockShared_o) {
-				if (IFEATURE_HAS(IFEATURE_VISTA_RWLOCK)) {
-					iposix_rwlock_vista = 1;
+		IMUTEX_TYPE *lock = internal_mutex_get(4);
+		IMUTEX_LOCK(lock);
+		if (iposix_rwlock_inited == 0) {
+			if (iposix_kernel32 == NULL) {
+				iposix_kernel32 = LoadLibraryA("Kernel32.dll");
+			}
+			if (iposix_kernel32) {
+				PInitializeSRWLock_o = (PInitializeSRWLock_t)
+					GetProcAddress(iposix_kernel32, "InitializeSRWLock");
+				PAcquireSRWLockExclusive_o = (PAcquireSRWLockExclusive_t)
+					GetProcAddress(iposix_kernel32, "AcquireSRWLockExclusive");
+				PReleaseSRWLockExclusive_o = (PReleaseSRWLockExclusive_t)
+					GetProcAddress(iposix_kernel32, "ReleaseSRWLockExclusive");
+				PAcquireSRWLockShared_o = (PAcquireSRWLockShared_t)
+					GetProcAddress(iposix_kernel32, "AcquireSRWLockShared");
+				PReleaseSRWLockShared_o = (PReleaseSRWLockShared_t)
+					GetProcAddress(iposix_kernel32, "ReleaseSRWLockShared");
+				if (PInitializeSRWLock_o &&
+					PAcquireSRWLockExclusive_o && 
+					PReleaseSRWLockExclusive_o && 
+					PAcquireSRWLockShared_o && 
+					PReleaseSRWLockShared_o) {
+					if (IFEATURE_HAS(IFEATURE_VISTA_RWLOCK)) {
+						iposix_rwlock_vista = 1;
+					}
 				}
 			}
+			iposix_rwlock_inited = 1;
 		}
-		iposix_rwlock_inited = 1;
+		IMUTEX_UNLOCK(lock);
 	}
 
 	if (iposix_rwlock_vista == 0) {
@@ -5257,7 +5299,7 @@ iRwLockPosix *iposix_rwlock_new(void)
 	}
 
 #elif defined(IHAVE_PTHREAD_RWLOCK)
-	pthread_rwlock_init(&rwlock->lock);
+	pthread_rwlock_init(&rwlock->lock, NULL);
 	success = 1;
 
 #else
@@ -5332,7 +5374,7 @@ void iposix_rwlock_r_lock(iRwLockPosix *rwlock)
 		PAcquireSRWLockShared_o(&rwlock->lock);
 	}
 #elif defined(IHAVE_PTHREAD_RWLOCK)
-	pthread_rwlock_rlock(&rwlock->lock);
+	pthread_rwlock_rdlock(&rwlock->lock);
 #else
 	iposix_rwlock_r_lock_generic(rwlock->rwlock);
 #endif
@@ -6928,10 +6970,11 @@ void iposix_clock_gettime(int source, IINT64 *sec, long *nsec)
 	tv_sec = (IINT64)(tv.tv_sec);
 	tv_nsec = (long)(tv.tv_usec * 1000);
 #else
-	long sec, usec;
-	itimeofday(&sec, &usec);
-	tv_sec = (IINT64)sec;
-	tv_nsec = (long)(usec * 1000);
+	IINT64 tmp_sec = 0;
+	long tmp_usec = 0;
+	itimeofday(&tmp_sec, &tmp_usec);
+	tv_sec = tmp_sec;
+	tv_nsec = (long)(tmp_usec * 1000);
 #endif
 	if (sec) sec[0] = tv_sec;
 	if (nsec) nsec[0] = tv_nsec;
@@ -7290,7 +7333,7 @@ static int inet_pton6x(const char *src, unsigned char *dst)
 			continue;
 		}
 		if (ch == '.' && ((tp + IM_INADDRSZ) <= endp) &&
-		    inet_pton4x(curtok, tp) > 0) {
+		    inet_pton4x(curtok, tp) == 0) {
 			tp += IM_INADDRSZ;
 			saw_xdigit = 0;
 			break;	

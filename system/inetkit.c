@@ -149,6 +149,7 @@ long async_stream_option(CAsyncStream *stream, int option, long value)
 }
 
 
+
 //=====================================================================
 // Pair Stream
 //=====================================================================
@@ -605,6 +606,7 @@ static long async_tcp_pending(const CAsyncStream *stream);
 static void async_tcp_watermark(CAsyncStream *stream, long high, long low);
 static long async_tcp_option(CAsyncStream *stream, int option, long value);
 static void async_tcp_check(CAsyncStream *stream);
+static void async_tcp_error_shutdown(CAsyncStream *stream);
 
 
 //---------------------------------------------------------------------
@@ -874,8 +876,11 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 		}
 
 		if (stream->enabled & ASYNC_EVENT_WRITE) {
-			if (!async_event_is_active(&tcp->evt_write)) {
-				async_event_start(loop, &tcp->evt_write);
+			// flush data written while the stream was still connecting
+			if (tcp->sendbuf.size > 0) {
+				if (!async_event_is_active(&tcp->evt_write)) {
+					async_event_start(loop, &tcp->evt_write);
+				}
 			}
 		}
 
@@ -887,8 +892,33 @@ static void async_tcp_evt_connect(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 		async_tcp_dispatch(stream, ASYNC_STREAM_EVT_ESTAB, 0);
 	}
 	else if (hr < 0) {
+		int error = 0;
+		int len = (int)sizeof(int);
+		if (igetsockopt(tcp->fd, SOL_SOCKET, SO_ERROR, 
+			(char*)&error, &len) != 0 || error <= 0) {
+			error = ierrno();
+			if (error <= 0) error = 1; // generic connect failure
+		}
+		stream->error = error;
 		async_event_stop(loop, &tcp->evt_connect);
-		async_tcp_dispatch(stream, ASYNC_STREAM_EVT_ERROR, hr);
+		async_tcp_error_shutdown(stream);
+		async_tcp_dispatch(stream, ASYNC_STREAM_EVT_ERROR, error);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// fatal error: stop I/O events to avoid busy-looping on a dead socket
+//---------------------------------------------------------------------
+static void async_tcp_error_shutdown(CAsyncStream *stream)
+{
+	CAsyncTcp *tcp = async_stream_upcast(stream, CAsyncTcp, stream);
+	CAsyncLoop *loop = stream->loop;
+	if (async_event_is_active(&tcp->evt_read)) {
+		async_event_stop(loop, &tcp->evt_read);
+	}
+	if (async_event_is_active(&tcp->evt_write)) {
+		async_event_stop(loop, &tcp->evt_write);
 	}
 }
 
@@ -1022,8 +1052,9 @@ static void async_tcp_evt_read(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 			}
 		}
 	}
-	if (error > 0 && stream->error > 0) {
+	if (error <= 0 && stream->error > 0) {
 		event |= ASYNC_STREAM_EVT_ERROR;
+		async_tcp_error_shutdown(stream);
 	}
 	if (event != 0) {
 		async_tcp_dispatch(stream, event, total);
@@ -1068,6 +1099,7 @@ static void async_tcp_evt_write(CAsyncLoop *loop, CAsyncEvent *evt, int mask)
 
 	if (error <= 0 && stream->error > 0) {
 		event |= ASYNC_STREAM_EVT_ERROR;
+		async_tcp_error_shutdown(stream);
 	}
 
 	if (event > 0) {
@@ -1133,7 +1165,9 @@ long async_tcp_write(CAsyncStream *stream, const void *ptr, long size)
 			total += need;
 		}
 	}
-	if (tcp->sendbuf.size > 0) {
+	if (tcp->sendbuf.size > 0 && stream->state == ASYNC_STREAM_ESTAB) {
+		// during CONNECTING data is only buffered, evt_write will be
+		// started by async_tcp_evt_connect once the socket is ready
 		if (stream->enabled & ASYNC_EVENT_WRITE) {
 			if (!async_event_active(&tcp->evt_write)) {
 				async_event_start(stream->loop, &tcp->evt_write);
@@ -1418,6 +1452,754 @@ long async_stream_pass_option(CAsyncStream *stream, int option, long value)
 }
 
 
+//=====================================================================
+// graceful close: initiate asynchronous disposal of the stream.
+//
+// See the contract in inetkit.h: after calling async_stream_graceful,
+// the stream pointer must be treated as disposed. Do not access it in
+// any way afterwards, including calling async_stream_close() again.
+//
+// timeout_ms is the maximum time to wait for the output buffer to 
+// drain, in milliseconds. If <= 0, the stream is closed immediately.
+//=====================================================================
+
+// graceful close: timer callback
+static void async_stream_graceful_timer(CAsyncLoop *loop, CAsyncTimer *timer)
+{
+	CAsyncStream *stream = (CAsyncStream*)timer->user;
+	(void)loop;
+	if (async_timer_is_active(timer)) {
+		async_timer_stop(stream->loop, timer);
+	}
+	ikmem_free(timer);
+	stream->user = NULL;
+	stream->callback = NULL;
+	async_stream_close(stream);
+}
+
+// graceful close: stream callback
+static void async_stream_graceful_cb(CAsyncStream *stream, int events, int x)
+{
+	long need_close = 0;
+	(void)x;
+	if (events & ASYNC_STREAM_EVT_WRITING) {
+		if (async_stream_pending(stream) <= 0) {
+			need_close = 1;
+		}
+	}
+	if (events & ASYNC_STREAM_EVT_ERROR) {
+		need_close = 1;
+	}
+	if (need_close) {
+		CAsyncTimer *timer = (CAsyncTimer*)stream->user;
+		if (timer) {
+			if (async_timer_is_active(timer)) {
+				async_timer_stop(stream->loop, timer);
+			}
+			ikmem_free(timer);
+		}
+		stream->user = NULL;
+		stream->callback = NULL;
+		async_stream_close(stream);
+	}
+}
+
+
+// async_stream_graceful
+void async_stream_graceful(CAsyncStream *stream, int timeout_ms)
+{
+	assert(stream);
+	if (stream->callback == async_stream_graceful_cb) {
+		return; // already in graceful close
+	}
+	// close immediately if timeout_ms <= 0 or no pending data
+	if (timeout_ms <= 0 || async_stream_pending(stream) <= 0) {
+		async_stream_close(stream);
+	}
+	else {   // setup new callback and timer 
+		CAsyncTimer *timer = (CAsyncTimer*)ikmem_malloc(sizeof(CAsyncTimer));
+		if (!timer) {
+			async_stream_close(stream);
+			return;
+		}
+		async_timer_init(timer, async_stream_graceful_timer);
+		async_timer_start(stream->loop, timer, (IUINT32)timeout_ms, 0);
+		timer->user = stream;
+		stream->user = timer;
+		stream->callback = async_stream_graceful_cb;
+		async_stream_enable(stream, ASYNC_EVENT_WRITE);
+		async_stream_disable(stream, ASYNC_EVENT_READ);
+	}
+}
+
+
+
+//=====================================================================
+// CAsyncFilter: filter stream wrapping an underlying stream, applies
+// user supplied transform callbacks on both directions, similar to
+// the bufferevent filter in libevent.
+//=====================================================================
+typedef struct _CAsyncFilter {
+	CAsyncStream stream;        // base stream (vtable points to filter impl)
+	CAsyncStreamFilterFn in_filter;    // input transform (underlying -> user)
+	CAsyncStreamFilterFn out_filter;   // output transform (user -> underlying)
+	void *ctx;                  // user context for filter callbacks
+	void (*ctx_free)(void *ctx);       // ctx destructor, called on destroy
+	int busy;                   // reference count for nested dispatch
+	int closing;                // close in progress flag
+	int estab_notified;         // ESTAB already delivered to the user
+	int in_finished;            // in_filter received FINISH already
+	int out_finished;           // out_filter received FINISH, writes rejected
+	struct IMSTREAM stage;      // raw input pulled from underlying
+	struct IMSTREAM recvbuf;    // filtered input, user reads from here
+	struct IMSTREAM sendbuf;    // raw output written by the user
+	struct IMSTREAM outbuf;     // filtered output for the underlying
+	struct IMSTREAM notify;     // event notification queue
+	CAsyncPostpone evt_post;    // postpone event for deferred dispatch
+	void *orig_user;            // original underlying->user (for restore)
+	void (*orig_callback)(CAsyncStream *stream, int event, int args);
+}	CAsyncFilter;
+
+
+//---------------------------------------------------------------------
+// filter stream internal
+//---------------------------------------------------------------------
+static void async_filter_close(CAsyncStream *stream);
+static long async_filter_read(CAsyncStream *stream, void *ptr, long size);
+static long async_filter_write(CAsyncStream *stream, const void *ptr, long size);
+static long async_filter_peek(CAsyncStream *stream, void *ptr, long size);
+static void async_filter_enable(CAsyncStream *stream, int event);
+static void async_filter_disable(CAsyncStream *stream, int event);
+static long async_filter_remain(const CAsyncStream *stream);
+static long async_filter_pending(const CAsyncStream *stream);
+static void async_filter_watermark(CAsyncStream *stream, long high, long low);
+static long async_filter_option(CAsyncStream *stream, int option, long value);
+
+static void async_filter_destroy(CAsyncFilter *filter);
+static void async_filter_notify(CAsyncFilter *filter, int event, int args);
+static int async_filter_dispatch(CAsyncFilter *filter, int event, int args);
+static void async_filter_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone);
+static void async_filter_fatal(CAsyncFilter *filter, int code);
+static int async_filter_run_in(CAsyncFilter *filter, int mode);
+static int async_filter_run_out(CAsyncFilter *filter, int mode);
+static void async_filter_drain(CAsyncFilter *filter);
+static void async_filter_feed(CAsyncFilter *filter);
+static void async_filter_underlying_event(CAsyncStream *underlying,
+		int event, int args);
+
+
+//---------------------------------------------------------------------
+// post notify event (deferred delivery via postpone)
+//---------------------------------------------------------------------
+static void async_filter_notify(CAsyncFilter *filter, int event, int args)
+{
+	CAsyncStream *stream = &filter->stream;
+	char notify[8];
+	iencode32i_lsb(notify + 0, event);
+	iencode32i_lsb(notify + 4, args);
+	ims_write(&filter->notify, notify, 8);
+	if (async_post_is_active(&filter->evt_post) == 0) {
+		async_post_start(stream->loop, &filter->evt_post);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// dispatch event to user callback
+// The caller must hold a busy reference (busy > 0) across this call,
+// therefore the filter can never be destroyed inside: destroy only
+// happens when the outermost frame unwinds and busy drops to 0 with
+// closing set (see async_filter_postpone).
+// Returns: -1 = closing set, caller should stop dispatching
+//           0 = normal, still alive
+//---------------------------------------------------------------------
+static int async_filter_dispatch(CAsyncFilter *filter, int event, int args)
+{
+	CAsyncStream *stream = &filter->stream;
+	CAsyncLoop *loop = stream->loop;
+	if (loop && (loop->logmask & ASYNC_LOOP_LOG_STREAM)) {
+		async_loop_log(loop, ASYNC_LOOP_LOG_STREAM,
+			"[filter] dispatch event=0x%x args=%d", event, args);
+	}
+	assert(filter->busy > 0);
+	filter->busy++;
+	if (stream->callback) {
+		stream->callback(stream, event, args);
+	}
+	filter->busy--;
+	return filter->closing ? -1 : 0;
+}
+
+
+//---------------------------------------------------------------------
+// postpone callback: process pending notifications
+//---------------------------------------------------------------------
+static void async_filter_postpone(CAsyncLoop *loop, CAsyncPostpone *postpone)
+{
+	CAsyncStream *stream = (CAsyncStream*)postpone->user;
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	char notify[8];
+	(void)loop;
+	filter->busy++;
+	while ((long)filter->notify.size >= 8) {
+		IINT32 event, args;
+		ims_read(&filter->notify, notify, 8);
+		idecode32i_lsb(notify + 0, &event);
+		idecode32i_lsb(notify + 4, &args);
+		if (filter->closing) break;
+		if (async_filter_dispatch(filter, (int)event, (int)args)) {
+			break; // closing - stop processing
+		}
+	}
+	filter->busy--;
+	if (filter->closing && filter->busy == 0) {
+		async_filter_destroy(filter);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// fatal error: stop underlying events and report ERROR to the user
+//---------------------------------------------------------------------
+static void async_filter_fatal(CAsyncFilter *filter, int code)
+{
+	CAsyncStream *stream = &filter->stream;
+	stream->error = code;
+	if (stream->underlying) {
+		async_stream_disable(stream->underlying, 
+			ASYNC_EVENT_READ | ASYNC_EVENT_WRITE);
+	}
+	async_filter_notify(filter, ASYNC_STREAM_EVT_ERROR, code);
+}
+
+
+//---------------------------------------------------------------------
+// run input filter: stage -> recvbuf, notify READING on growth
+//---------------------------------------------------------------------
+static int async_filter_run_in(CAsyncFilter *filter, int mode)
+{
+	CAsyncStream *stream = &filter->stream;
+	long before = (long)filter->recvbuf.size;
+	long delta;
+	int hr = ASYNC_FILTER_OK;
+	if (filter->in_finished) {
+		return ASYNC_FILTER_OK;
+	}
+	if (filter->in_filter != NULL) {
+		hr = filter->in_filter(stream, &filter->stage, &filter->recvbuf,
+				mode, filter->ctx);
+	}
+	else if (filter->stage.size > 0) {
+		ims_move(&filter->recvbuf, &filter->stage, 
+				(ilong)filter->stage.size);
+	}
+	if (mode == ASYNC_FILTER_FINISH) {
+		filter->in_finished = 1;
+	}
+	if (hr < 0) {
+		async_filter_fatal(filter, hr);
+		return hr;
+	}
+	delta = (long)filter->recvbuf.size - before;
+	if (delta > 0 && (stream->enabled & ASYNC_EVENT_READ)) {
+		async_filter_notify(filter, ASYNC_STREAM_EVT_READING, (int)delta);
+	}
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// drain outbuf into the underlying stream
+//---------------------------------------------------------------------
+static void async_filter_drain(CAsyncFilter *filter)
+{
+	CAsyncStream *underlying = filter->stream.underlying;
+	while (filter->outbuf.size > 0) {
+		void *ptr = NULL;
+		long size = (long)ims_flat(&filter->outbuf, &ptr);
+		long hr;
+		if (size <= 0) break;
+		hr = _async_stream_write(underlying, ptr, size);
+		if (hr <= 0) break;
+		ims_drop(&filter->outbuf, hr);
+		if (hr < size) break;
+	}
+	if (filter->outbuf.size > 0) {
+		// underlying did not accept everything, retry on EVT_WRITING
+		async_stream_enable(underlying, ASYNC_EVENT_WRITE);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// run output filter: sendbuf -> outbuf, then drain into underlying
+//---------------------------------------------------------------------
+static int async_filter_run_out(CAsyncFilter *filter, int mode)
+{
+	CAsyncStream *stream = &filter->stream;
+	int hr = ASYNC_FILTER_OK;
+	if (filter->out_filter != NULL) {
+		if (filter->sendbuf.size > 0 || mode != ASYNC_FILTER_NORMAL) {
+			hr = filter->out_filter(stream, &filter->sendbuf, 
+					&filter->outbuf, mode, filter->ctx);
+		}
+	}
+	else if (filter->sendbuf.size > 0) {
+		ims_move(&filter->outbuf, &filter->sendbuf, 
+				(ilong)filter->sendbuf.size);
+	}
+	if (hr < 0) {
+		async_filter_fatal(filter, hr);
+		return hr;
+	}
+	async_filter_drain(filter);
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// pull available data from underlying into stage and run in_filter
+//---------------------------------------------------------------------
+static void async_filter_feed(CAsyncFilter *filter)
+{
+	CAsyncStream *stream = &filter->stream;
+	CAsyncStream *underlying = stream->underlying;
+	CAsyncLoop *loop = stream->loop;
+	char *buffer = loop->cache;
+	while (1) {
+		long hr;
+		if (stream->hiwater > 0 && 
+			(long)filter->recvbuf.size >= stream->hiwater) {
+			// filtered data reached high watermark, stop pulling
+			async_stream_disable(underlying, ASYNC_EVENT_READ);
+			break;
+		}
+		hr = _async_stream_read(underlying, buffer, ASYNC_LOOP_BUFFER_SIZE);
+		if (hr <= 0) break;
+		ims_write(&filter->stage, buffer, hr);
+	}
+	if (filter->stage.size > 0) {
+		async_filter_run_in(filter, ASYNC_FILTER_NORMAL);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// underlying stream event callback (hijacked)
+//---------------------------------------------------------------------
+static void async_filter_underlying_event(CAsyncStream *underlying,
+		int event, int args)
+{
+	CAsyncFilter *filter = (CAsyncFilter*)underlying->user;
+	CAsyncStream *stream;
+	if (filter == NULL) return;
+	if (filter->closing) return;
+	stream = &filter->stream;
+	filter->busy++;
+	if (event & ASYNC_STREAM_EVT_ESTAB) {
+		stream->state = ASYNC_STREAM_ESTAB;
+		if (filter->sendbuf.size > 0 || filter->outbuf.size > 0) {
+			// flush data written before the connection established
+			async_filter_run_out(filter, ASYNC_FILTER_NORMAL);
+		}
+		if (filter->closing == 0 && filter->estab_notified == 0) {
+			filter->estab_notified = 1;
+			async_filter_notify(filter, ASYNC_STREAM_EVT_ESTAB, 0);
+		}
+	}
+	if (filter->closing == 0 && (event & ASYNC_STREAM_EVT_READING)) {
+		async_filter_feed(filter);
+	}
+	if (filter->closing == 0 && (event & ASYNC_STREAM_EVT_WRITING)) {
+		if (filter->outbuf.size > 0) {
+			async_filter_drain(filter);
+		}
+		if (filter->outbuf.size == 0 && 
+			(stream->enabled & ASYNC_EVENT_WRITE) == 0) {
+			async_stream_disable(underlying, ASYNC_EVENT_WRITE);
+		}
+		if (stream->enabled & ASYNC_EVENT_WRITE) {
+			async_filter_notify(filter, ASYNC_STREAM_EVT_WRITING, args);
+		}
+	}
+	if (filter->closing == 0 && (event & ASYNC_STREAM_EVT_EOF)) {
+		// input EOF: pick up remaining data, then final flush
+		async_filter_feed(filter);
+		if (filter->closing == 0) {
+			async_filter_run_in(filter, ASYNC_FILTER_FINISH);
+		}
+		if (filter->closing == 0) {
+			stream->eof |= (underlying->eof != 0)? 
+				underlying->eof : ASYNC_STREAM_INPUT;
+			async_filter_notify(filter, ASYNC_STREAM_EVT_EOF, 0);
+		}
+	}
+	if (filter->closing == 0 && (event & ASYNC_STREAM_EVT_ERROR)) {
+		async_filter_fatal(filter, args);
+	}
+	filter->busy--;
+	if (filter->closing && filter->busy == 0) {
+		async_filter_destroy(filter);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// destroy: actual cleanup and resource release
+//---------------------------------------------------------------------
+static void async_filter_destroy(CAsyncFilter *filter)
+{
+	CAsyncStream *stream;
+	if (filter == NULL) return;
+	stream = &filter->stream;
+	if (async_post_is_active(&filter->evt_post)) {
+		async_post_stop(stream->loop, &filter->evt_post);
+	}
+	if (stream->underlying) {
+		CAsyncStream *underlying = stream->underlying;
+		underlying->user = filter->orig_user;
+		underlying->callback = filter->orig_callback;
+		if (stream->underown) {
+			async_stream_close(underlying);
+		}
+		stream->underlying = NULL;
+	}
+	ims_destroy(&filter->stage);
+	ims_destroy(&filter->recvbuf);
+	ims_destroy(&filter->sendbuf);
+	ims_destroy(&filter->outbuf);
+	ims_destroy(&filter->notify);
+	if (filter->ctx_free) {
+		filter->ctx_free(filter->ctx);
+		filter->ctx_free = NULL;
+	}
+	filter->ctx = NULL;
+	stream->instance = NULL;
+	async_stream_zero(stream);
+	ikmem_free(filter);
+}
+
+
+//---------------------------------------------------------------------
+// close: set closing flag, defer destroy if busy
+//---------------------------------------------------------------------
+static void async_filter_close(CAsyncStream *stream)
+{
+	CAsyncFilter *filter;
+	assert(stream != NULL);
+	assert(stream->name == ASYNC_STREAM_NAME_FILTER);
+	filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	if (filter->closing) return;
+	filter->closing = 1;
+	if (filter->busy == 0) {
+		async_filter_destroy(filter);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// read: return filtered data from recvbuf
+//---------------------------------------------------------------------
+static long async_filter_read(CAsyncStream *stream, void *ptr, long size)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	long hr = (long)ims_read(&filter->recvbuf, ptr, size);
+	if (hr > 0 && (stream->enabled & ASYNC_EVENT_READ)) {
+		if (stream->hiwater <= 0 || 
+			(long)filter->recvbuf.size < stream->hiwater) {
+			CAsyncStream *underlying = stream->underlying;
+			async_stream_enable(underlying, ASYNC_EVENT_READ);
+			// pick up data buffered in the underlying stream while
+			// the watermark was blocking (no new event will fire)
+			if (async_stream_remain(underlying) > 0) {
+				filter->busy++;
+				async_filter_feed(filter);
+				filter->busy--;
+				if (filter->closing && filter->busy == 0) {
+					async_filter_destroy(filter);
+				}
+			}
+		}
+	}
+	else if (hr == 0 && async_stream_eof_read(stream)) {
+		hr = -1;
+	}
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// write: put raw data into sendbuf, trigger out_filter
+//---------------------------------------------------------------------
+static long async_filter_write(CAsyncStream *stream, const void *ptr, long size)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	long hr;
+	if (size <= 0 || ptr == NULL) return 0;
+	if (filter->closing) return -1;
+	if (filter->out_finished) return -1;
+	hr = (long)ims_write(&filter->sendbuf, ptr, size);
+	if (hr > 0 && stream->state == ASYNC_STREAM_ESTAB) {
+		filter->busy++;
+		async_filter_run_out(filter, ASYNC_FILTER_NORMAL);
+		filter->busy--;
+		if (filter->closing && filter->busy == 0) {
+			async_filter_destroy(filter);
+			return -1;
+		}
+	}
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
+// peek: return filtered data from recvbuf without consuming
+//---------------------------------------------------------------------
+static long async_filter_peek(CAsyncStream *stream, void *ptr, long size)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	return (long)ims_peek(&filter->recvbuf, ptr, size);
+}
+
+
+//---------------------------------------------------------------------
+// enable ASYNC_EVENT_READ/WRITE
+//---------------------------------------------------------------------
+static void async_filter_enable(CAsyncStream *stream, int event)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	CAsyncStream *underlying = stream->underlying;
+	int fresh_read = 0;
+	if (event & ASYNC_EVENT_READ) {
+		if ((stream->enabled & ASYNC_EVENT_READ) == 0) {
+			fresh_read = 1;
+		}
+		stream->enabled |= ASYNC_EVENT_READ;
+		async_stream_enable(underlying, ASYNC_EVENT_READ);
+	}
+	if (event & ASYNC_EVENT_WRITE) {
+		stream->enabled |= ASYNC_EVENT_WRITE;
+		async_stream_enable(underlying, ASYNC_EVENT_WRITE);
+	}
+	if (fresh_read) {
+		// data already filtered while read was disabled
+		if (filter->recvbuf.size > 0) {
+			async_filter_notify(filter, ASYNC_STREAM_EVT_READING,
+				(int)filter->recvbuf.size);
+		}
+		// data buffered in the underlying stream, no event will fire
+		if (async_stream_remain(underlying) > 0) {
+			filter->busy++;
+			async_filter_feed(filter);
+			filter->busy--;
+			if (filter->closing && filter->busy == 0) {
+				async_filter_destroy(filter);
+			}
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// disable ASYNC_EVENT_READ/WRITE
+//---------------------------------------------------------------------
+static void async_filter_disable(CAsyncStream *stream, int event)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	CAsyncStream *underlying = stream->underlying;
+	if (event & ASYNC_EVENT_READ) {
+		stream->enabled &= ~ASYNC_EVENT_READ;
+		async_stream_disable(underlying, ASYNC_EVENT_READ);
+	}
+	if (event & ASYNC_EVENT_WRITE) {
+		stream->enabled &= ~ASYNC_EVENT_WRITE;
+		// keep underlying write enabled while outbuf is not drained
+		if (filter->outbuf.size == 0) {
+			async_stream_disable(underlying, ASYNC_EVENT_WRITE);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// remain: bytes available in recvbuf
+//---------------------------------------------------------------------
+static long async_filter_remain(const CAsyncStream *stream)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	return (long)filter->recvbuf.size;
+}
+
+
+//---------------------------------------------------------------------
+// pending: unsent bytes including the underlying stream, so that
+// async_stream_graceful() drains everything before closing
+//---------------------------------------------------------------------
+static long async_filter_pending(const CAsyncStream *stream)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	long total = (long)(filter->sendbuf.size + filter->outbuf.size);
+	if (stream->underlying) {
+		long under = async_stream_pending(stream->underlying);
+		if (under > 0) total += under;
+	}
+	return total;
+}
+
+
+//---------------------------------------------------------------------
+// set watermark on the filtered (user visible) side
+//---------------------------------------------------------------------
+static void async_filter_watermark(CAsyncStream *stream, long high, long low)
+{
+	CAsyncFilter *filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	if (high >= 0) {
+		stream->hiwater = high;
+	}
+	if (low >= 0) {
+		stream->lowater = low;
+	}
+	if (stream->enabled & ASYNC_EVENT_READ) {
+		if (stream->hiwater > 0 && 
+			(long)filter->recvbuf.size >= stream->hiwater) {
+			async_stream_disable(stream->underlying, ASYNC_EVENT_READ);
+		}
+		else {
+			async_stream_enable(stream->underlying, ASYNC_EVENT_READ);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
+// options: pass through to the underlying stream
+//---------------------------------------------------------------------
+static long async_filter_option(CAsyncStream *stream, int option, long value)
+{
+	if (stream->underlying && stream->underlying->option) {
+		return _async_stream_option(stream->underlying, option, value);
+	}
+	return -1;
+}
+
+
+//---------------------------------------------------------------------
+// create a filter stream wrapping an underlying stream
+//---------------------------------------------------------------------
+CAsyncStream *async_stream_filter_new(CAsyncLoop *loop,
+	CAsyncStream *underlying,
+	CAsyncStreamFilterFn in_filter,
+	CAsyncStreamFilterFn out_filter,
+	int close_on_free, void *ctx,
+	void (*ctx_free)(void *ctx),
+	void (*callback)(CAsyncStream *stream, int event, int args))
+{
+	CAsyncFilter *filter;
+	CAsyncStream *stream;
+	if (loop == NULL || underlying == NULL) {
+		return NULL;
+	}
+	if (underlying->loop != loop) {
+		return NULL;
+	}
+	filter = (CAsyncFilter*)ikmem_malloc(sizeof(CAsyncFilter));
+	if (filter == NULL) {
+		return NULL;
+	}
+	stream = &filter->stream;
+	async_stream_zero(stream);
+	stream->name = ASYNC_STREAM_NAME_FILTER;
+	stream->instance = filter;
+	stream->loop = loop;
+	stream->underlying = underlying;
+	stream->underown = (close_on_free)? 1 : 0;
+	stream->direction = underlying->direction;
+	stream->state = underlying->state;
+	stream->enabled = ASYNC_EVENT_WRITE;
+	stream->callback = callback;
+	filter->in_filter = in_filter;
+	filter->out_filter = out_filter;
+	filter->ctx = ctx;
+	filter->ctx_free = ctx_free;
+	filter->busy = 0;
+	filter->closing = 0;
+	filter->estab_notified = 0;
+	filter->in_finished = 0;
+	filter->out_finished = 0;
+	ims_init(&filter->stage, &loop->memnode, 0, 0);
+	ims_init(&filter->recvbuf, &loop->memnode, 0, 0);
+	ims_init(&filter->sendbuf, &loop->memnode, 0, 0);
+	ims_init(&filter->outbuf, &loop->memnode, 0, 0);
+	ims_init(&filter->notify, &loop->memnode, 0, 0);
+	async_post_init(&filter->evt_post, async_filter_postpone);
+	filter->evt_post.user = stream;
+	// hijack underlying stream's callback, save originals for restore
+	filter->orig_user = underlying->user;
+	filter->orig_callback = underlying->callback;
+	underlying->user = filter;
+	underlying->callback = async_filter_underlying_event;
+	stream->close = async_filter_close;
+	stream->read = async_filter_read;
+	stream->write = async_filter_write;
+	stream->peek = async_filter_peek;
+	stream->enable = async_filter_enable;
+	stream->disable = async_filter_disable;
+	stream->remain = async_filter_remain;
+	stream->pending = async_filter_pending;
+	stream->watermark = async_filter_watermark;
+	stream->option = async_filter_option;
+	// underlying already established: deliver ESTAB to the user
+	if (underlying->state == ASYNC_STREAM_ESTAB) {
+		filter->estab_notified = 1;
+		async_filter_notify(filter, ASYNC_STREAM_EVT_ESTAB, 0);
+	}
+	return stream;
+}
+
+
+//---------------------------------------------------------------------
+// force the output filter to emit buffered data
+//---------------------------------------------------------------------
+int async_stream_filter_flush(CAsyncStream *stream, int mode)
+{
+	CAsyncFilter *filter;
+	if (stream == NULL || stream->name != ASYNC_STREAM_NAME_FILTER) {
+		return -1;
+	}
+	if (mode != ASYNC_FILTER_FLUSH && mode != ASYNC_FILTER_FINISH) {
+		return -1;
+	}
+	filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	if (filter->closing || filter->out_finished) {
+		return -1;
+	}
+	filter->busy++;
+	async_filter_run_out(filter, mode);
+	filter->busy--;
+	if (filter->closing && filter->busy == 0) {
+		async_filter_destroy(filter);
+		return -1;
+	}
+	if (mode == ASYNC_FILTER_FINISH) {
+		filter->out_finished = 1;
+	}
+	return (stream->error != 0)? -1 : 0;
+}
+
+
+//---------------------------------------------------------------------
+// get the ctx pointer passed to async_stream_filter_new
+//---------------------------------------------------------------------
+void *async_stream_filter_get_ctx(const CAsyncStream *stream)
+{
+	CAsyncFilter *filter;
+	if (stream == NULL || stream->name != ASYNC_STREAM_NAME_FILTER) {
+		return NULL;
+	}
+	filter = async_stream_upcast(stream, CAsyncFilter, stream);
+	return filter->ctx;
+}
+
 
 
 //=====================================================================
@@ -1670,7 +2452,7 @@ long async_split_hdr_peek(CAsyncStream *stream, int header, int *hdrsize)
 		return (long)len;
 	}
 
-	len = (unsigned short)_async_stream_peek(stream, dsize, hdrlen);
+	len = (long)_async_stream_peek(stream, dsize, hdrlen);
 	if (len < (long)hdrlen) return 0;
 	
 	if (header <= ASYNC_SPLIT_EBYTEMSB) {
@@ -1832,6 +2614,17 @@ static long async_split_try_reading(CAsyncSplit *split, char *data, long maxsize
 				}
 			}
 			if (pos < 0) {
+				// no newline yet: bound linecache growth, otherwise a
+				// peer sending data without '\n' can exhaust memory
+				if ((long)ims_dsize(&split->linecache) + canread > maxsize) {
+					split->error = 1;
+					if (split->loop->logmask & ASYNC_LOOP_LOG_SPLIT) {
+						async_loop_log(split->loop, ASYNC_LOOP_LOG_SPLIT,
+							"[split] error: line too long %ld",
+							(long)ims_dsize(&split->linecache) + canread);
+					}
+					return -1;
+				}
 				ims_write(&split->linecache, ptr, canread);
 				ims_drop(&split->linesplit, canread);
 			}
@@ -1864,6 +2657,7 @@ static long async_split_try_reading(CAsyncSplit *split, char *data, long maxsize
 static void async_split_callback(CAsyncStream *stream, int event, int args)
 {
 	CAsyncSplit *split = (CAsyncSplit*)stream->user;
+	int error = split->error;
 	(void)args;
 	if (split->callback) {
 		split->busy = 1;
@@ -1886,6 +2680,16 @@ static void async_split_callback(CAsyncStream *stream, int event, int args)
 			if (((split->stream->enabled) & ASYNC_EVENT_READ) == 0) {
 				break;
 			}
+		}
+	}
+	// split-level error just occurred (oversized packet/line): stop
+	// reading and report ASYNC_STREAM_EVT_ERROR to the user once
+	if (error == 0 && split->error != 0 && split->releasing == 0) {
+		async_stream_disable(split->stream, ASYNC_EVENT_READ);
+		if (split->callback) {
+			split->busy = 1;
+			split->callback(split, ASYNC_STREAM_EVT_ERROR);
+			split->busy = 0;
 		}
 	}
 	if (split->releasing) {

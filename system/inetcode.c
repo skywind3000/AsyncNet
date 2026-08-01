@@ -3338,83 +3338,11 @@ int iproxy_base64(const unsigned char *in, unsigned char *out, int size)
 }
 
 
-// polling
+// polling: ISOCKPROXY_IN/OUT/ERR share the same values with
+// ISOCK_ERECV/ESEND/ERROR, simply forward to ipollfd in inetbase.c
 static int iproxy_poll(int sock, int event, long millisec)
 {
-	int retval = 0;
-
-	#if defined(__unix) && (!defined(__llvm__))
-	struct pollfd pfd;
-	
-	pfd.fd = sock;
-	pfd.events = 0;
-	pfd.revents = 0;
-
-	pfd.events |= (event & ISOCKPROXY_IN)? POLLIN : 0;
-	pfd.events |= (event & ISOCKPROXY_OUT)? POLLOUT : 0;
-	pfd.events |= (event & ISOCKPROXY_ERR)? POLLERR : 0;
-
-	poll(&pfd, 1, millisec);
-
-	if ((event & ISOCKPROXY_IN) && (pfd.revents & POLLIN)) 
-		retval |= ISOCKPROXY_IN;
-	if ((event & ISOCKPROXY_OUT) && (pfd.revents & POLLOUT)) 
-		retval |= ISOCKPROXY_OUT;
-	if ((event & ISOCKPROXY_ERR) && (pfd.revents & POLLERR)) 
-		retval |= ISOCKPROXY_ERR;
-	#elif defined(__llvm__) 
-	struct timeval tmx = { 0, 0 };
-	fd_set fdr, fdw, fde;
-	fd_set *pr = NULL, *pw = NULL, *pe = NULL;
-	tmx.tv_sec = millisec / 1000;
-	tmx.tv_usec = (millisec % 1000) * 1000;
-	if (event & ISOCKPROXY_IN) {
-		FD_ZERO(&fdr);
-		FD_SET(sock, &fdr);
-		pr = &fdr;
-	}
-	if (event & ISOCKPROXY_OUT) {
-		FD_ZERO(&fdw);
-		FD_SET(sock, &fdw);
-		pw = &fdw;
-	}
-	if (event & ISOCKPROXY_ERR) {
-		FD_ZERO(&fde);
-		FD_SET(sock, &fde);
-		pe = &fde;
-	}
-	retval = select(sock + 1, pr, pw, pe, (millisec >= 0)? &tmx : 0);
-	retval = 0;
-	if ((event & ISOCKPROXY_IN) && FD_ISSET(sock, &fdr))
-		retval |= ISOCKPROXY_IN;
-	if ((event & ISOCKPROXY_OUT) && FD_ISSET(sock, &fdw)) 
-		retval |= ISOCKPROXY_OUT;
-	if ((event & ISOCKPROXY_ERR) && FD_ISSET(sock, &fde)) 
-		retval |= ISOCKPROXY_ERR;
-	#else
-	struct timeval tmx = { 0, 0 };
-	union { void *ptr; fd_set *fds; } p[3];
-	int fdr[2], fdw[2], fde[2];
-
-	tmx.tv_sec = millisec / 1000;
-	tmx.tv_usec = (millisec % 1000) * 1000;
-	fdr[0] = fdw[0] = fde[0] = 1;
-	fdr[1] = fdw[1] = fde[1] = sock;
-
-	p[0].ptr = (event & ISOCKPROXY_IN)? fdr : NULL;
-	p[1].ptr = (event & ISOCKPROXY_OUT)? fdw : NULL;
-	p[2].ptr = (event & ISOCKPROXY_ERR)? fde : NULL;
-
-	retval = select( sock + 1, p[0].fds, p[1].fds, p[2].fds, 
-					(millisec >= 0)? &tmx : 0);
-	retval = 0;
-
-	if ((event & ISOCKPROXY_IN) && fdr[0]) retval |= ISOCKPROXY_IN;
-	if ((event & ISOCKPROXY_OUT) && fdw[0]) retval |= ISOCKPROXY_OUT;
-	if ((event & ISOCKPROXY_ERR) && fde[0]) retval |= ISOCKPROXY_ERR;
-	#endif
-
-	return retval;
+	return ipollfd(sock, event, millisec);
 }
 
 // get error number

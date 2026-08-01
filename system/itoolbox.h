@@ -79,7 +79,7 @@ typedef union _iPosixAddress {
 
 
 // memset(addr, 0, sizeof(iPosixAddress))
-void iposix_addr_init(iPosixAddress *addr);
+void iposix_addr_zero(iPosixAddress *addr);
 
 void iposix_addr_set_family(iPosixAddress *addr, int family);
 void iposix_addr_set_ip(iPosixAddress *addr, const void *ip);

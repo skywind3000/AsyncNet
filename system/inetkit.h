@@ -219,6 +219,94 @@ void async_stream_pass_watermark(CAsyncStream *stream, long high, long low);
 long async_stream_pass_option(CAsyncStream *stream, int option, long value);
 
 
+//---------------------------------------------------------------------
+// graceful close: initiate asynchronous disposal of the stream.
+//
+// This function attempts to drain the output buffer before closing 
+// the stream. If there is no pending output, the stream is closed
+// synchronously before returning. Otherwise, the stream remains alive
+// only until the output buffer drains or the timeout expires, and is
+// then closed automatically.
+//
+// CONTRACT: After calling this function, the stream pointer must be
+// treated as disposed (closed + released). The caller must not access
+// the stream in any way afterwards - including read, write, enable,
+// disable, pending, or close. Doing so is undefined behavior, just as
+// using a pointer after free.
+//
+// timeout_ms: maximum time to wait for the output buffer to drain, in
+// milliseconds. If <= 0, the stream is closed immediately.
+//---------------------------------------------------------------------
+void async_stream_graceful(CAsyncStream *stream, int timeout_ms);
+
+
+//---------------------------------------------------------------------
+// Filter Stream: wraps an underlying stream and applies user supplied
+// transform callbacks on both directions, similar to the bufferevent
+// filter in libevent. Suitable for encryption, compression, protocol
+// obfuscation or traffic accounting, without implementing a full 
+// CAsyncStream vtable.
+//---------------------------------------------------------------------
+
+#define ASYNC_STREAM_NAME_FILTER ASYNC_STREAM_NAME('F', 'I', 'L', 'T')
+
+// filter invocation modes
+#define ASYNC_FILTER_NORMAL    0   // regular data flow
+#define ASYNC_FILTER_FLUSH     1   // flush buffered data if possible
+#define ASYNC_FILTER_FINISH    2   // final flush (EOF/close), emit trailers
+
+// filter return codes: any negative value is treated as a fatal error,
+// the stream enters error state and ASYNC_STREAM_EVT_ERROR is reported
+// with the returned value as args
+#define ASYNC_FILTER_OK          0   // progress was made
+#define ASYNC_FILTER_NEED_MORE   1   // need more input, nothing produced
+#define ASYNC_FILTER_ERROR     (-1)  // fatal error
+
+// transform callback: consume data from src (via ims_read, or ims_flat
+// plus ims_drop) and append transformed data to dst (via ims_write).
+// It should consume as much of src as possible in a single call, bytes
+// left in src are kept and passed again together with future data.
+// The callback must not close or write the stream from inside.
+typedef int (*CAsyncStreamFilterFn)(CAsyncStream *stream,
+	struct IMSTREAM *src, struct IMSTREAM *dst, int mode, void *ctx);
+
+// Create a filter stream on top of an underlying stream. The filter
+// stream takes over the underlying stream (hijacks its callback/user
+// fields, restored on close) and presents the same CAsyncStream
+// interface to the user:
+//   in_filter:  transforms data arriving from the underlying stream
+//               before the user reads it, NULL for pass-through
+//   out_filter: transforms data written by the user before it enters
+//               the underlying stream, NULL for pass-through
+//   close_on_free: if non-zero, close underlying when filter closes
+//   ctx: user context passed to both filter callbacks
+//   ctx_free: called with ctx when the filter stream is destroyed
+//             (any path: close, error or cascaded release), NULL if
+//             the ctx lifetime is managed by the caller. It is NOT
+//             called when this function fails and returns NULL.
+//   callback: stream event callback (ASYNC_STREAM_EVT_* events)
+// Events (ESTAB/READING/WRITING/EOF/ERROR) are forwarded to the user
+// after filtering. On input EOF the in_filter receives a final call
+// in ASYNC_FILTER_FINISH mode before EOF is reported.
+// Returns CAsyncStream* or NULL on error.
+CAsyncStream *async_stream_filter_new(CAsyncLoop *loop,
+	CAsyncStream *underlying,
+	CAsyncStreamFilterFn in_filter,
+	CAsyncStreamFilterFn out_filter,
+	int close_on_free, void *ctx,
+	void (*ctx_free)(void *ctx),
+	void (*callback)(CAsyncStream *stream, int event, int args));
+
+// force the output filter to emit buffered data, mode must be
+// ASYNC_FILTER_FLUSH or ASYNC_FILTER_FINISH. After a successful
+// FINISH, further writes on the stream are rejected.
+// Returns 0 on success, -1 on error.
+int async_stream_filter_flush(CAsyncStream *stream, int mode);
+
+// get the ctx pointer passed to async_stream_filter_new,
+// returns NULL if the stream is not a filter stream
+void *async_stream_filter_get_ctx(const CAsyncStream *stream);
+
 
 //=====================================================================
 // CAsyncListener
@@ -276,7 +364,7 @@ struct CAsyncSplit {
 	int header;
 	int busy;
 	int releasing;
-	int error;
+	int error;    // non-zero: oversized packet/line detected, see below
 	void *user;
 	struct IMSTREAM linesplit;
 	struct IMSTREAM linecache;
@@ -309,6 +397,11 @@ struct CAsyncSplit {
 // create a new split, the new split will take over the underlying 
 // stream, and reset its user & callback field. If borrow is set to 0, 
 // the underlying stream will be closed in async_split_delete().
+// note: a single packet/line must not exceed ASYNC_LOOP_BUFFER_SIZE,
+// when an oversized packet/line is detected, split->error is set to
+// non-zero, reading stops (ASYNC_EVENT_READ is disabled) and the
+// callback is invoked once with ASYNC_STREAM_EVT_ERROR. The error
+// is not recoverable, the split should be deleted afterwards.
 CAsyncSplit *async_split_new(CAsyncStream *stream, int header, int borrow,
 	void (*callback)(CAsyncSplit *split, int event),
 	void (*receiver)(CAsyncSplit *split, void *data, long size));

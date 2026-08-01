@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <iostream>
+#include <string>
 
 #ifdef _MSC_VER
 #pragma warning(disable: 4819)
@@ -32,8 +33,8 @@ NAMESPACE_BEGIN(System);
 class PosixAddress
 {
 public:
-	PosixAddress() { Init(); SetFamily(AF_INET); }
-	PosixAddress(int family) { Init(); SetFamily(family); }
+	PosixAddress() { Zero(); SetFamily(AF_INET); }
+	PosixAddress(int family) { Zero(); SetFamily(family); }
 	PosixAddress(const iPosixAddress &addr) { _address = addr; }
 	PosixAddress(const PosixAddress &addr) { _address = addr._address; }
 	PosixAddress(const sockaddr *addr, int size) { SetSA(addr, size); }
@@ -71,7 +72,7 @@ public:
 	const sockaddr_in6* sin6() const { return &_address.sin6; }
 	#endif
 
-	void Init() { iposix_addr_init(&_address); }
+	void Zero() { iposix_addr_zero(&_address); }
 
 	void SetFamily(int family) { iposix_addr_set_family(&_address, family); }
 	void SetIp(const void *ip) { iposix_addr_set_ip(&_address, ip); }
@@ -214,6 +215,16 @@ static inline std::ostream& operator << (std::ostream &os, const PosixAddress &a
 	return os;
 }
 
+
+//---------------------------------------------------------------------
+// 从 sockaddr 转换成字符串 IP:PORT
+//---------------------------------------------------------------------
+static inline std::string SockAddrToString(const sockaddr *addr, int size = -1) {
+	PosixAddress tmp;
+	tmp.Zero();
+	tmp.SetSA(addr, size);
+	return tmp.ToString();
+}
 
 //---------------------------------------------------------------------
 // 域名解析成 std::vector<std::string>
