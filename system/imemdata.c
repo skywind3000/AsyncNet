@@ -2593,7 +2593,7 @@ char *istrndup(const char *text, ilong size)
     if (text == NULL) return NULL;
     
     len = 0;
-	for (len = 0; len < size && text[len] != 0; len++);
+	for (len = 0; len < size && text[len] != 0; ) len++;
     
     copy_len = len;
     
