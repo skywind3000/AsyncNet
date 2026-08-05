@@ -10,6 +10,8 @@
 
 #include <stddef.h>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "../system/inetevt.h"
 #include "../system/inetkit.h"
@@ -153,6 +155,8 @@ public:
 	// set high water
 	void WaterMark(int hiwater, int lowater);
 
+	// set/get option
+	long Option(int option, long value);
 
 private:
 	static void TcpCB(CAsyncStream *tcp, int event, int args);
@@ -400,6 +404,149 @@ private:
 	CAsyncMessage *_msg = NULL;
 };
 
+
+//---------------------------------------------------------------------
+// AsyncStreamBackend
+//
+// 这不是一个可直接使用的 stream 句柄，而是用来实现 CAsyncStream vtable
+// 的后端基类。子类通过覆盖下面的虚函数来定义流行为，真正的 CAsyncStream*
+// 通过 GetStream() 获取并交给 C 接口或 AsyncStream 使用。
+//
+// 注意：本类及其子类必须堆分配（new），生命周期由 C 层的
+// async_stream_close(GetStream()) 托管。禁止作为栈对象或成员变量使用。
+//
+// 允许在事件回调里 close 自己：内部通过 busy/closing 机制延迟销毁，
+// 回调全部返回后才执行 OnClose 并释放（见 docs/inetkit.md 重要原则）。
+//
+// 典型用法：
+//   class MyStreamBackend : public AsyncStreamBackend { ... };
+//   System::AsyncStream stream(loop);
+//   stream.NewStream((new MyStreamBackend(loop.GetLoop()))->GetStream());
+//   // 之后通过 stream 操作，MyStreamBackend 由 stream 析构时释放
+//---------------------------------------------------------------------
+class AsyncStreamBackend
+{
+public:
+
+	AsyncStreamBackend(CAsyncLoop *loop, uint32_t clsname = 0);
+	AsyncStreamBackend(AsyncLoop &loop, uint32_t clsname = 0);
+
+	AsyncStreamBackend(const AsyncStreamBackend&) = delete;
+	AsyncStreamBackend& operator=(const AsyncStreamBackend&) = delete;
+	AsyncStreamBackend(AsyncStreamBackend&&) = delete;
+	AsyncStreamBackend& operator=(AsyncStreamBackend&&) = delete;
+
+	inline CAsyncStream *GetStream() { return &cstream; }
+	inline const CAsyncStream *GetStream() const { return &cstream; }
+
+	inline CAsyncLoop *GetLoop() { return cstream.loop; }
+	inline const CAsyncLoop *GetLoop() const { return cstream.loop; }
+
+	inline uint32_t GetName() const { return cstream.name; }
+	inline uint32_t GetClass() const { return clsname; }
+
+protected:
+
+	// 子类实现以下虚函数来填充 CAsyncStream 的 vtable
+	virtual long Read(void *ptr, long size) = 0;
+	virtual long Write(const void *ptr, long size) = 0;
+	virtual long Peek(void *ptr, long size) = 0;
+	virtual void Enable(int event) = 0;
+	virtual void Disable(int event) = 0;
+	virtual long Remain() const = 0;
+	virtual long Pending() const = 0;
+	virtual void WaterMark(long hiwater, long lowater) = 0;
+	virtual long Option(int option, long value) = 0;
+
+	CAsyncStream cstream;
+	uint32_t clsname;
+
+	// lifecycle hook: called right before the backend object is deleted.
+	// subclasses can override to perform non-RAII cleanup; exceptions are
+	// caught and logged, the backend is still destroyed afterwards.
+	virtual void OnClose() {}
+
+	// underlying 事件到达时被调用（见 AttachUnderlying），event 为
+	// ASYNC_STREAM_EVT_* 位掩码。内部有 busy 保护，允许在其中
+	// async_stream_close 自己（延迟销毁）。默认忽略。
+	virtual void OnUnderlyingEvent(int event, int args) { (void)event; (void)args; }
+
+	virtual ~AsyncStreamBackend();
+
+protected:
+
+	// Help functions for subclasses
+	
+	void PostEvent(int event, int args = 0);
+
+	void LogFormat(const char *fmt, va_list ap) const;
+	void WriteLog(const char *fmt, ...) const;
+
+	void SetError(int error);
+	void SetState(int state);
+	void SetDirection(int direction);
+	void SetEof(int dir, bool eof = true);
+
+	// 语义化事件通知：同时维护 cstream 状态字段并投递对应事件，
+	// 避免子类遗漏 SetState/SetError 与 PostEvent 的顺序约定
+	void NotifyEstab();
+	void NotifyReading();
+	void NotifyWriting(int args = 0);
+	void NotifyEof(int dir = ASYNC_STREAM_INPUT);
+	void NotifyError(int error);
+
+	// underlying 流托管：劫持其 callback/user，事件转发到
+	// OnUnderlyingEvent，本对象销毁时自动恢复劫持；own=true 时销毁
+	// 流程中一并关闭 underlying。注意：不要在 OnUnderlyingEvent 里
+	// 直接 close underlying 本身，若需提前释放，先 DetachUnderlying()
+	// 拿回所有权再关闭
+	bool AttachUnderlying(CAsyncStream *underlying, bool own);
+	CAsyncStream *DetachUnderlying();
+
+	inline CAsyncStream *GetUnderlying() { return cstream.underlying; }
+	inline const CAsyncStream *GetUnderlying() const { return cstream.underlying; }
+
+
+private:
+
+	// 真正执行销毁：OnClose() + delete this，仅在 _stream_busy == 0 时调用
+	void _StreamDispose();
+
+	// CAsyncStream vtable 的 static trampoline
+	static void _CloseCB(CAsyncStream *stream);
+	static long _ReadCB(CAsyncStream *stream, void *ptr, long size);
+	static long _WriteCB(CAsyncStream *stream, const void *ptr, long size);
+	static long _PeekCB(CAsyncStream *stream, void *ptr, long size);
+	static void _EnableCB(CAsyncStream *stream, int event);
+	static void _DisableCB(CAsyncStream *stream, int event);
+	static long _RemainCB(const CAsyncStream *stream);
+	static long _PendingCB(const CAsyncStream *stream);
+	static long _OptionCB(CAsyncStream *stream, int option, long value);
+	static void _WaterMarkCB(CAsyncStream *stream, long hiwater, long lowater);
+	
+	static void _EventPostponeCB(CAsyncLoop *loop, CAsyncPostpone *postpone);
+
+	// underlying 劫持后的事件入口（busy 保护 + 异常隔离）
+	static void _UnderlyingCB(CAsyncStream *underlying, int event, int args);
+
+	mutable ib_string *_logout_cache;
+	CAsyncPostpone _event_postpone;
+	std::vector<std::pair<int, int> > _pending_events;
+	std::vector<std::pair<int, int> > _running_events;
+
+	// underlying 被劫持前的原始 callback/user，恢复劫持时写回
+	void *_under_orig_user;
+	void (*_under_orig_cb)(CAsyncStream *stream, int event, int args);
+
+	// 回调重入保护：_stream_busy 为回调嵌套计数，_stream_closing 表示关闭请求
+	// 已提出，需要等所有回调返回（_stream_busy 归零）后才真正销毁
+	// （见 docs/inetkit.md 重要原则）
+	int _stream_busy;
+	bool _stream_closing;
+};
+
+
+#define ASYNC_STREAM_NAME_BACKEND ASYNC_STREAM_NAME('B', 'A', 'C', 'K')
 
 
 

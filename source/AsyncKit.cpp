@@ -5,7 +5,11 @@
 // Last Modified: 2025/04/25 15:33:19
 //
 //=====================================================================
+#include "../system/imemkind.h"
+
 #include "AsyncKit.h"
+
+#include <assert.h>
 
 
 NAMESPACE_BEGIN(System);
@@ -388,6 +392,15 @@ void AsyncStream::WaterMark(int hiwater, int lowater)
 	_async_stream_watermark(_stream, hiwater, lowater);
 }
 
+
+//---------------------------------------------------------------------
+// set/get option
+//---------------------------------------------------------------------
+long AsyncStream::Option(int option, long value)
+{
+	if (_stream == NULL) return -1;
+	return _async_stream_option(_stream, option, value);
+}
 
 
 //=====================================================================
@@ -1097,6 +1110,506 @@ int AsyncMessage::Post(int mid, int wparam, int lparam, const std::string &text)
 {
 	return Post(mid, wparam, lparam, text.c_str(), (int)text.size());
 }
+
+
+//=====================================================================
+// AsyncStreamBackend
+//=====================================================================
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncStreamBackend::~AsyncStreamBackend()
+{
+	if (async_post_is_active(&_event_postpone)) {
+		async_post_stop(cstream.loop, &_event_postpone);
+	}
+
+	// 恢复 underlying 劫持，持有所有权时一并关闭
+	if (cstream.underlying != NULL) {
+		int underown = cstream.underown;
+		CAsyncStream *underlying = DetachUnderlying();
+		if (underlying != NULL && underown != 0) {
+			async_stream_close(underlying);
+		}
+	}
+
+	cstream.instance = NULL;
+	cstream.loop = NULL;
+
+	if (_logout_cache) {
+		ib_string_delete(_logout_cache);
+		_logout_cache = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncStreamBackend::AsyncStreamBackend(CAsyncLoop *loop, uint32_t clsname)
+{
+	assert(loop != NULL);
+
+	this->clsname = clsname;
+	async_stream_zero(&cstream);
+	cstream.name = ASYNC_STREAM_NAME_BACKEND;
+	cstream.instance = this;
+	cstream.loop = loop;
+	cstream.state = ASYNC_STREAM_ESTAB;
+	cstream.direction = ASYNC_STREAM_BOTH;
+
+	cstream.close = _CloseCB;
+	cstream.read = _ReadCB;
+	cstream.write = _WriteCB;
+	cstream.peek = _PeekCB;
+	cstream.enable = _EnableCB;
+	cstream.disable = _DisableCB;
+	cstream.remain = _RemainCB;
+	cstream.pending = _PendingCB;
+	cstream.watermark = _WaterMarkCB;
+	cstream.option = _OptionCB;
+
+	async_post_init(&_event_postpone, _EventPostponeCB);
+	_event_postpone.user = this;
+
+	_stream_busy = 0;
+	_stream_closing = false;
+
+	_under_orig_user = NULL;
+	_under_orig_cb = NULL;
+
+	_logout_cache = ib_string_new();
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncStreamBackend::AsyncStreamBackend(AsyncLoop &loop, uint32_t clsname):
+	AsyncStreamBackend(loop.GetLoop(), clsname)
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// 
+//---------------------------------------------------------------------
+void AsyncStreamBackend::PostEvent(int event, int args)
+{
+	if (_stream_closing) return;   // 关闭请求已提出，不再接受新事件
+	if (event == ASYNC_STREAM_EVT_READING || event == ASYNC_STREAM_EVT_WRITING) {
+		// READING/WRITING 是电平型通知，同一轮重复入队没有意义，直接合并
+		for (size_t i = 0; i < _pending_events.size(); i++) {
+			if (_pending_events[i].first == event &&
+				_pending_events[i].second == args) {
+				return;
+			}
+		}
+	}
+	_pending_events.push_back(std::make_pair(event, args));
+	if (!async_post_is_active(&_event_postpone)) {
+		async_post_start(cstream.loop, &_event_postpone);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// log format
+//---------------------------------------------------------------------
+void AsyncStreamBackend::LogFormat(const char *fmt, va_list ap) const
+{
+	CAsyncLoop *loop = cstream.loop;
+	if (loop == NULL) return;
+	if (loop->writelog == NULL) return;
+	if (loop->logmask & ASYNC_LOOP_LOG_STREAM) {
+		ib_string_clear(_logout_cache);
+		ib_string_vformat(_logout_cache, fmt, ap);
+		ib_string_truncate(_logout_cache, 1024);
+		async_loop_log(loop, ASYNC_LOOP_LOG_STREAM,
+				"[stream] %s", ib_string_ptr(_logout_cache));
+	}
+}
+
+
+//---------------------------------------------------------------------
+// write log
+//---------------------------------------------------------------------
+void AsyncStreamBackend::WriteLog(const char *fmt, ...) const
+{
+	if (cstream.loop == NULL) return;
+	if (cstream.loop->logmask & ASYNC_LOOP_LOG_STREAM) {
+		va_list ap;
+		va_start(ap, fmt);
+		LogFormat(fmt, ap);
+		va_end(ap);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// 
+//---------------------------------------------------------------------
+void AsyncStreamBackend::SetError(int error)
+{
+	cstream.error = error;
+}
+
+void AsyncStreamBackend::SetState(int state)
+{
+	cstream.state = state;
+}
+
+void AsyncStreamBackend::SetDirection(int direction)
+{
+	cstream.direction = direction;
+}
+
+void AsyncStreamBackend::SetEof(int dir, bool eof)
+{
+	if (dir & ASYNC_STREAM_INPUT) {
+		if (eof) cstream.eof |= ASYNC_STREAM_INPUT;
+		else cstream.eof &= ~ASYNC_STREAM_INPUT;
+	}
+	if (dir & ASYNC_STREAM_OUTPUT) {
+		if (eof) cstream.eof |= ASYNC_STREAM_OUTPUT;
+		else cstream.eof &= ~ASYNC_STREAM_OUTPUT;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// 语义化事件通知：先维护状态字段，再投递事件
+//---------------------------------------------------------------------
+void AsyncStreamBackend::NotifyEstab()
+{
+	SetState(ASYNC_STREAM_ESTAB);
+	PostEvent(ASYNC_STREAM_EVT_ESTAB);
+}
+
+void AsyncStreamBackend::NotifyReading()
+{
+	PostEvent(ASYNC_STREAM_EVT_READING);
+}
+
+void AsyncStreamBackend::NotifyWriting(int args)
+{
+	PostEvent(ASYNC_STREAM_EVT_WRITING, args);
+}
+
+void AsyncStreamBackend::NotifyEof(int dir)
+{
+	SetEof(dir);
+	PostEvent(ASYNC_STREAM_EVT_EOF);
+}
+
+void AsyncStreamBackend::NotifyError(int error)
+{
+	SetError(error);
+	PostEvent(ASYNC_STREAM_EVT_ERROR, error);
+}
+
+
+//---------------------------------------------------------------------
+// attach underlying: 劫持 callback/user，事件转发到 OnUnderlyingEvent
+//---------------------------------------------------------------------
+bool AsyncStreamBackend::AttachUnderlying(CAsyncStream *underlying, bool own)
+{
+	if (underlying == NULL) return false;
+	if (underlying->loop != cstream.loop) return false;
+	if (cstream.underlying != NULL) return false;   // 已托管其它流
+	cstream.underlying = underlying;
+	cstream.underown = own ? 1 : 0;
+	_under_orig_user = underlying->user;
+	_under_orig_cb = underlying->callback;
+	underlying->user = this;
+	underlying->callback = _UnderlyingCB;
+	return true;
+}
+
+
+//---------------------------------------------------------------------
+// detach underlying: 恢复劫持并交还所有权，返回 underlying 指针
+//---------------------------------------------------------------------
+CAsyncStream *AsyncStreamBackend::DetachUnderlying()
+{
+	CAsyncStream *underlying = cstream.underlying;
+	if (underlying == NULL) return NULL;
+	underlying->user = _under_orig_user;
+	underlying->callback = _under_orig_cb;
+	_under_orig_user = NULL;
+	_under_orig_cb = NULL;
+	cstream.underlying = NULL;
+	cstream.underown = 0;
+	return underlying;
+}
+
+
+//---------------------------------------------------------------------
+// underlying 事件入口：busy 保护，允许 OnUnderlyingEvent 里 close 自己
+//---------------------------------------------------------------------
+void AsyncStreamBackend::_UnderlyingCB(CAsyncStream *underlying, int event, int args)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)underlying->user;
+	if (backend == NULL) return;
+	if (backend->_stream_closing) return;
+	backend->_stream_busy++;
+	try {
+		backend->OnUnderlyingEvent(event, args);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::OnUnderlyingEvent threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::OnUnderlyingEvent threw an unknown exception");
+	}
+	backend->_stream_busy--;
+	if (backend->_stream_closing && backend->_stream_busy == 0) {
+		backend->_StreamDispose();   // 延迟销毁：回调全部返回后执行
+	}
+}
+
+
+//---------------------------------------------------------------------
+// postpone cb
+//---------------------------------------------------------------------
+void AsyncStreamBackend::_EventPostponeCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)postpone->user;
+	CAsyncStream *cstream = &backend->cstream;
+	(void)loop;
+	// 快照当前待派发事件：回调里新 PostEvent 的事件进入 _pending_events，
+	// 由重新激活的 postpone 在下一轮派发，避免同轮自喂死循环
+	backend->_running_events.clear();
+	backend->_running_events.swap(backend->_pending_events);
+	backend->_stream_busy++;
+	for (size_t i = 0; i < backend->_running_events.size(); i++) {
+		int event = backend->_running_events[i].first;
+		int args = backend->_running_events[i].second;
+		if (cstream->callback == NULL) continue;
+		try {
+			cstream->callback(cstream, event, args);
+		}
+		catch (std::exception &e) {
+			backend->WriteLog(
+				"AsyncStreamBackend::OnEventPostpone threw an exception: %s", e.what());
+		}
+		catch (...) {
+			backend->WriteLog(
+				"AsyncStreamBackend::OnEventPostpone threw an unknown exception");
+		}
+		if (backend->_stream_closing) {
+			break;   // 回调里请求了 close，不再派发剩余事件
+		}
+	}
+	backend->_stream_busy--;
+	if (backend->_stream_closing && backend->_stream_busy == 0) {
+		backend->_StreamDispose();   // 延迟销毁：回调全部返回后执行
+	}
+}
+
+
+//---------------------------------------------------------------------
+// static methods
+//---------------------------------------------------------------------
+
+void AsyncStreamBackend::_CloseCB(CAsyncStream *stream)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return;
+	if (backend->_stream_closing) return;   // 已经在关闭流程中
+	backend->_stream_closing = true;
+	if (backend->_stream_busy > 0) {
+		return;   // 正在回调中，由最外层回调返回后延迟销毁
+	}
+	backend->_StreamDispose();
+}
+
+void AsyncStreamBackend::_StreamDispose()
+{
+	cstream.instance = NULL;
+	try {
+		OnClose();
+	}
+	catch (std::exception &e) {
+		WriteLog(
+			"AsyncStreamBackend::OnClose threw an exception: %s", e.what());
+	}
+	catch (...) {
+		WriteLog(
+			"AsyncStreamBackend::OnClose threw an unknown exception");
+	}
+	try {
+		delete this;
+	}
+	catch (...) {
+		// destructor must not throw, but swallow anything that leaks out
+		// to avoid undefined behavior in the C call stack.
+	}
+}
+
+long AsyncStreamBackend::_ReadCB(CAsyncStream *stream, void *ptr, long size)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Read(ptr, size);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Read threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Read threw an unknown exception");
+	}
+	return -1;
+}
+
+long AsyncStreamBackend::_WriteCB(CAsyncStream *stream, const void *ptr, long size)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Write(ptr, size);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Write threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Write threw an unknown exception");
+	}
+	return -1;
+}
+
+long AsyncStreamBackend::_PeekCB(CAsyncStream *stream, void *ptr, long size)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Peek(ptr, size);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Peek threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Peek threw an unknown exception");
+	}
+	return -1;
+}
+
+void AsyncStreamBackend::_EnableCB(CAsyncStream *stream, int event)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return;
+	try {
+		backend->Enable(event);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Enable threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Enable threw an unknown exception");
+	}
+}
+
+void AsyncStreamBackend::_DisableCB(CAsyncStream *stream, int event)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return;
+	try {
+		backend->Disable(event);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Disable threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Disable threw an unknown exception");
+	}
+}
+
+long AsyncStreamBackend::_RemainCB(const CAsyncStream *stream)
+{
+	const AsyncStreamBackend *backend = (const AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Remain();
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Remain threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Remain threw an unknown exception");
+	}
+	return -1;
+}
+
+long AsyncStreamBackend::_PendingCB(const CAsyncStream *stream)
+{
+	const AsyncStreamBackend *backend = (const AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Pending();
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Pending threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Pending threw an unknown exception");
+	}
+	return -1;
+}
+
+long AsyncStreamBackend::_OptionCB(CAsyncStream *stream, int option, long value)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return -1;
+	try {
+		return backend->Option(option, value);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Option threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::Option threw an unknown exception");
+	}
+	return -1;
+}
+
+void AsyncStreamBackend::_WaterMarkCB(CAsyncStream *stream, long hiwater, long lowater)
+{
+	AsyncStreamBackend *backend = (AsyncStreamBackend*)stream->instance;
+	if (backend == NULL) return;
+	try {
+		backend->WaterMark(hiwater, lowater);
+	}
+	catch (std::exception &e) {
+		backend->WriteLog(
+			"AsyncStreamBackend::WaterMark threw an exception: %s", e.what());
+	}
+	catch (...) {
+		backend->WriteLog(
+			"AsyncStreamBackend::WaterMark threw an unknown exception");
+	}
+}
+
 
 
 

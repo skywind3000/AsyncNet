@@ -262,6 +262,13 @@ int iv_clear(struct IVECTOR *v)
 	return iv_resize(v, 0);
 }
 
+/* truncate vector data to newsize if newsize < current size */
+int iv_truncate(struct IVECTOR *v, size_t newsize)
+{
+	if (newsize >= v->size) return 0;
+	return iv_resize(v, newsize);
+}
+
 
 /*====================================================================*/
 /* IMEMNODE - array index allocator (aka. node manager)               */
@@ -860,7 +867,7 @@ ilong ib_array_search(const ib_array *array,
 		start_pos = 0;
 	}
 	for (items = items + start_pos; start_pos < size; start_pos++) {
-		if (compare(items[0], item) == 0) {
+		if (compare(item, items[0]) == 0) {
 			return start_pos;
 		}
 		items++;
@@ -1631,6 +1638,19 @@ ib_string* ib_string_reserve(ib_string *str, int newsize)
 	return str;
 }
 
+ib_string* ib_string_truncate(ib_string *str, int newsize)
+{
+	if (newsize >= 0) {
+		if (str->size > newsize) {
+			ib_string_resize(str, newsize);
+		}
+	}
+	else {
+		ib_string_resize(str, 0);
+	}
+	return str;
+}
+
 ib_string* ib_string_clone(const ib_string *str)
 {
 	ib_string *newstr = ib_string_new();
@@ -2247,6 +2267,9 @@ void* ib_hash_swap(struct ib_hash_table *ht, void *ptr, size_t nbytes)
 			test_size = next_size;
 			index_size = index_size * 2;
 		}
+	}
+	else {
+		index_size = IB_HASH_INIT_SIZE;
 	}
 	ht->index = new_index;
 	ht->index_size = index_size;

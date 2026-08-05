@@ -240,6 +240,10 @@ int iv_erase(struct IVECTOR *v, size_t pos, size_t size);
 /* clear vector data */
 int iv_clear(struct IVECTOR *v);
 
+/* truncate vector data to newsize if newsize < current size */
+int iv_truncate(struct IVECTOR *v, size_t newsize);
+
+
 /* fast access */
 #define iv_size(v) ((v)->size)
 #define iv_data(v) ((v)->data)
@@ -717,6 +721,7 @@ void ib_string_delete(ib_string *str);
 
 ib_string* ib_string_resize(ib_string *str, int newsize);
 ib_string* ib_string_reserve(ib_string *str, int newsize);
+ib_string* ib_string_truncate(ib_string *str, int newsize);
 
 ib_string* ib_string_clear(ib_string *str);
 ib_string* ib_string_assign(ib_string *str, const char *src);
