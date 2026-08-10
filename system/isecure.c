@@ -2221,7 +2221,7 @@ IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound)
 char *hmac_signature(int method, char *out, const void *in, int size, 
 		const char *secret, int secret_size, IUINT32 timestamp)
 {
-	const static int length[3] = {16, 20, 32};
+	static const int length[3] = {16, 20, 32};
 	static char temp[80];
 	unsigned char buffer[32 + 4];
 	const void *msgs[4];
