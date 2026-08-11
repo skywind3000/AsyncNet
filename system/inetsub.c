@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "inetsub.h"
+#include "imembase.h"
 
 
 //=====================================================================
@@ -1048,6 +1049,195 @@ void async_codec_reset(CAsyncCodec *codec)
 		ib_json_reader_clear((ib_json_reader*)codec->reader);
 		break;
 	}
+}
+
+
+//=====================================================================
+// CAsyncPoll - an epoll like API based for CAsyncLoop
+//=====================================================================
+
+// create a new CAsyncPoll object
+CAsyncPoll *async_poll_new(CAsyncLoop *loop,
+	void (*callback)(CAsyncPoll *poll, int fd, int events, void *udata))
+{
+	CAsyncPoll *poll;
+	assert(loop != NULL);
+	poll = (CAsyncPoll*)ikmem_malloc(sizeof(CAsyncPoll));
+	if (poll == NULL) return NULL;
+	memset(poll, 0, sizeof(CAsyncPoll));
+	poll->loop = loop;
+	poll->user = NULL;
+	poll->busy = 0;
+	poll->closing = 0;
+	poll->count = 0;
+	poll->callback = callback;
+	ib_map_init(&poll->fds, ib_hash_func_int, ib_hash_compare_int);
+	return poll;
+}
+
+// delete CAsyncPoll object
+void async_poll_delete(CAsyncPoll *poll)
+{
+	CAsyncLoop *loop;
+	if (poll == NULL) return;
+	loop = poll->loop;
+	if (poll->busy) {
+		poll->closing = 1;
+		return;
+	}
+	while (ib_map_count(&poll->fds) > 0) {
+		struct ib_hash_entry *entry = ib_map_first(&poll->fds);
+		CAsyncPollItem *item = (CAsyncPollItem*)ib_hash_value(entry);
+		if (async_event_is_active(&item->evt)) {
+			async_event_stop(loop, &item->evt);
+		}
+		item->poll = NULL;
+		item->fd = -1;
+		item->events = 0;
+		item->udata = NULL;
+		ikmem_free(item);
+		ib_map_erase(&poll->fds, entry);
+	}
+	ib_map_destroy(&poll->fds);
+	poll->loop = NULL;
+	poll->count = 0;
+	ikmem_free(poll);
+}
+
+
+// CAsyncEvent callback for poll items
+static void async_poll_callback(CAsyncLoop *loop, CAsyncEvent *event, int evt)
+{
+	CAsyncPollItem *item = (CAsyncPollItem*)event->user;
+	CAsyncPoll *poll;
+	int fd;
+	(void)loop;
+	if (item == NULL) return;
+	if (item->poll == NULL) return;
+	poll = item->poll;
+	if (poll->closing) return;
+	fd = item->fd;
+	poll->busy++;
+	if (poll->callback) {
+		poll->callback(poll, fd, evt, item->udata);
+	}
+	poll->busy--;
+	if (poll->closing) {
+		async_poll_delete(poll);
+	}
+}
+
+// add a file descriptor to poll for events (ASYNC_EVENT_READ/WRITE)
+// returns 0 on success, -1 on failure (e.g., fd already added)
+int async_poll_add(CAsyncPoll *poll, int fd, int events, void *udata)
+{
+	CAsyncPollItem *item = NULL;
+	struct ib_hash_entry *entry = NULL;
+	if (poll->closing) return -1;
+	if (fd < 0) return -1;
+	if (ib_map_find_int(&poll->fds, fd) != NULL) {
+		return -1; // fd already added
+	}
+	events &= (ASYNC_EVENT_READ | ASYNC_EVENT_WRITE);
+	item = (CAsyncPollItem*)ikmem_malloc(sizeof(CAsyncPollItem));
+	if (item == NULL) return -1;
+	memset(item, 0, sizeof(CAsyncPollItem));
+	item->poll = poll;
+	item->fd = fd;
+	item->events = events;
+	item->udata = udata;
+	async_event_init(&item->evt, async_poll_callback, fd, events);
+	item->evt.user = item;
+	if (item->events != 0) {
+		if (async_event_start(poll->loop, &item->evt) != 0) {
+			ikmem_free(item);
+			return -1;
+		}
+	}
+	entry = ib_map_set(&poll->fds, (void*)((size_t)fd), item);
+	if (entry == NULL) {
+		if (async_event_is_active(&item->evt)) {
+			async_event_stop(poll->loop, &item->evt);
+		}
+		ikmem_free(item);
+		return -1;
+	}
+	poll->count++;
+	return 0;
+}
+
+
+// remove a file descriptor from poll
+// returns 0 on success, -1 on failure (e.g., fd not found)
+int async_poll_del(CAsyncPoll *poll, int fd)
+{
+	CAsyncPollItem *item = NULL;
+	struct ib_hash_entry *entry = NULL;
+	if (poll->closing) return -1;
+	if (fd < 0) return -1;
+	entry = ib_map_find_int(&poll->fds, fd);
+	if (entry == NULL) {
+		return -1; // fd not found
+	}
+	item = (CAsyncPollItem*)ib_hash_value(entry);
+	if (item == NULL) return -1; // fd not found
+	if (async_event_is_active(&item->evt)) {
+		async_event_stop(poll->loop, &item->evt);
+	}
+	item->poll = NULL;
+	item->fd = -1;
+	item->events = 0;
+	item->udata = NULL;
+	ikmem_free(item);
+	ib_map_erase(&poll->fds, entry);
+	poll->count--;
+	return 0;
+}
+
+// modify events for a file descriptor in poll
+// returns 0 on success, -1 on failure (e.g., fd not found)
+int async_poll_set(CAsyncPoll *poll, int fd, int events)
+{
+	CAsyncPollItem *item = NULL;
+	struct ib_hash_entry *entry = NULL;
+	if (poll->closing) return -1;
+	if (fd < 0) return -1;
+	entry = ib_map_find_int(&poll->fds, fd);
+	if (entry == NULL) {
+		return -1; // fd not found
+	}
+	events &= (ASYNC_EVENT_READ | ASYNC_EVENT_WRITE);
+	item = (CAsyncPollItem*)ib_hash_value(entry);
+	if (item == NULL) return -1; // fd not found
+	if (item->events == events) {
+		if (async_event_is_active(&item->evt) == 0) {
+			if (item->events != 0) {
+				if (async_event_start(poll->loop, &item->evt) != 0) {
+					return -1;
+				}
+			}
+		}
+		return 0;
+	}
+	if (async_event_is_active(&item->evt)) {
+		async_event_stop(poll->loop, &item->evt);
+	}
+	async_event_modify(&item->evt, events);
+	if (events != 0) {
+		if (async_event_start(poll->loop, &item->evt) != 0) {
+			async_event_modify(&item->evt, item->events);
+			if (item->events != 0) {
+				if (async_event_start(poll->loop, &item->evt) != 0) {
+					// failed to restore, mark as inactive
+					item->events = 0;
+					async_event_modify(&item->evt, item->events);
+				}
+			}
+			return -1;
+		}
+	}
+	item->events = events;
+	return 0;
 }
 
 

@@ -136,6 +136,49 @@ private:
 };
 
 
+//---------------------------------------------------------------------
+// AsyncPoll - epoll like API for AsyncLoop
+//---------------------------------------------------------------------
+class AsyncPoll final
+{
+public:
+	~AsyncPoll();
+	AsyncPoll(AsyncLoop &loop);
+	AsyncPoll(CAsyncLoop *loop);
+	AsyncPoll(AsyncPoll &&src);
+
+	AsyncPoll(const AsyncPoll &) = delete;
+	AsyncPoll &operator=(const AsyncPoll &) = delete;
+
+public:
+
+	// Get the underlying CAsyncPoll pointer
+	CAsyncPoll *GetPoll() { return _poll; }
+	const CAsyncPoll *GetPoll() const { return _poll; }
+
+	// setup callback function
+	void SetCallback(std::function<void(int fd, int events, void *udata)> cb);
+
+	// Add a file descriptor to poll for events (ASYNC_EVENT_READ/WRITE)
+	int AddFd(int fd, int events, void *udata);
+
+	// Remove a file descriptor from poll
+	int RemoveFd(int fd);
+
+	// Modify events for a file descriptor in poll
+	int SetFd(int fd, int events);
+
+private:
+	static void PollCB(CAsyncPoll *poll, int fd, int events, void *udata);
+
+private:
+	CAsyncLoop *_loop;
+	CAsyncPoll *_poll;
+	typedef std::function<void(int fd, int events, void *udata)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+};
+
+
 NAMESPACE_END(System);
 
 #endif

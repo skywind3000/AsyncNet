@@ -295,6 +295,112 @@ bool AsyncSignal::Ignore(int signum)
 }
 
 
+//=====================================================================
+// AsyncPoll - epoll like API for AsyncLoop
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncPoll::~AsyncPoll()
+{
+	if (_poll) {
+		async_poll_delete(_poll);
+		_poll = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncPoll::AsyncPoll(CAsyncLoop *loop)
+{
+	_loop = loop;
+	assert(loop);
+	if (loop == NULL) return;
+	_poll = async_poll_new(loop, PollCB);
+	if (_poll == NULL) return;
+	_poll->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncPoll::AsyncPoll(AsyncLoop &loop): AsyncPoll(loop.GetLoop())
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncPoll::AsyncPoll(AsyncPoll &&src)
+	: _loop(src._loop), _poll(src._poll), _cb_ptr(std::move(src._cb_ptr))
+{
+	if (_poll) {
+		_poll->user = this;
+	}
+	src._loop = NULL;
+	src._poll = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// setup callback function
+//---------------------------------------------------------------------
+void AsyncPoll::SetCallback(std::function<void(int fd, int events, void *udata)> cb)
+{
+	(*_cb_ptr) = std::move(cb);
+}
+
+
+//---------------------------------------------------------------------
+// internal callback
+//---------------------------------------------------------------------
+void AsyncPoll::PollCB(CAsyncPoll *poll, int fd, int events, void *udata)
+{
+	AsyncPoll *self = (AsyncPoll*)poll->user;
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		(*ref_ptr)(fd, events, udata);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Add a file descriptor to poll for events (ASYNC_EVENT_READ/WRITE)
+//---------------------------------------------------------------------
+int AsyncPoll::AddFd(int fd, int events, void *udata)
+{
+	if (_poll == NULL) return -1;
+	return async_poll_add(_poll, fd, events, udata);
+}
+
+
+//---------------------------------------------------------------------
+// Remove a file descriptor from poll
+//---------------------------------------------------------------------
+int AsyncPoll::RemoveFd(int fd)
+{
+	if (_poll == NULL) return -1;
+	return async_poll_del(_poll, fd);
+}
+
+
+//---------------------------------------------------------------------
+// Modify events for a file descriptor in poll
+//---------------------------------------------------------------------
+int AsyncPoll::SetFd(int fd, int events)
+{
+	if (_poll == NULL) return -1;
+	return async_poll_set(_poll, fd, events);
+}
+
+
 NAMESPACE_END(System);
 
 

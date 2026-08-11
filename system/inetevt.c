@@ -1414,7 +1414,7 @@ int async_event_modify(CAsyncEvent *evt, int mask)
 
 
 //---------------------------------------------------------------------
-// start watching events
+// start watching events, returns 0 for success, others for error
 //---------------------------------------------------------------------
 int async_event_start(CAsyncLoop *loop, CAsyncEvent *evt)
 {

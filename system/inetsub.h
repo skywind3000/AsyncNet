@@ -26,11 +26,13 @@ struct CAsyncTopic;
 struct CAsyncSubscribe;
 struct CAsyncSignal;
 struct CAsyncCodec;
+struct CAsyncPoll;
 
 typedef struct CAsyncTopic CAsyncTopic;
 typedef struct CAsyncSubscribe CAsyncSubscribe;
 typedef struct CAsyncSignal CAsyncSignal;
 typedef struct CAsyncCodec CAsyncCodec;
+typedef struct CAsyncPoll CAsyncPoll;
 
 
 //---------------------------------------------------------------------
@@ -215,6 +217,49 @@ int async_codec_error(const CAsyncCodec *codec);
 
 // reset error state, clear reader buffer
 void async_codec_reset(CAsyncCodec *codec);
+
+
+//---------------------------------------------------------------------
+// CAsyncPoll - an epoll like API based for CAsyncLoop
+//---------------------------------------------------------------------
+struct _CAsyncPollItem {
+	CAsyncEvent evt;
+	CAsyncPoll *poll;
+	int fd;
+	int events;
+	void *udata;
+};
+
+struct CAsyncPoll {
+	CAsyncLoop *loop;
+	void *user;
+	int busy;
+	int closing;
+	int count;
+	struct ib_hash_map fds;   // hash map of fd -> CAsyncPollItem*
+	void (*callback)(CAsyncPoll *poll, int fd, int events, void *udata);
+};
+
+typedef struct _CAsyncPollItem CAsyncPollItem;
+
+// create a new CAsyncPoll object
+CAsyncPoll *async_poll_new(CAsyncLoop *loop,
+	void (*callback)(CAsyncPoll *poll, int fd, int events, void *udata));
+
+// delete CAsyncPoll object
+void async_poll_delete(CAsyncPoll *poll);
+
+// add a file descriptor to poll for events (ASYNC_EVENT_READ/WRITE)
+// returns 0 on success, -1 on failure (e.g., fd already added)
+int async_poll_add(CAsyncPoll *poll, int fd, int events, void *udata);
+
+// remove a file descriptor from poll
+// returns 0 on success, -1 on failure (e.g., fd not found)
+int async_poll_del(CAsyncPoll *poll, int fd);
+
+// modify events for a file descriptor in poll
+// returns 0 on success, -1 on failure (e.g., fd not found)
+int async_poll_set(CAsyncPoll *poll, int fd, int events);
 
 
 #ifdef __cplusplus

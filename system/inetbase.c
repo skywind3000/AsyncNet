@@ -4226,8 +4226,8 @@ static int ipu_poll_wait(ipolld ipd, int timeval)
 	dvp.dp_nfds = ps->max_fd * 2;
 	dvp.dp_timeout = timeval;
 
-	if (dvp.dp_nfds > ps->limit) {
-		dvp.dp_nfds = ps->limit;
+	if ((int)(dvp.dp_nfds) > (int)(ps->limit)) {
+		dvp.dp_nfds = (int)(ps->limit);
 	}
 
 	retval = ioctl(ps->dpfd, DP_POLL, &dvp);
