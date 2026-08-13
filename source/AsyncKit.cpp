@@ -98,7 +98,7 @@ void AsyncStream::TcpCB(CAsyncStream *tcp, int event, int args)
 //---------------------------------------------------------------------
 void AsyncStream::SetCallback(std::function<void(int event, int args)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 	if (_stream) {
 		_stream->callback = TcpCB;
 		_stream->user = this;
@@ -467,7 +467,7 @@ AsyncUdp::AsyncUdp(AsyncUdp &&src):
 //---------------------------------------------------------------------
 void AsyncUdp::SetCallback(std::function<void(int event, int args)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 	_udp->callback = UdpCB;
 }
 
@@ -722,7 +722,7 @@ void AsyncListener::ListenCB(CAsyncListener *listener, int fd, const sockaddr *a
 //---------------------------------------------------------------------
 void AsyncListener::SetCallback(std::function<void(int fd, const sockaddr *addr, int len)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 	_listener->callback = ListenCB;
 	_listener->user = this;
 }
@@ -866,7 +866,7 @@ void AsyncSplit::Destroy()
 //---------------------------------------------------------------------
 void AsyncSplit::SetCallback(std::function<void(int event)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 	if (_split) {
 		_split->callback = SplitCB;
 		_split->receiver = SplitReceiver;
@@ -880,7 +880,7 @@ void AsyncSplit::SetCallback(std::function<void(int event)> cb)
 //---------------------------------------------------------------------
 void AsyncSplit::SetReceiver(std::function<void(void *data, long size)> receiver)
 {
-	(*_receiver_ptr) = receiver;
+	_receiver_ptr = std::make_shared<Receiver>(std::move(receiver));
 	if (_split) {
 		_split->callback = SplitCB;
 		_split->receiver = SplitReceiver;
@@ -1060,7 +1060,7 @@ AsyncMessage::AsyncMessage(AsyncMessage &&src):
 //---------------------------------------------------------------------
 void AsyncMessage::SetCallback(std::function<void(int, int, int, const void *, int)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 	_msg->callback = MsgCB;
 }
 

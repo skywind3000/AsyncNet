@@ -103,9 +103,20 @@
 
 
 //---------------------------------------------------------------------
-// internal consts
+// internal definition
 //---------------------------------------------------------------------
 static const char ASYNC_LOOP_GUARD[8] = { 0, 6, 5, 4, 3, 2, 0, 7 };
+
+
+//---------------------------------------------------------------------
+// user object
+//---------------------------------------------------------------------
+typedef struct _CAsyncObject {
+	ilist_head node;
+	char *key;
+	void *ptr;
+	void (*dtor)(void *obj);
+}   CAsyncObject;
 
 
 //---------------------------------------------------------------------
@@ -126,6 +137,8 @@ static int async_loop_dispatch_idle(CAsyncLoop *loop);
 static int async_loop_dispatch_once(CAsyncLoop *loop, int priority);
 static int async_loop_guard_check(CAsyncLoop *loop);
 static void async_loop_cleanup(CAsyncLoop *loop);
+static void async_loop_obj_init(CAsyncLoop *loop);
+static void async_loop_obj_quit(CAsyncLoop *loop);
 
 
 //---------------------------------------------------------------------
@@ -170,6 +183,7 @@ CAsyncLoop* async_loop_new(void)
 	loop->exiting = 0;
 	loop->instant = 0;
 	loop->tickless = 0;
+	loop->closing = 0;
 
 	iv_init(&loop->v_pending, NULL);
 	iv_init(&loop->v_changes, NULL);
@@ -317,6 +331,8 @@ CAsyncLoop* async_loop_new(void)
 	}
 #endif
 
+	async_loop_obj_init(loop);
+
 	return loop;
 }
 
@@ -329,6 +345,10 @@ void async_loop_delete(CAsyncLoop *loop)
 	int i;
 
 	assert(loop != NULL);
+
+	loop->closing = 1;
+
+	async_loop_obj_quit(loop);
 
 	// remove I/O watching events
 	if (loop->fds) {
@@ -1366,6 +1386,185 @@ void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...)
 			fflush(stderr);
 		}
 	}
+}
+
+
+//---------------------------------------------------------------------
+// initialize user object map
+//---------------------------------------------------------------------
+static void async_loop_obj_init(CAsyncLoop *loop)
+{
+	struct ib_hash_map *map = NULL;
+	ilist_init(&loop->obj_head);
+	map = (struct ib_hash_map*)ikmem_malloc(sizeof(struct ib_hash_map));
+	if (map) {
+		ib_map_init(map, ib_hash_func_cstr, ib_hash_compare_cstr);
+		map->key_copy = ib_hash_cstr_copy;
+		map->key_destroy = ib_hash_cstr_destroy;
+	}
+	else {   // map is NULL
+		ASSERTION(map);
+		abort();
+	}
+	loop->obj_map = map;
+}
+
+
+//---------------------------------------------------------------------
+// finalize user object map
+//---------------------------------------------------------------------
+static void async_loop_obj_quit(CAsyncLoop *loop)
+{
+	while (!ilist_is_empty(&loop->obj_head)) {
+		ilist_head *it = loop->obj_head.next;
+		CAsyncObject *object = ilist_entry(it, CAsyncObject, node);
+		void *ptr = object->ptr;
+		void (*dtor)(void*) = object->dtor;
+		ilist_del_init(&object->node);
+		ib_map_remove(loop->obj_map, object->key);
+		if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
+			async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
+				"[object] destroy key=%s ptr=%p", 
+				object->key, object->ptr);
+		}
+		object->ptr = NULL;
+		if (object->key) {
+			ikmem_free(object->key);
+			object->key = NULL;
+		}
+		ikmem_free(object);
+		if (dtor) {
+			if (ptr) {
+				dtor(ptr);
+			}
+		}
+	}
+	ib_map_destroy(loop->obj_map);
+	ikmem_free(loop->obj_map);
+	loop->obj_map = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// install user object, the optional dtor will be called reversely 
+// when deleting loop. if obj is NULL existing obj will be removed.
+//---------------------------------------------------------------------
+void async_loop_install(CAsyncLoop *loop, const char *key, void *obj,
+		void (*dtor)(void *obj))
+{
+	struct ib_hash_entry *entry;
+	CAsyncObject *object;
+	void *oldptr = NULL;
+	void (*olddtor)(void*) = NULL;
+	if (key == NULL) {
+		assert(key);
+		return;
+	}
+	if (loop->closing) {
+		if (obj) {
+			if (dtor) dtor(obj);
+			return;
+		}
+	}
+	if (obj != NULL) {
+		entry = ib_map_find(loop->obj_map, key);
+		if (entry) {
+			object = (CAsyncObject*)ib_hash_value(entry);
+			if (object->ptr == obj) {
+				object->dtor = dtor;
+				if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
+					async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
+						"[object] update key=%s ptr=%p", 
+						object->key, object->ptr);
+				}
+				return;
+			}
+			oldptr = object->ptr;
+			olddtor = object->dtor;
+			object->ptr = obj;
+			object->dtor = dtor;
+			if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
+					"[object] destroy key=%s ptr=%p", 
+					object->key, oldptr);
+			}
+		}
+		else {
+			object = (CAsyncObject*)ikmem_malloc(sizeof(CAsyncObject));
+			if (!object) {
+				assert(object);
+				abort();
+				return;
+			}
+			object->key = istrdup(key);
+			object->ptr = obj;
+			object->dtor = dtor;
+			if (object->key == NULL) {
+				assert(object->key);
+				ikmem_free(object);
+				abort();
+				return;
+			}
+			ilist_init(&object->node);
+			entry = ib_map_set(loop->obj_map, (void*)key, object);
+			if (entry == NULL) {
+				ikmem_free(object->key);
+				ikmem_free(object);
+				assert(entry);
+				abort();
+				return;
+			}
+			ilist_add(&object->node, &loop->obj_head);
+		}
+		if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
+			async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
+				"[object] install key=%s ptr=%p", object->key, object->ptr);
+		}
+	}
+	else {
+		entry = ib_map_find(loop->obj_map, key);
+		if (entry) {
+			object = (CAsyncObject*)ib_hash_value(entry);
+			if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
+				async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
+					"[object] destroy key=%s ptr=%p", 
+					object->key, object->ptr);
+			}
+			oldptr = object->ptr;
+			olddtor = object->dtor;
+			ilist_del_init(&object->node);
+			ib_map_erase(loop->obj_map, entry);
+			if (object->key) {
+				ikmem_free(object->key);
+				object->key = NULL;
+			}
+			object->ptr = NULL;
+			ikmem_free(object);
+		}
+	}
+	if (olddtor) {
+		if (oldptr) olddtor(oldptr);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// query loop user object by key, returns NULL if not found
+//---------------------------------------------------------------------
+void *async_loop_query(CAsyncLoop *loop, const char *key)
+{
+	struct ib_hash_entry *entry;
+	CAsyncObject *object;
+	if (key == NULL) return NULL;
+	if (loop->obj_map == NULL) return NULL;
+	entry = ib_map_find(loop->obj_map, key);
+	if (entry) {
+		object = (CAsyncObject*)ib_hash_value(entry);
+		if (object) {
+			return object->ptr;
+		}
+	}
+	return NULL;
 }
 
 

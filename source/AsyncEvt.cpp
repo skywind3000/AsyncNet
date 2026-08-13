@@ -25,9 +25,6 @@ NAMESPACE_BEGIN(System);
 AsyncLoop::~AsyncLoop()
 {
 	if (_loop != NULL) {
-		_loop->self = NULL;
-		_loop->writelog = NULL;
-		_loop->logger = NULL;
 		_loop->on_wait = NULL;
 		_loop->on_idle = NULL;
 		_loop->on_once = NULL;
@@ -37,6 +34,10 @@ AsyncLoop::~AsyncLoop()
 		if (_loop != NULL) {
 			async_loop_delete(_loop);
 		}
+	}   else {
+		_loop->self = NULL;
+		_loop->logger = NULL;
+		_loop->writelog = NULL;
 	}
 	_loop = NULL;
 }
@@ -387,6 +388,26 @@ void AsyncLoop::SetWaitHandler(std::function<void()> handler)
 }
 
 
+//---------------------------------------------------------------------
+// user object query, if key exists, return the object, otherwise return NULL
+//---------------------------------------------------------------------
+void* AsyncLoop::ObjectQuery(const char *key)
+{
+	if (_loop == NULL) return NULL;
+	return async_loop_query(_loop, key);
+}
+
+
+//---------------------------------------------------------------------
+// User object install, if key exists, return old object and replace it with new one
+//---------------------------------------------------------------------
+void AsyncLoop::ObjectInstall(const char *key, void *obj, void (*destroy)(void*))
+{
+	if (_loop == NULL) return;
+	async_loop_install(_loop, key, obj, destroy);
+}
+
+
 
 //=====================================================================
 // AsyncEvent
@@ -466,7 +487,10 @@ void AsyncEvent::EventCB(CAsyncLoop *loop, CAsyncEvent *evt, int event)
 //---------------------------------------------------------------------
 void AsyncEvent::SetCallback(std::function<void(int)> callback)
 {
-	(*_cb_ptr) = std::move(callback);
+	// 创建新的 function 对象而不是原地修改：避免回调执行期间被自身 reset/替换，
+	// 导致正在执行的 lambda 捕获变量（如 this）被提前销毁。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
+
 }
 
 
@@ -624,7 +648,8 @@ int AsyncTimer::Stop()
 //---------------------------------------------------------------------
 void AsyncTimer::SetCallback(std::function<void()> callback)
 {
-	*_cb_ptr = std::move(callback);
+	// 创建新的 function 对象，避免回调自毁时销毁正在执行的 lambda 闭包。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
 }
 
 
@@ -706,7 +731,9 @@ void AsyncSemaphore::NotifyCB(CAsyncLoop *loop, CAsyncSemaphore *notify)
 //---------------------------------------------------------------------
 void AsyncSemaphore::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = std::move(callback);
+	// 创建新的 function 对象，避免回调自毁时销毁正在执行的 lambda 闭包。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
+
 }
 
 
@@ -818,7 +845,9 @@ void AsyncPostpone::InternalCB(CAsyncLoop *loop, CAsyncPostpone *postpone)
 //---------------------------------------------------------------------
 void AsyncPostpone::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = std::move(callback);
+	// 创建新的 function 对象，避免回调自毁时销毁正在执行的 lambda 闭包。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
+
 }
 
 
@@ -919,7 +948,9 @@ void AsyncIdle::InternalCB(CAsyncLoop *loop, CAsyncIdle *idle)
 //---------------------------------------------------------------------
 void AsyncIdle::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = std::move(callback);
+	// 创建新的 function 对象，避免回调自毁时销毁正在执行的 lambda 闭包。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
+
 }
 
 
@@ -990,7 +1021,9 @@ AsyncOnce::AsyncOnce(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 void AsyncOnce::SetCallback(std::function<void()> callback)
 {
-	(*_cb_ptr) = std::move(callback);
+	// 创建新的 function 对象，避免回调自毁时销毁正在执行的 lambda 闭包。
+	_cb_ptr = std::make_shared<Callback>(std::move(callback));
+
 }
 
 

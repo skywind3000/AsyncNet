@@ -117,7 +117,7 @@ AsyncSubscribe::AsyncSubscribe(AsyncSubscribe &&src):
 //---------------------------------------------------------------------
 void AsyncSubscribe::SetCallback(std::function<int(IINT32 wparam, IINT32 lparam, const void *data, int size)> cb)
 {
-	(*_cb_ptr) = cb;
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 }
 
 
@@ -354,7 +354,7 @@ AsyncPoll::AsyncPoll(AsyncPoll &&src)
 //---------------------------------------------------------------------
 void AsyncPoll::SetCallback(std::function<void(int fd, int events, void *udata)> cb)
 {
-	(*_cb_ptr) = std::move(cb);
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
 }
 
 

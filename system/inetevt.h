@@ -201,6 +201,7 @@ struct CAsyncLoop {
 	int exiting;                   // exit flag
 	int instant;                   // set to non-zero for instant mode
 	int tickless;                  // tickless mode (no interval any more)
+	int closing;                   // closing loop
 	char *internal;                // a static buffer for internal usage
 	char *buffer;                  // a static buffer for arbitrary usage
 	char *cache;                   // an extra buffer for external usage
@@ -232,6 +233,8 @@ struct CAsyncLoop {
 	void *self;           // this pointer for loop object (for C++ wrapper)
 	void *user;           // user data pointer for loop object
 	void *extension;      // external data pointer for extension;
+	struct ib_hash_map *obj_map;  // user object map for loop object
+	ilist_head obj_head;          // user object list for loop object
 	ib_string *logcache;  // global text buffer for loop object
 	int logmask;          // log mask for loop object
 	void *logger;         // logger for loop object, can be NULL
@@ -276,7 +279,8 @@ struct CAsyncLoop {
 #define ASYNC_LOOP_LOG_POST       0x100
 #define ASYNC_LOOP_LOG_IDLE       0x200
 #define ASYNC_LOOP_LOG_ONCE       0x400
-#define ASYNC_LOOP_LOG_USER       0x800
+#define ASYNC_LOOP_LOG_OBJECT     0x800
+#define ASYNC_LOOP_LOG_USER       0x1000
 
 #define ASYNC_LOOP_LOG_CUSTOMIZE(n) ((ASYNC_LOOP_LOG_USER) << (n))
 
@@ -305,6 +309,14 @@ void async_loop_interval(CAsyncLoop *loop, IINT32 millisec);
 
 // write log
 void async_loop_log(CAsyncLoop *loop, int channel, const char *fmt, ...);
+
+// query loop user object by key, returns NULL if not found
+void *async_loop_query(CAsyncLoop *loop, const char *key);
+
+// install user object, the optional dtor will be called reversely 
+// when deleting loop. if obj is NULL existing obj will be removed.
+void async_loop_install(CAsyncLoop *loop, const char *key, void *obj,
+		void (*dtor)(void *obj));
 
 
 //---------------------------------------------------------------------

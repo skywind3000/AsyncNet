@@ -178,6 +178,12 @@ public:
 	inline void *Ptr() { return _ptr; }
 	inline void Ptr(void *ptr) { _ptr = ptr; }
 
+	// user object query, if key exists, return the object, otherwise return NULL
+	void* ObjectQuery(const char *key);
+
+	// User object install, if key exists, return old object and replace it with new one
+	void ObjectInstall(const char *key, void *obj, void (*destroy)(void*));
+
 
 private:
 	std::function<void(const char*)> _cb_log;
