@@ -32,6 +32,8 @@
 #include <string>
 #include <functional>
 #include <memory>
+#include <stdexcept>
+#include <typeinfo>
 
 #include "../system/inetevt.h"
 #include "../system/system.h"
@@ -39,6 +41,19 @@
 
 
 NAMESPACE_BEGIN(System);
+
+//---------------------------------------------------------------------
+// 前置声明
+//---------------------------------------------------------------------
+class AsyncLoop;
+
+//---------------------------------------------------------------------
+// 用于创建服务对象的策略类，默认实现就是调用 T(AsyncLoop&) 构造函数
+//---------------------------------------------------------------------
+template <typename T> struct AsyncTraits {
+	static T *Create(AsyncLoop &loop) { return new T(loop); }
+};
+
 
 //---------------------------------------------------------------------
 // AsyncLoop - 消息循环（消息分发器）
@@ -184,6 +199,53 @@ public:
 	// User object install, if key exists, return old object and replace it with new one
 	void ObjectInstall(const char *key, void *obj, void (*destroy)(void*));
 
+public:
+
+	// 按 T 取/建服务，已存在则直接返回引用；需新建时若 _loop 为 NULL
+	// 或处于 closing 则抛 std::runtime_error
+	template <typename T> T& GetService() {
+		if (_loop == NULL) throw std::runtime_error("CAsyncLoop is NULL");
+		const char *key = KeyOf<T>();
+		void *ptr = async_loop_query(_loop, key);
+		if (ptr != NULL) return *(T*)ptr;
+		if (_loop->closing) throw std::runtime_error("CAsyncLoop is closing");
+		T *obj = AsyncTraits<T>::Create(*this);
+		async_loop_install(_loop, key, obj, Deleter<T>);
+		return *obj;
+	}
+
+	// 按 T 查询已安装对象，不存在返回 NULL；只读，closing 期间仍可安全调用
+	template <typename T> T* QueryService() {
+		if (_loop == NULL) return NULL;
+		return (T*)async_loop_query(_loop, KeyOf<T>());
+	}
+
+	// 按 T 安装对象，ownership=true 时由 loop 接管并在销毁时 delete
+	// closing 期间直接返回不接管，避免当场销毁用户传入的对象
+	template <typename T> void InstallService(T *obj, bool ownership = false) {
+		if (_loop == NULL) return;
+		if (_loop->closing) return;
+		const char *key = KeyOf<T>();
+		if (ownership) {
+			async_loop_install(_loop, key, obj, Deleter<T>);
+		}   else {
+			async_loop_install(_loop, key, obj, NULL);
+		}
+	}
+
+	template <typename T> void PrewarmService() { GetService<T>(); }
+
+private:
+
+	template <typename T> static void Deleter(void *ptr) { delete ((T*)ptr); }
+
+	// 生成 T 对应的 service key：固定前缀 ".svc:" + typeid(T).name()
+	// 用 mangled 名按字符串内容做 key，天然跨动态库安全（同类型在任意 DSO
+	// 中 name() 内容一致）；前缀用于与 C 层直接 install 的 key 隔离
+	template <typename T> static const char *KeyOf() {
+		static const std::string key = std::string(".svc:") + typeid(T).name();
+		return key.c_str();
+	}
 
 private:
 	std::function<void(const char*)> _cb_log;

@@ -224,7 +224,15 @@ void AsyncLoop::OnLog(void *logger, const char *text)
 	AsyncLoop *self = (AsyncLoop*)logger;
 	if (self) {
 		if (self->_cb_log != nullptr) {
-			self->_cb_log(text);
+			try {
+				self->_cb_log(text);
+			}
+			catch (const std::exception &e) {
+				fprintf(stderr, "AsyncLoop log callback threw an exception: %s\n", e.what());
+			}
+			catch (...) {
+				fprintf(stderr, "AsyncLoop log callback threw an unknown exception\n");
+			}
 		}
 	}
 }
