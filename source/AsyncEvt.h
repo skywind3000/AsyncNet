@@ -33,10 +33,19 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
-#include <typeinfo>
 
 #include "../system/inetevt.h"
 #include "../system/system.h"
+
+// service key 的生成方式：1 = typeid(T).name()，0 = 编译器的函数签名宏
+// 默认跟随编译器的 RTTI 开关，显式定义可强制切换（便于测试 no-rtti 分支）
+#ifndef ASYNC_SERVICE_KEY_RTTI
+#define ASYNC_SERVICE_KEY_RTTI _CPP_FEATURE_RTTI
+#endif
+
+#if ASYNC_SERVICE_KEY_RTTI
+#include <typeinfo>
+#endif
 
 
 
@@ -196,6 +205,9 @@ public:
 	// user object query, if key exists, return the object, otherwise return NULL
 	void* ObjectQuery(const char *key);
 
+	// user object query, if key exists, return the object, otherwise return NULL
+	const void* ObjectQuery(const char *key) const;
+
 	// User object install, if key exists, return old object and replace it with new one
 	void ObjectInstall(const char *key, void *obj, void (*destroy)(void*));
 
@@ -226,11 +238,7 @@ public:
 		if (_loop == NULL) return;
 		if (_loop->closing) return;
 		const char *key = KeyOf<T>();
-		if (ownership) {
-			async_loop_install(_loop, key, obj, Deleter<T>);
-		}   else {
-			async_loop_install(_loop, key, obj, NULL);
-		}
+		async_loop_install(_loop, key, obj, ownership? Deleter<T> : NULL);
 	}
 
 	template <typename T> void PrewarmService() { GetService<T>(); }
@@ -239,11 +247,25 @@ private:
 
 	template <typename T> static void Deleter(void *ptr) { delete ((T*)ptr); }
 
-	// 生成 T 对应的 service key：固定前缀 ".svc:" + typeid(T).name()
-	// 用 mangled 名按字符串内容做 key，天然跨动态库安全（同类型在任意 DSO
-	// 中 name() 内容一致）；前缀用于与 C 层直接 install 的 key 隔离
+	// 生成 T 对应的 service key：固定前缀 ".svc:" + 类型名字符串
+	// 有 RTTI 时用 typeid(T).name()，否则用编译器的函数签名宏，两者都是按
+	// 字符串内容比较，跨动态库安全（同一编译器下同一类型在任意 DSO 中内容
+	// 一致）；前缀用于与 C 层直接 install 的 key 隔离
+	// 注意：共享同一个 loop 的各模块必须用同一套编译开关 —— 开与关 RTTI
+	// 生成的 key 内容不同，混编会让同一个 T 变成两个 service
 	template <typename T> static const char *KeyOf() {
+	#if defined(__GNUC__) || defined(__clang__)
+		static const std::string key = std::string(".svc:") + __PRETTY_FUNCTION__;
+	#elif defined(_MSC_VER)
+		static const std::string key = std::string(".svc:") + __FUNCSIG__;
+	#elif ASYNC_SERVICE_KEY_RTTI
 		static const std::string key = std::string(".svc:") + typeid(T).name();
+	#else
+		// 兜底：仅单模块可用！函数内 static 的地址在每个 dll/so 里各有一
+		// 份，同一个 T 会被当成两个不同的 service（详见上面注释）
+		static const int sid = 0;
+		static const std::string key = std::string(".svc:") + std::to_string((size_t)&sid);
+	#endif
 		return key.c_str();
 	}
 

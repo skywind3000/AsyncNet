@@ -407,6 +407,14 @@ void* AsyncLoop::ObjectQuery(const char *key)
 
 
 //---------------------------------------------------------------------
+// user object query, if key exists, return the object, otherwise return NULL
+//---------------------------------------------------------------------
+const void* AsyncLoop::ObjectQuery(const char *key) const {
+	return const_cast<AsyncLoop*>(this)->ObjectQuery(key);
+}
+
+
+//---------------------------------------------------------------------
 // User object install, if key exists, return old object and replace it with new one
 //---------------------------------------------------------------------
 void AsyncLoop::ObjectInstall(const char *key, void *obj, void (*destroy)(void*))
