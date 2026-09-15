@@ -228,7 +228,7 @@ typedef struct _ib_entry {
 struct ib_managed {
 	struct ib_hash_map *obj_map;  // user object map for loop object
 	ilist_head obj_head;          // user object list for loop object
-	int closing;                  // flag if the container is closing
+	int busy;                     // flag if the container is busy
 };
 
 
@@ -256,7 +256,7 @@ ib_managed *ib_managed_new(void)
 		return NULL;
 	}
 	managed->obj_map = map;
-	managed->closing = 0;
+	managed->busy = 0;
 	return managed;
 }
 
@@ -292,7 +292,7 @@ int ib_managed_install(ib_managed *managed, const char *key, void *obj,
 	if (key == NULL) {
 		return -1;
 	}
-	if (managed->closing || managed->obj_map == NULL) {
+	if (managed->busy || managed->obj_map == NULL) {
 		// the container is being destroyed, nothing can be installed any
 		// more: destroy the object in place to avoid leaking it
 		if (obj) {
@@ -396,7 +396,7 @@ void ib_managed_clear(ib_managed *managed)
 {
 	assert(managed);
 	assert(managed->obj_map);
-	managed->closing = 1;
+	managed->busy++;
 	while (!ilist_is_empty(&managed->obj_head)) {
 		ilist_head *it = managed->obj_head.next;
 		ib_entry *object = ilist_entry(it, ib_entry, node);
@@ -416,7 +416,7 @@ void ib_managed_clear(ib_managed *managed)
 		}
 		ikmem_free(object);
 	}
-	managed->closing = 0;
+	managed->busy--;
 }
 
 

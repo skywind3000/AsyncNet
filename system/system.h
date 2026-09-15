@@ -140,6 +140,24 @@
 #endif
 
 
+//---------------------------------------------------------------------
+// RTTI detection
+//---------------------------------------------------------------------
+// __cpp_rtti: SD-6 standard macro (gcc/clang), _CPPRTTI: msvc (/GR)
+// __GXX_RTTI: gcc/clang gnu-compatible macro
+#ifndef _CPP_FEATURE_RTTI
+#if defined(__cpp_rtti) || defined(__GXX_RTTI) || defined(_CPPRTTI)
+    #define _CPP_FEATURE_RTTI 1
+#elif defined(__has_feature)    // fallback for old clang only
+    #if __has_feature(cxx_rtti)
+        #define _CPP_FEATURE_RTTI 1
+    #endif
+#endif
+#ifndef _CPP_FEATURE_RTTI
+    #define _CPP_FEATURE_RTTI 0
+#endif
+#endif
+
 
 //---------------------------------------------------------------------
 // Namespace Begin

@@ -6,10 +6,19 @@
 //
 //=====================================================================
 #include <stddef.h>
+#include <cmath>
 
 #include "AsyncSub.h"
 
 NAMESPACE_BEGIN(System);
+
+namespace {
+	const int64_t kNsPerSecond = 1000000000LL;
+	const int64_t kEwmaTau1m   = 60 * kNsPerSecond;
+	const int64_t kEwmaTau5m   = 300 * kNsPerSecond;
+	const int64_t kEwmaTau15m  = 900 * kNsPerSecond;
+}
+
 
 //=====================================================================
 // AsyncTopic
@@ -399,6 +408,363 @@ int AsyncPoll::SetFd(int fd, int events)
 	if (_poll == NULL) return -1;
 	return async_poll_set(_poll, fd, events);
 }
+
+
+//=====================================================================
+// AsyncUsage
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncUsage::~AsyncUsage()
+{
+	_loop.SetPhaseHandler(NULL);
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncUsage::AsyncUsage(AsyncLoop &loop): _loop(loop)
+{
+	_loop.SetPhaseHandler(std::bind(&AsyncUsage::OnPhaseChange, this, std::placeholders::_1));
+	_enabled = true;
+}
+
+
+//---------------------------------------------------------------------
+// enable statistics
+//---------------------------------------------------------------------
+void AsyncUsage::Enable()
+{
+	if (!_enabled) {
+		_loop.SetPhaseHandler(std::bind(&AsyncUsage::OnPhaseChange, this, std::placeholders::_1));
+		_enabled = true;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// disable statistics
+//---------------------------------------------------------------------
+void AsyncUsage::Disable()
+{
+	if (_enabled) {
+		_loop.SetPhaseHandler(NULL);
+		_enabled = false;
+		// Reset all statistics so that the next Enable() starts a fresh
+		// measurement window. Otherwise the disabled interval would be
+		// counted as idle time in the cumulative averages.
+		_first_sample_ns = 0;
+		_total_iterations = 0;
+		_total_events_dispatched = 0;
+		_total_time_wait_ns = 0;
+		_total_time_dispatch_ns = 0;
+		_total_time_hooks_ns = 0;
+		_last_iteration_time_ns = 0;
+		_last_wait_time_ns = 0;
+		_last_dispatch_time_ns = 0;
+		_last_hooks_time_ns = 0;
+		_ewma_last_ns = 0;
+		_prev_total_ns = 0;
+		_prev_total_wait_ns = 0;
+		_prev_total_dispatch_ns = 0;
+		_prev_total_events = 0;
+		_ewma_1m = EwmaState();
+		_ewma_5m = EwmaState();
+		_ewma_15m = EwmaState();
+		_skip_first_iteration = true;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// get usage info snapshot
+//---------------------------------------------------------------------
+AsyncUsage::UsageInfo AsyncUsage::GetUsageInfo() const
+{
+	UsageInfo info;
+	CAsyncLoop *loop = _loop.GetLoop();
+
+	info.num_events = loop->num_events;
+	info.num_timers = loop->num_timers;
+	info.num_semaphores = loop->num_semaphore;
+	info.num_postpones = loop->num_postpone;
+
+	int64_t now_ns = iclock_nano(1);
+	info.uptime_ns = now_ns - loop->uptime;
+	info.total_iterations = _total_iterations;
+	info.total_events_dispatched = _total_events_dispatched;
+	info.total_time_wait_ns = _total_time_wait_ns;
+	info.total_time_dispatch_ns = _total_time_dispatch_ns;
+	info.total_time_hooks_ns = _total_time_hooks_ns;
+
+	info.last_iteration_time_ns = _last_iteration_time_ns;
+	info.last_wait_time_ns = _last_wait_time_ns;
+	info.last_dispatch_time_ns = _last_dispatch_time_ns;
+	info.last_hooks_time_ns = _last_hooks_time_ns;
+
+	int64_t elapsed_ns = (_first_sample_ns > 0) ? (now_ns - _first_sample_ns) : 0;
+	int64_t total_busy_ns = _total_time_wait_ns
+	                      + _total_time_dispatch_ns
+	                      + _total_time_hooks_ns;
+
+	auto ratio_from_total = [&](int64_t component_ns) -> int64_t {
+		if (total_busy_ns <= 0) return 0;
+		return (int64_t)((double)component_ns / (double)total_busy_ns * 1000000.0);
+	};
+
+	auto ratio_or_ewma = [&](int64_t tau_ns, const EwmaState &ewma,
+	                         double EwmaState::*field,
+	                         int64_t component_ns) -> int64_t {
+		if (elapsed_ns > 0 && elapsed_ns < tau_ns) {
+			return ratio_from_total(component_ns);
+		}
+		return (int64_t)(ewma.*field * 1000000.0);
+	};
+
+	auto rate_or_ewma = [&](int64_t tau_ns, const EwmaState &ewma) -> int64_t {
+		if (elapsed_ns > 0 && elapsed_ns < tau_ns) {
+			return (int64_t)((double)_total_events_dispatched
+			               / ((double)elapsed_ns / (double)kNsPerSecond));
+		}
+		return (int64_t)ewma.event_rate;
+	};
+
+	info.wait_ratio_1m = ratio_or_ewma(kEwmaTau1m, _ewma_1m,
+	                                   &EwmaState::wait, _total_time_wait_ns);
+	info.wait_ratio_5m = ratio_or_ewma(kEwmaTau5m, _ewma_5m,
+	                                   &EwmaState::wait, _total_time_wait_ns);
+	info.wait_ratio_15m = ratio_or_ewma(kEwmaTau15m, _ewma_15m,
+	                                    &EwmaState::wait, _total_time_wait_ns);
+
+	info.dispatch_ratio_1m = ratio_or_ewma(kEwmaTau1m, _ewma_1m,
+	                                       &EwmaState::dispatch, _total_time_dispatch_ns);
+	info.dispatch_ratio_5m = ratio_or_ewma(kEwmaTau5m, _ewma_5m,
+	                                       &EwmaState::dispatch, _total_time_dispatch_ns);
+	info.dispatch_ratio_15m = ratio_or_ewma(kEwmaTau15m, _ewma_15m,
+	                                        &EwmaState::dispatch, _total_time_dispatch_ns);
+
+	info.event_rate_1m = rate_or_ewma(kEwmaTau1m, _ewma_1m);
+	info.event_rate_5m = rate_or_ewma(kEwmaTau5m, _ewma_5m);
+	info.event_rate_15m = rate_or_ewma(kEwmaTau15m, _ewma_15m);
+
+	return info;
+}
+
+
+//---------------------------------------------------------------------
+// get usage info string
+//---------------------------------------------------------------------
+std::string AsyncUsage::GetUsageInfoString() const
+{
+	UsageInfo info = GetUsageInfo();
+	return StringFormat(
+		"uptime=%s, %%wait=%.1f/%.1f/%.1f, "
+		"%%dispatch=%.1f/%.1f/%.1f, events/s=%lld/%lld/%lld",
+		UptimePrettify(info.uptime_ns / 1e9).c_str(),
+		info.wait_ratio_1m / 10000.0,
+		info.wait_ratio_5m / 10000.0,
+		info.wait_ratio_15m / 10000.0,
+		info.dispatch_ratio_1m / 10000.0,
+		info.dispatch_ratio_5m / 10000.0,
+		info.dispatch_ratio_15m / 10000.0,
+		info.event_rate_1m,
+		info.event_rate_5m,
+		info.event_rate_15m);
+}
+
+
+//---------------------------------------------------------------------
+// format uptime in seconds to a human readable string
+//---------------------------------------------------------------------
+std::string AsyncUsage::UptimePrettify(double seconds)
+{
+	if (seconds < 0) seconds = 0;
+	int64_t total = (int64_t)(seconds + 0.5);
+	int64_t days = total / 86400;
+	int64_t hours = (total % 86400) / 3600;
+	int64_t minutes = (total % 3600) / 60;
+	int64_t secs = total % 60;
+
+	if (days > 0) {
+		return StringFormat("%dd%02dh", (int)days, (int)hours);
+	}
+	if (hours > 0) {
+		return StringFormat("%dh%02dm", (int)hours, (int)minutes);
+	}
+	if (minutes > 0) {
+		return StringFormat("%dm%02ds", (int)minutes, (int)secs);
+	}
+	return StringFormat("%ds", (int)secs);
+}
+
+
+//---------------------------------------------------------------------
+// phase notification callback
+//---------------------------------------------------------------------
+void AsyncUsage::OnPhaseChange(int phase)
+{
+	// Only handle outermost loop; nested RunOnce would corrupt timing state.
+	if (_loop.GetLoop()->depth != 1) return;
+
+	int64_t now = 0;
+
+	switch (phase) {
+	case ASYNC_LOOP_PHASE_START:
+		_phase_start_ns = iclock_nano(1);
+		if (_first_sample_ns == 0) {
+			_first_sample_ns = _phase_start_ns;
+		}
+		break;
+
+	case ASYNC_LOOP_PHASE_BEFORE_WAIT:
+		_wait_start_ns = iclock_nano(1);
+		break;
+
+	case ASYNC_LOOP_PHASE_AFTER_WAIT:
+		now = iclock_nano(1);
+		_last_wait_time_ns = now - _wait_start_ns;
+		_total_time_wait_ns += _last_wait_time_ns;
+		_dispatch_start_ns = now;
+		break;
+
+	case ASYNC_LOOP_PHASE_BEFORE_DISPATCH:
+		// No separate timing: dispatch is measured from AFTER_WAIT to
+		// AFTER_DISPATCH, which includes the loop's internal event-fetch
+		// and pre-dispatch preparation as part of dispatch cost.
+		break;
+
+	case ASYNC_LOOP_PHASE_AFTER_DISPATCH:
+		now = iclock_nano(1);
+		_last_dispatch_time_ns = now - _dispatch_start_ns;
+		_total_time_dispatch_ns += _last_dispatch_time_ns;
+		_hooks_start_ns = now;
+		break;
+
+	case ASYNC_LOOP_PHASE_END:
+		now = iclock_nano(1);
+		_last_hooks_time_ns = now - _hooks_start_ns;
+		_total_time_hooks_ns += _last_hooks_time_ns;
+		_last_iteration_time_ns = now - _phase_start_ns;
+		_total_events_dispatched = _loop.GetLoop()->proceeds;
+
+		// The first loop iteration often contains startup/setup work that is
+		// not representative of steady-state behavior. Discard it so that
+		// cumulative ratios and EWMA reflect the normal running state.
+		if (_skip_first_iteration) {
+			_first_sample_ns = now;
+			_total_iterations = 0;
+			_total_events_dispatched = 0;
+			_total_time_wait_ns = 0;
+			_total_time_dispatch_ns = 0;
+			_total_time_hooks_ns = 0;
+			_ewma_last_ns = 0;
+			_prev_total_ns = 0;
+			_prev_total_wait_ns = 0;
+			_prev_total_dispatch_ns = 0;
+			_prev_total_events = 0;
+			_ewma_1m = EwmaState();
+			_ewma_5m = EwmaState();
+			_ewma_15m = EwmaState();
+			_skip_first_iteration = false;
+		} else {
+			_total_iterations++;
+			UpdateEwma(now);
+		}
+		break;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// EWMA update helper
+//---------------------------------------------------------------------
+double AsyncUsage::EwmaUpdate(double prev, double sample, double dt, double tau)
+{
+	if (dt <= 0) return prev;
+	double alpha = 1.0 - exp(-dt / tau);
+	return prev * (1.0 - alpha) + sample * alpha;
+}
+
+
+//---------------------------------------------------------------------
+// update EWMA once per second
+//---------------------------------------------------------------------
+void AsyncUsage::UpdateEwma(int64_t now_ns)
+{
+	if (_ewma_last_ns == 0) {
+		_ewma_last_ns = now_ns;
+		_prev_total_ns = _total_time_wait_ns + _total_time_dispatch_ns + _total_time_hooks_ns;
+		_prev_total_wait_ns = _total_time_wait_ns;
+		_prev_total_dispatch_ns = _total_time_dispatch_ns;
+		_prev_total_events = _total_events_dispatched;
+		return;
+	}
+
+	double dt = (now_ns - _ewma_last_ns) / 1e9;
+	if (dt < 1.0) return;
+
+	// Initialize each EWMA once its tau window is reached, using the current
+	// true average as the starting value. This avoids a discontinuity when
+	// GetUsageInfo() switches from true average to EWMA at the tau boundary.
+	int64_t elapsed_ns = now_ns - _first_sample_ns;
+	int64_t total_busy_ns = _total_time_wait_ns
+	                      + _total_time_dispatch_ns
+	                      + _total_time_hooks_ns;
+
+	auto init_ewma = [&](int64_t tau_ns, EwmaState &ewma) {
+		if (elapsed_ns >= tau_ns && !ewma.initialized) {
+			ewma.wait = (total_busy_ns > 0)
+				? (double)_total_time_wait_ns / (double)total_busy_ns
+				: 0.0;
+			ewma.dispatch = (total_busy_ns > 0)
+				? (double)_total_time_dispatch_ns / (double)total_busy_ns
+				: 0.0;
+			ewma.event_rate = (elapsed_ns > 0)
+				? (double)_total_events_dispatched
+				  / ((double)elapsed_ns / (double)kNsPerSecond)
+				: 0.0;
+			ewma.initialized = true;
+		}
+	};
+
+	init_ewma(kEwmaTau1m, _ewma_1m);
+	init_ewma(kEwmaTau5m, _ewma_5m);
+	init_ewma(kEwmaTau15m, _ewma_15m);
+
+	double d_wait = (double)(_total_time_wait_ns - _prev_total_wait_ns);
+	double d_dispatch = (double)(_total_time_dispatch_ns - _prev_total_dispatch_ns);
+	int64_t total_ns = _total_time_wait_ns + _total_time_dispatch_ns + _total_time_hooks_ns;
+	double d_total = (double)(total_ns - _prev_total_ns);
+
+	double wait_sample = (d_total > 0) ? d_wait / d_total : 0.0;
+	double dispatch_sample = (d_total > 0) ? d_dispatch / d_total : 0.0;
+	double event_sample = dt > 0
+		? (_total_events_dispatched - _prev_total_events) / dt
+		: 0.0;
+
+	_ewma_1m.wait = EwmaUpdate(_ewma_1m.wait, wait_sample, dt, 60.0);
+	_ewma_1m.dispatch = EwmaUpdate(_ewma_1m.dispatch, dispatch_sample, dt, 60.0);
+	_ewma_1m.event_rate = EwmaUpdate(_ewma_1m.event_rate, event_sample, dt, 60.0);
+
+	_ewma_5m.wait = EwmaUpdate(_ewma_5m.wait, wait_sample, dt, 300.0);
+	_ewma_5m.dispatch = EwmaUpdate(_ewma_5m.dispatch, dispatch_sample, dt, 300.0);
+	_ewma_5m.event_rate = EwmaUpdate(_ewma_5m.event_rate, event_sample, dt, 300.0);
+
+	_ewma_15m.wait = EwmaUpdate(_ewma_15m.wait, wait_sample, dt, 900.0);
+	_ewma_15m.dispatch = EwmaUpdate(_ewma_15m.dispatch, dispatch_sample, dt, 900.0);
+	_ewma_15m.event_rate = EwmaUpdate(_ewma_15m.event_rate, event_sample, dt, 900.0);
+
+	_ewma_last_ns = now_ns;
+	_prev_total_ns = total_ns;
+	_prev_total_wait_ns = _total_time_wait_ns;
+	_prev_total_dispatch_ns = _total_time_dispatch_ns;
+	_prev_total_events = _total_events_dispatched;
+}
+
 
 
 NAMESPACE_END(System);

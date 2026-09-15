@@ -16,6 +16,9 @@
 #include <stdint.h>
 #include <iostream>
 #include <string>
+#include <stdexcept>
+#include <mutex>
+#include <unordered_set>
 
 #ifdef _MSC_VER
 #pragma warning(disable: 4819)
@@ -423,6 +426,172 @@ static inline uint32_t SignatureTime(const char *signature) {
 	return static_cast<uint32_t>(hmac_signature_time(signature));
 }
 
+// 设置全局配置表
+static inline void SetOption(const std::string &key, const std::string &value) {
+	iposix_reg_setenv(key.c_str(), value.c_str());
+}
+
+// 读取全局配置表：空字符串代表没有值
+static inline std::string GetOption(const std::string &key) {
+	const char *value = iposix_reg_getenv(key.c_str());
+	if (value) {
+		return std::string(value);
+	}
+	return std::string();
+}
+
+// 设置全局配置表，整数版本
+static inline void SetOptionInt(const std::string &key, int64_t value) {
+	iposix_reg_setint(key.c_str(), value);
+}
+
+// 读取全局配置表，整数版本
+static inline int64_t GetOptionInt(const std::string &key, int64_t defval = 0) {
+	return iposix_reg_getint(key.c_str(), defval);
+}
+
+// 从文本中加载配置表，格式为 "key=value\nkey2=value2\n"
+static inline void LoadOptions(const std::string& text) {
+	iposix_reg_parse(text.c_str());
+}
+
+// 将配置表输出为文本，格式为 "key=value\nkey2=value2\n"
+static inline std::string DumpOptions() {
+	std::string output;
+	ib_string str;
+	ib_string_init(&str);
+	iposix_reg_dump(&str);
+	output.assign(str.ptr, str.size);
+	ib_string_clear(&str);
+	return output;
+}
+
+
+//---------------------------------------------------------------------
+// ServiceLocator
+//---------------------------------------------------------------------
+class ServiceLocator;
+
+// 用于创建服务对象的策略类，默认实现就是调用 T(ServiceLocator&) 构造函数
+template <typename T> struct ServiceLocatorTraits {
+	static T *Create(ServiceLocator &locator) { return new T(locator); }
+};
+
+// ServiceLocator
+class ServiceLocator final
+{
+public:
+	inline ServiceLocator() : _managed(ib_managed_new()), _ptr(NULL), _closing(false) {
+		if (_managed == NULL) {
+			throw std::runtime_error("ServiceLocator: failed to create managed container");
+		}
+	}
+
+	inline ~ServiceLocator() {
+		std::lock_guard<std::recursive_mutex> lock(_lock);
+		_closing = true;
+		if (_managed) {
+			ib_managed_delete(_managed);
+			_managed = NULL;
+		}
+	}
+
+	ServiceLocator(const ServiceLocator&) = delete;
+	ServiceLocator& operator=(const ServiceLocator&) = delete;
+	ServiceLocator(ServiceLocator&&) = delete;
+	ServiceLocator& operator=(ServiceLocator&&) = delete;
+
+public:
+
+	// 按 T 取/建服务，已存在则直接返回引用；
+	// 处于 closing、创建/安装失败或循环依赖时抛 std::runtime_error
+	template <typename T> T& GetService() {
+		std::lock_guard<std::recursive_mutex> lock(_lock);
+		const std::string &key = KeyOf<T>();
+		void *ptr = ib_managed_query(_managed, key.c_str());
+		if (ptr != NULL) return *((T*)ptr);
+		if (_closing) throw std::runtime_error("ServiceLocator is closing");
+		// reserve key before construction to detect circular dependency
+		if (!_reserving.insert(key).second) {
+			throw std::runtime_error("ServiceLocator: circular service dependency");
+		}
+		T *obj = NULL;
+		try {
+			obj = ServiceLocatorTraits<T>::Create(*this);
+			if (obj == NULL) {
+				throw std::runtime_error("ServiceLocator: service create failed");
+			}
+			if (ib_managed_install(_managed, key.c_str(), obj, Deleter<T>) != 0) {
+				throw std::runtime_error("ServiceLocator: service install failed");
+			}
+			obj = NULL;  // ownership transferred to ib_managed
+		}
+		catch (...) {
+			if (obj != NULL) Deleter<T>((void*)obj);
+			_reserving.erase(key);
+			throw;
+		}
+		_reserving.erase(key);
+		return *((T*)ib_managed_query(_managed, key.c_str()));
+	}
+
+	// 按 T 查询已安装对象，不存在返回 NULL；只读
+	template <typename T> T* QueryService() {
+		std::lock_guard<std::recursive_mutex> lock(_lock);
+		if (_managed == NULL) return NULL;
+		return (T*)ib_managed_query(_managed, KeyOf<T>().c_str());
+	}
+
+	// 按 T 安装对象，ownership=true 时由 locator 接管并在销毁时 delete
+	// 安装 NULL 会移除该 key 对应的服务
+	// 处于 closing 或安装失败时抛 std::runtime_error
+	template <typename T> void InstallService(T *obj, bool ownership = false) {
+		std::lock_guard<std::recursive_mutex> lock(_lock);
+		if (_closing) throw std::runtime_error("ServiceLocator is closing");
+		if (_managed == NULL) throw std::runtime_error("ServiceLocator: already destroyed");
+		const std::string &key = KeyOf<T>();
+		if (ib_managed_install(_managed, key.c_str(), obj, ownership? Deleter<T> : NULL) != 0) {
+			throw std::runtime_error("ServiceLocator: service install failed");
+		}
+	}
+
+	// 预热服务，确保 T 的实例已创建并安装到 ServiceLocator 中
+	template <typename T> void PrewarmService() { GetService<T>(); }
+
+	// 任意指针，方便保存上下文
+	const void* GetPtr() const { return _ptr; }
+	void* GetPtr() { return _ptr; }
+	void SetPtr(void *ptr) { _ptr = ptr; }
+
+private:
+	template <typename T> static void Deleter(void *ptr) { delete ((T*)ptr); }
+
+	// 生成 T 对应的 service key：固定前缀 ".svc:" + 类型名字符串
+	template <typename T> static const std::string& KeyOf() {
+	#if defined(__GNUC__) || defined(__clang__)
+		static const std::string key = std::string(".svc:") + __PRETTY_FUNCTION__;
+	#elif defined(_MSC_VER)
+		static const std::string key = std::string(".svc:") + __FUNCSIG__;
+	#elif defined(SERVICE_LOCATOR_KEY_RTTI)
+		static const std::string key = std::string(".svc:") + typeid(T).name();
+	#else
+		// 兜底：仅单模块可用！函数内 static 的地址在每个 dll/so 里各有一
+		// 份，同一个 T 会被当成两个不同的 service（详见上面注释）
+		static const int sid = 0;
+		static const std::string key = std::string(".svc:") + std::to_string((size_t)&sid);
+	#endif
+		return key;
+	}
+
+private:
+	ib_managed *_managed;
+	void *_ptr;
+	bool _closing;
+	mutable std::recursive_mutex _lock;
+	std::unordered_set<std::string> _reserving;
+};
+
+
 NAMESPACE_END(System);
 
 
@@ -437,6 +606,7 @@ namespace std {
 		}
 	};
 }
+
 
 
 #endif

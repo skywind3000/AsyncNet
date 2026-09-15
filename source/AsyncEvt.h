@@ -118,10 +118,17 @@ public:
 	bool IsRunning() const { return (_loop->exiting == 0); }
 
 	// 运行一次迭代（iteration），即调用一次 epoll_wait 捕获所有被激活
-	// 的事件并进行分发，参数 millisec 是等待时间
+	// 的事件并进行分发，参数 millisec 是等待时间。
+	// 重入保护：任何回调（含 once/idle）内嵌套调用本函数会立即返回 0，
+	// 不等待、不派发任何事件（C 层以 loop->depth 检测，见 inetevt.c 的
+	// async_loop_once 与 docs/inetevt.md）——重入是无效但安全的；需要在
+	// 回调内追加处理请改用 AsyncPostpone 安排到本轮迭代末尾
 	void RunOnce(uint32_t millisec = 10);
 
-	// 不停的调用 RunOnce 直到退出标志被设置
+	// 不停的调用 RunOnce 直到退出标志被设置。
+	// 警告：禁止在回调内嵌套调用——嵌套的每一轮 RunOnce 都命中重入
+	// 保护立即返回（不等待、不派发），本函数会退化成纯 CPU 空转；且
+	// 单线程下已无任何事件被派发，Exit 无从被调用，形成活锁
 	void RunEndless();
 
 	// 通知 RunEndless() 退出
@@ -203,6 +210,10 @@ public:
 	// 设置一个函数，每次 poll wait 结束时被调用（分发具体事件前）
 	void SetWaitHandler(std::function<void()> handler);
 
+	// 设置一个函数，每轮 RunOnce 的指定阶段被调用，phase 取值见
+	// system/inetevt.h 中的 ASYNC_LOOP_PHASE_* 常量
+	void SetPhaseHandler(std::function<void(int phase)> handler);
+
 	// inline ptr helper
 	inline const void *Ptr() const { return _ptr; }
 	inline void *Ptr() { return _ptr; }
@@ -281,6 +292,7 @@ private:
 	std::function<void()> _cb_once;
 	std::function<void()> _cb_wait;
 	std::function<void()> _cb_timer;
+	std::function<void(int)> _cb_phase;
 
 	std::string _log_cache;
 	void *_ptr = NULL;
@@ -298,6 +310,7 @@ private:
 	static void OnLog(void *logger, const char *text);
 	static void OnOnce(CAsyncLoop *loop);
 	static void OnWait(CAsyncLoop *loop);
+	static void OnPhase(CAsyncLoop *loop, int phase);
 	static void OnTimer(CAsyncLoop *loop);
 	static void OnIdle(CAsyncLoop *loop);
 

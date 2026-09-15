@@ -179,6 +179,133 @@ private:
 };
 
 
+//---------------------------------------------------------------------
+// AsyncLoop usage statistic
+//---------------------------------------------------------------------
+class AsyncUsage final
+{
+public:
+	~AsyncUsage();
+	AsyncUsage(AsyncLoop &loop);
+
+	AsyncUsage(const AsyncUsage &) = delete;
+	AsyncUsage &operator=(const AsyncUsage &) = delete;
+	AsyncUsage(AsyncUsage &&src) = delete;
+	AsyncUsage &operator=(AsyncUsage &&src) = delete;
+
+public:
+
+	struct UsageInfo {
+		// current loop state (instantaneous)
+		int num_events;
+		int num_timers;
+		int num_semaphores;
+		int num_postpones;
+
+		// cumulative counters (since AsyncUsage creation)
+		int64_t uptime_ns;
+		int64_t total_iterations;
+		int64_t total_events_dispatched;
+		int64_t total_time_wait_ns;
+		int64_t total_time_dispatch_ns;
+		int64_t total_time_hooks_ns;
+
+		// last iteration timings
+		int64_t last_iteration_time_ns;
+		int64_t last_wait_time_ns;
+		int64_t last_dispatch_time_ns;
+		int64_t last_hooks_time_ns;
+
+		// utilization ratios [0, 1000000] -> 0.000% ~ 100.000%
+		int64_t wait_ratio_1m;
+		int64_t wait_ratio_5m;
+		int64_t wait_ratio_15m;
+		int64_t dispatch_ratio_1m;
+		int64_t dispatch_ratio_5m;
+		int64_t dispatch_ratio_15m;
+
+		// event rates (events/s)
+		int64_t event_rate_1m;
+		int64_t event_rate_5m;
+		int64_t event_rate_15m;
+	};
+
+	UsageInfo GetUsageInfo() const;
+
+	std::string GetUsageInfoString() const;
+
+	// enable phase handler based statistics (default: enabled after ctor)
+	void Enable();
+
+	// disable phase handler based statistics; can be re-enabled later
+	void Disable();
+
+	// get the singleton instance of AsyncUsage for a given AsyncLoop.
+	// this is the recommended way to create AsyncUsage because AsyncLoop
+	// only allows one on_phase handler at a time.
+	static AsyncUsage& Instance(AsyncLoop &loop) {
+		return loop.GetService<AsyncUsage>();
+	}
+
+	// format uptime in seconds to a human readable string.
+	// uses the two most significant units: "3d12h", "12h34m", "12m34s", "15s".
+	static std::string UptimePrettify(double seconds);
+
+private:
+
+	void OnPhaseChange(int phase);
+	void UpdateEwma(int64_t now_ns);
+	static double EwmaUpdate(double prev, double sample, double dt, double tau);
+
+private:
+
+	struct EwmaState {
+		double wait = 0.0;
+		double dispatch = 0.0;
+		double event_rate = 0.0;
+		bool initialized = false;
+	};
+
+private:
+
+	AsyncLoop &_loop;
+
+	// timing state
+	int64_t _phase_start_ns = 0;
+	int64_t _wait_start_ns = 0;
+	int64_t _dispatch_start_ns = 0;
+	int64_t _hooks_start_ns = 0;
+	int64_t _first_sample_ns = 0;
+	bool _skip_first_iteration = true;
+
+	// cumulative counters
+	int64_t _total_iterations = 0;
+	int64_t _total_events_dispatched = 0;
+	int64_t _total_time_wait_ns = 0;
+	int64_t _total_time_dispatch_ns = 0;
+	int64_t _total_time_hooks_ns = 0;
+
+	// last iteration timings
+	int64_t _last_iteration_time_ns = 0;
+	int64_t _last_wait_time_ns = 0;
+	int64_t _last_dispatch_time_ns = 0;
+	int64_t _last_hooks_time_ns = 0;
+
+	// EWMA state
+	int64_t _ewma_last_ns = 0;
+	int64_t _prev_total_ns = 0;
+	int64_t _prev_total_wait_ns = 0;
+	int64_t _prev_total_dispatch_ns = 0;
+	int64_t _prev_total_events = 0;
+	EwmaState _ewma_1m;
+	EwmaState _ewma_5m;
+	EwmaState _ewma_15m;
+
+	// enabled state
+	bool _enabled = true;
+};
+
+
 NAMESPACE_END(System);
 
 #endif

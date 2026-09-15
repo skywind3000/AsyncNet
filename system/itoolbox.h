@@ -11,6 +11,7 @@
 
 #include "imembase.h"
 #include "imemdata.h"
+#include "imemkind.h"
 #include "inetbase.h"
 #include "inetcode.h"
 #include "isecure.h"

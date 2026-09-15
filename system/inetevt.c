@@ -302,6 +302,7 @@ CAsyncLoop* async_loop_new(void)
 	loop->logger = NULL;
 	loop->writelog = NULL;
 
+	loop->on_phase = NULL;
 	loop->on_once = NULL;
 	loop->on_wait = NULL;
 	loop->on_timer = NULL;
@@ -1056,6 +1057,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 
 	loop->depth++;
 
+	// phase notify: iteration begin
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_START);
+	}
+
 	// check instant mode
 	if (loop->instant) {
 		loop->instant = 0;
@@ -1073,6 +1079,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 		idle = 0;
 	}
 
+	// phase notify: before poll wait
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_BEFORE_WAIT);
+	}
+
 	// wait poller
 	if (loop->xfd[0] >= 0 || loop->watching > 0) {
 		ipoll_wait(loop->poller, millisec);
@@ -1082,6 +1093,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 			isleep(millisec);
 		}
 		ipoll_wait(loop->poller, 0);
+	}
+
+	// phase notify: after poll wait
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_AFTER_WAIT);
 	}
 
 	// fetch I/O events from poller
@@ -1149,6 +1165,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 		loop->on_wait(loop);
 	}
 
+	// phase notify: before dispatching
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_BEFORE_DISPATCH);
+	}
+
 	// dispatch I/O events
 	cc = async_loop_pending_dispatch(loop);
 
@@ -1184,6 +1205,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 		async_loop_dispatch_once(loop, ASYNC_ONCE_LOW);
 	}
 
+	// phase notify: after dispatching
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_AFTER_DISPATCH);
+	}
+
 	if (loop->on_once) {
 		loop->on_once(loop);
 	}
@@ -1199,6 +1225,11 @@ int async_loop_once(CAsyncLoop *loop, IINT32 millisec)
 		if (loop->on_idle) {
 			loop->on_idle(loop);
 		}
+	}
+
+	// phase notify: iteration end
+	if (loop->on_phase) {
+		loop->on_phase(loop, ASYNC_LOOP_PHASE_END);
 	}
 
 	loop->depth--;

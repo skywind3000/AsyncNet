@@ -42,6 +42,7 @@ AsyncLoop::~AsyncLoop()
 		_loop->on_idle = NULL;
 		_loop->on_once = NULL;
 		_loop->on_timer = NULL;
+		_loop->on_phase = NULL;
 	}
 	if (_borrow == false) {
 		if (_loop != NULL) {
@@ -104,6 +105,7 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	this->_cb_idle = src._cb_idle;
 	this->_cb_timer = src._cb_timer;
 	this->_cb_wait = src._cb_wait;
+	this->_cb_phase = src._cb_phase;
 	this->_ptr = src._ptr;
 	src._loop = NULL;
 	src._borrow = false;
@@ -112,6 +114,7 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	src._cb_idle = NULL;
 	src._cb_timer = NULL;
 	src._cb_wait = NULL;
+	src._cb_phase = NULL;
 	src._ptr = NULL;
 	if (src._log_cache.size() > 0) {
 		this->_log_cache = std::move(src._log_cache);
@@ -309,6 +312,20 @@ void AsyncLoop::OnWait(CAsyncLoop *loop)
 
 
 //---------------------------------------------------------------------
+// phase callback for c
+//---------------------------------------------------------------------
+void AsyncLoop::OnPhase(CAsyncLoop *loop, int phase)
+{
+	AsyncLoop *self = (AsyncLoop*)loop->self;
+	if (self) {
+		if (self->_cb_phase != nullptr) {
+			self->_cb_phase(phase);
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
 // callback for c
 //---------------------------------------------------------------------
 void AsyncLoop::OnTimer(CAsyncLoop *loop)
@@ -434,6 +451,16 @@ void AsyncLoop::SetWaitHandler(std::function<void()> handler)
 {
 	_cb_wait = handler;
 	_loop->on_wait = OnWait;
+}
+
+
+//---------------------------------------------------------------------
+// set phase handler
+//---------------------------------------------------------------------
+void AsyncLoop::SetPhaseHandler(std::function<void(int phase)> handler)
+{
+	_cb_phase = handler;
+	_loop->on_phase = (handler == nullptr)? nullptr : OnPhase;
 }
 
 

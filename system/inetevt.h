@@ -240,12 +240,24 @@ struct CAsyncLoop {
 	int logmask;          // log mask for loop object
 	void *logger;         // logger for loop object, can be NULL
 	void (*writelog)(void *logger, const char *msg);
+	void (*on_phase)(CAsyncLoop *loop, int phase);
 	void (*on_once)(CAsyncLoop *loop);
 	void (*on_wait)(CAsyncLoop *loop);
 	void (*on_timer)(CAsyncLoop *loop);
 	void (*on_idle)(CAsyncLoop *loop);
 	itimer_mgr timer_mgr;
 };
+
+
+//---------------------------------------------------------------------
+// Iteration Phases
+//---------------------------------------------------------------------
+#define ASYNC_LOOP_PHASE_START              0
+#define ASYNC_LOOP_PHASE_BEFORE_WAIT        1
+#define ASYNC_LOOP_PHASE_AFTER_WAIT         2
+#define ASYNC_LOOP_PHASE_BEFORE_DISPATCH    3
+#define ASYNC_LOOP_PHASE_AFTER_DISPATCH     4
+#define ASYNC_LOOP_PHASE_END                5
 
 
 //---------------------------------------------------------------------
