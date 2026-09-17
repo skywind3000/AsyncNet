@@ -217,17 +217,19 @@ public:
 		int64_t last_hooks_time_ns;
 
 		// utilization ratios [0, 1000000] -> 0.000% ~ 100.000%
-		int64_t wait_ratio_1m;
-		int64_t wait_ratio_5m;
-		int64_t wait_ratio_15m;
-		int64_t dispatch_ratio_1m;
-		int64_t dispatch_ratio_5m;
-		int64_t dispatch_ratio_15m;
+		// three time windows, configurable via AsyncUsage::kTau*Seconds
+		int64_t wait_ratio_short;
+		int64_t wait_ratio_medium;
+		int64_t wait_ratio_long;
+		int64_t dispatch_ratio_short;
+		int64_t dispatch_ratio_medium;
+		int64_t dispatch_ratio_long;
 
 		// event rates (events/s)
-		int64_t event_rate_1m;
-		int64_t event_rate_5m;
-		int64_t event_rate_15m;
+		// three time windows, configurable via AsyncUsage::kTau*Seconds
+		int64_t event_rate_short;
+		int64_t event_rate_medium;
+		int64_t event_rate_long;
 	};
 
 	UsageInfo GetUsageInfo() const;
@@ -239,6 +241,12 @@ public:
 
 	// disable phase handler based statistics; can be re-enabled later
 	void Disable();
+
+	// configurable time window constants (in seconds). Change these defaults
+	// here if you need different smoothing horizons for the three EWMAs.
+	static const int64_t kTau1Seconds = 10;
+	static const int64_t kTau2Seconds = 60;
+	static const int64_t kTau3Seconds = 300;
 
 	// get the singleton instance of AsyncUsage for a given AsyncLoop.
 	// this is the recommended way to create AsyncUsage because AsyncLoop
@@ -297,9 +305,9 @@ private:
 	int64_t _prev_total_wait_ns = 0;
 	int64_t _prev_total_dispatch_ns = 0;
 	int64_t _prev_total_events = 0;
-	EwmaState _ewma_1m;
-	EwmaState _ewma_5m;
-	EwmaState _ewma_15m;
+	EwmaState _ewma_short;
+	EwmaState _ewma_medium;
+	EwmaState _ewma_long;
 
 	// enabled state
 	bool _enabled = true;

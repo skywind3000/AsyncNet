@@ -1111,6 +1111,21 @@ const char *isockaddr_afunix_get(const isockaddr_union *su);
 char *isockaddr_union_string(const isockaddr_union *su, char *text);
 
 
+/*===================================================================*/
+/* Cross-Platform Random Interface                                   */
+/*===================================================================*/
+
+/* fill buf with size random bytes from the best os entropy source:
+ * BCryptGenRandom/RtlGenRandom on windows, getrandom(2) or cached
+ * /dev/urandom on linux, arc4random_buf on bsd/macOS, /dev/urandom
+ * elsewhere; a weak (NOT cryptographically secure) splitmix64
+ * fallback keeps it always working. Returns zero for success, -1
+ * for buf == NULL. Thread-safe, and the signature matches the
+ * CRYPTO_OS_RANDOM_CB slot of isecure.h, installable directly:
+ *     CRYPTO_OS_RANDOM_CB = iposix_random_bytes; */
+int iposix_random_bytes(void *buf, size_t size);
+
+
 
 
 #ifdef __cplusplus

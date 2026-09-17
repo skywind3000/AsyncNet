@@ -984,6 +984,109 @@ void hash_hmac_sha256(const void *msgs[], const int *sizes, int count,
 
 
 //=====================================================================
+// CRYPTO_OS_RANDOM - CSPRNG
+//=====================================================================
+
+// callback slot of CRYPTO_OS_RANDOM, can be replaced by user: since
+// isecure.c is pure algorithm without any system calls, the real os
+// random source (/dev/urandom, BCryptGenRandom, getrandom ...) should
+// be installed by upper layers. Default is NULL, which means using
+// the built-in fallback random simulation below.
+int (*CRYPTO_OS_RANDOM_CB)(void *buf, size_t size) = NULL;
+
+
+// generate next 64-bit word: feed two rand() outputs into the chained
+// state, then spread every input bit over all 64 output bits with the
+// splitmix64 finalizer (same mixing style as DH_Random)
+static inline IUINT64 crypto_random_next(IUINT64 state)
+{
+	const IUINT64 g1 = 0x9e3779b9;
+	const IUINT64 g2 = 0x7f4a7c15;
+	const IUINT64 m1 = 0xbf58476d;
+	const IUINT64 m2 = 0x1ce4e5b9;
+	const IUINT64 n1 = 0x94d049bb;
+	const IUINT64 n2 = 0x133111eb;
+	const IUINT64 gs = (g1 << 32) | g2;
+	const IUINT64 mm = (m1 << 32) | m2;
+	const IUINT64 nn = (n1 << 32) | n2;
+	state += gs;                                 // golden ratio odd step
+	state ^= ((IUINT64)rand() << 32) | (IUINT32)rand();
+	state = (state ^ (state >> 30)) * mm;
+	state = (state ^ (state >> 27)) * nn;
+	return state ^ (state >> 31);
+}
+
+
+//---------------------------------------------------------------------
+// fallback random simulation: use rand() as the entropy source and
+// whiten it with the splitmix64 style mixer above. It is NOT
+// cryptographically secure: all entropy comes from rand(). But it is
+// a bit stronger than returning raw rand() bytes:
+//
+// - full avalanche: every output bit depends on every rand() bit, so
+//   low-bit periodicity and lattice structure of the LCG inside
+//   rand() no longer show up in the output
+// - consumes the full width of rand() (15 bits on msvc, 31 on glibc)
+//   instead of truncating to the lowest 8 bits
+// - output words are chained inside one call, so they are decorrelated
+//   even if the underlying rand() stream has weak serial structure
+// - the per-call state is seeded by two addresses (light entropy):
+//   a stack variable and the caller's buffer, they vary with aslr,
+//   thread stack, heap layout and call depth, so processes sharing
+//   one srand() seed no longer emit identical streams (best effort,
+//   NOT cryptographically strong)
+//
+// performance: two rand() calls plus a few ALU ops per 64-bit word,
+// even faster than byte-by-byte rand() filling (8 calls per word).
+// thread safety: same as the platform rand() itself, no extra state.
+// returns zero for success
+//---------------------------------------------------------------------
+static int crypto_random_fallback(void *buf, size_t size)
+{
+	unsigned char anchor;             // only its address is used
+	char *ptr = (char*)buf;
+	IUINT64 z;
+	// seed the chained state with light entropy: the addresses of a
+	// stack variable and the caller's buffer, they vary with aslr,
+	// thread stack, heap layout and call depth. Combine them with
+	// addition instead of xor: a stack buffer shares the same aslr
+	// base with &anchor, and xor would cancel most of the entropy
+	// into a near-constant offset, while addition preserves it
+	z = (IUINT64)(size_t)&anchor + (IUINT64)(size_t)buf;
+	while (size >= 8) {
+		z = crypto_random_next(z);
+		ptr = is_encode32u_lsb(ptr, (IUINT32)z);
+		ptr = is_encode32u_lsb(ptr, (IUINT32)(z >> 32));
+		size -= 8;
+	}
+	if (size > 0) {
+		z = crypto_random_next(z);
+		while (size > 0) {
+			*ptr++ = (char)(z & 0xff);
+			z >>= 8;
+			size -= 1;
+		}
+	}
+	return 0;
+}
+
+
+// unified interface for os-random: call CRYPTO_OS_RANDOM_CB if it has
+// been installed, otherwise call the fallback simulation above.
+// returns zero for success, non-zero for failure (invalid arguments
+// or the installed CRYPTO_OS_RANDOM_CB reports an error).
+int CRYPTO_OS_RANDOM(void *buf, size_t size)
+{
+	if (buf == NULL) return -1;
+	if (size == 0) return 0;
+	if (CRYPTO_OS_RANDOM_CB) {
+		return CRYPTO_OS_RANDOM_CB(buf, size);
+	}
+	return crypto_random_fallback(buf, size);
+}
+
+
+//=====================================================================
 // Diffie-Hellman key exchange
 //=====================================================================
 
@@ -1048,15 +1151,9 @@ IUINT64 DH_PowerMod(IUINT64 a, IUINT64 b, IUINT64 c)
 // user should call srand() before using this function
 IUINT64 DH_Random()
 {
-	IUINT64 a, b, c, d;
-	a = ((IUINT64)rand() << 15) ^ rand();
-	b = ((IUINT64)rand() << 15) ^ rand();
-	c = ((IUINT64)rand() << 15) ^ rand();
-	d = ((IUINT64)rand() << 15) ^ rand();
-	// splitmix64 style mixing for better bit distribution
-	a = (a ^ (a >> 30)) * 0xbf58476d1ce4e5b9ULL;
-	b = (b ^ (b >> 30)) * 0xbf58476d1ce4e5b9ULL;
-	return ((a ^ (a >> 31)) << 32) | ((b ^ (b >> 31)) ^ c ^ d);
+	IUINT64 z = 0;
+	CRYPTO_OS_RANDOM(&z, sizeof(z));
+	return z;
 }
 
 // calculate A/B which will be sent to remote

@@ -28,6 +28,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/select.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
 
 #ifndef __AVM3__
 #include <poll.h>
@@ -7578,6 +7581,194 @@ char *isockaddr_union_string(const isockaddr_union *su, char *text)
 	return text;
 }
 
+
+
+/*===================================================================*/
+/* Cross-Platform Random Interface                                   */
+/*===================================================================*/
+
+/* splitmix64 finalizer, constants in DH_Random style (no ULL literal) */
+static IUINT64 iposix_random_mix64(IUINT64 z)
+{
+	const IUINT64 m1 = 0xbf58476d;
+	const IUINT64 m2 = 0x1ce4e5b9;
+	const IUINT64 n1 = 0x94d049bb;
+	const IUINT64 n2 = 0x133111eb;
+	const IUINT64 mm = (m1 << 32) | m2;
+	const IUINT64 nn = (n1 << 32) | n2;
+	z = (z ^ (z >> 30)) * mm;
+	z = (z ^ (z >> 27)) * nn;
+	return z ^ (z >> 31);
+}
+
+/* weak fallback, NOT cryptographically secure: seeded by nanosecond
+ * clock, pid and two addresses, combined by addition since xor would
+ * cancel aslr bits when buf sits on the same stack as anchor */
+static void iposix_random_fallback(void *buf, size_t size)
+{
+	const IUINT64 g1 = 0x9e3779b9;
+	const IUINT64 g2 = 0x7f4a7c15;
+	const IUINT64 gs = (g1 << 32) | g2;
+	unsigned char anchor;             /* only its address is used */
+	unsigned char *ptr = (unsigned char*)buf;
+	IUINT64 z;
+	z = (IUINT64)(size_t)&anchor + (IUINT64)(size_t)buf;
+	z += (IUINT64)iclock_nano(0);
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	z ^= (IUINT64)GetCurrentProcessId();
+#else
+	z ^= (IUINT64)getpid();
+#endif
+	while (size > 0) {
+		size_t batch = (size < 8)? size : 8;
+		size_t k;
+		IUINT64 r;
+		z += gs;
+		r = iposix_random_mix64(z);
+		for (k = 0; k < batch; k++)
+			*ptr++ = (unsigned char)((r >> (k * 8)) & 0xff);
+		size -= batch;
+	}
+}
+
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+
+/* resolved at runtime: no bcrypt.h or import library needed */
+typedef long (WINAPI *PBCryptGenRandom_t)(void*, unsigned char*,
+		unsigned long, unsigned long);
+typedef int (APIENTRY *PRtlGenRandom_t)(void*, unsigned long);
+
+#define IBCRYPT_USE_SYSTEM_PREFERRED_RNG  0x00000002
+
+static PBCryptGenRandom_t iposix_random_bcrypt = NULL;
+static PRtlGenRandom_t iposix_random_rtlgen = NULL;
+static volatile int iposix_random_inited = 0;
+
+#elif defined(__APPLE__) || defined(__OpenBSD__) || defined(__FreeBSD__) || \
+	defined(__NetBSD__) || defined(__DragonFly__)
+
+#define IPOSIX_RANDOM_ARC4  1          /* libc CSPRNG, never fails */
+
+#else
+
+static int iposix_random_fd = -1;      /* cached, deliberately never closed */
+
+#endif
+
+/* fill buf from the system source, zero for success. the cached
+ * urandom fd is a deliberate singleton (never closed), opened and
+ * recovered under an internal mutex: racing callers leak no fd and
+ * a dead fd is closed exactly once (who swaps cache to -1 owns it) */
+static int iposix_random_sys(void *buf, size_t size)
+{
+#if defined(WIN32) || defined(_WIN32) || defined(WIN64) || defined(_WIN64)
+	unsigned char *out = (unsigned char*)buf;
+	if (iposix_random_inited == 0) {
+		union { FARPROC proc; PBCryptGenRandom_t bcrypt; } ub;
+		union { FARPROC proc; PRtlGenRandom_t rtlgen; } ur;
+		IMUTEX_TYPE *lock = internal_mutex_get(5);
+		HMODULE hmod;
+		ub.proc = 0;
+		ur.proc = 0;
+		IMUTEX_LOCK(lock);
+		if (iposix_random_inited == 0) {
+			hmod = LoadLibraryA("bcrypt.dll");
+			if (hmod) ub.proc = GetProcAddress(hmod, "BCryptGenRandom");
+			if (ub.proc) {
+				iposix_random_bcrypt = ub.bcrypt;
+			} else {
+				hmod = LoadLibraryA("advapi32.dll");
+				if (hmod)
+					ur.proc = GetProcAddress(hmod, "SystemFunction036");
+				if (ur.proc) iposix_random_rtlgen = ur.rtlgen;
+			}
+			iposix_random_inited = 1;
+		}
+		IMUTEX_UNLOCK(lock);
+	}
+	while (size > 0) {
+		/* both apis take an unsigned long size: chunk big requests */
+		unsigned long batch = (size > 0x4000000)? 0x4000000 :
+				(unsigned long)size;
+		if (iposix_random_bcrypt) {
+			long hr = iposix_random_bcrypt(NULL, out, batch,
+					IBCRYPT_USE_SYSTEM_PREFERRED_RNG);
+			if (hr != 0) return -1;       /* STATUS_SUCCESS == 0 */
+		}
+		else if (iposix_random_rtlgen) {
+			if (iposix_random_rtlgen(out, batch) == 0) return -1;
+		}
+		else return -1;
+		out += batch;
+		size -= batch;
+	}
+	return 0;
+#elif defined(IPOSIX_RANDOM_ARC4)
+	arc4random_buf(buf, size);
+	return 0;
+#else
+	unsigned char *out = (unsigned char*)buf;
+	IMUTEX_TYPE *lock = internal_mutex_get(5);
+	int retry = 1;
+#if defined(__linux__) && defined(SYS_getrandom)
+	while (size > 0) {
+		long hr = syscall(SYS_getrandom, out, size, 0);
+		if (hr > 0) { out += hr; size -= (size_t)hr; continue; }
+		if (hr < 0 && errno == EINTR) continue;
+		break;          /* ENOSYS etc: fall back to /dev/urandom */
+	}
+	if (size == 0) return 0;
+#endif
+	for (;;) {
+		ssize_t rd;
+		int fd;
+		IMUTEX_LOCK(lock);
+		fd = iposix_random_fd;
+		if (fd < 0) {
+#if defined(O_CLOEXEC)
+			fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+			if (fd < 0 && errno == EINVAL)
+				fd = open("/dev/urandom", O_RDONLY);
+#else
+			fd = open("/dev/urandom", O_RDONLY);
+#endif
+#if defined(FD_CLOEXEC)
+			if (fd >= 0) fcntl(fd, F_SETFD, FD_CLOEXEC);
+#endif
+			iposix_random_fd = fd;
+		}
+		IMUTEX_UNLOCK(lock);
+		if (fd < 0) return -1;
+		rd = read(fd, out, size);
+		if (rd == (ssize_t)size) return 0;
+		if (rd < 0 && errno == EINTR) continue;
+		if (rd > 0) { out += rd; size -= (size_t)rd; continue; }
+		if (retry) {    /* fd dead: discard cache, reopen once */
+			int owned = 0;
+			retry = 0;
+			IMUTEX_LOCK(lock);
+			if (iposix_random_fd == fd) {
+				iposix_random_fd = -1;
+				owned = 1;
+			}
+			IMUTEX_UNLOCK(lock);
+			if (owned) close(fd);
+			continue;
+		}
+		return -1;
+	}
+#endif
+}
+
+/* unified entry: system source first, weak fallback keeps it usable */
+int iposix_random_bytes(void *buf, size_t size)
+{
+	if (buf == NULL) return -1;
+	if (size == 0) return 0;
+	if (iposix_random_sys(buf, size) != 0)
+		iposix_random_fallback(buf, size);
+	return 0;
+}
 
 
 

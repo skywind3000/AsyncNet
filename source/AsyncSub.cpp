@@ -14,9 +14,9 @@ NAMESPACE_BEGIN(System);
 
 namespace {
 	const int64_t kNsPerSecond = 1000000000LL;
-	const int64_t kEwmaTau1m   = 60 * kNsPerSecond;
-	const int64_t kEwmaTau5m   = 300 * kNsPerSecond;
-	const int64_t kEwmaTau15m  = 900 * kNsPerSecond;
+	const int64_t kEwmaTauShort  = AsyncUsage::kTau1Seconds * kNsPerSecond;
+	const int64_t kEwmaTauMedium = AsyncUsage::kTau2Seconds * kNsPerSecond;
+	const int64_t kEwmaTauLong   = AsyncUsage::kTau3Seconds * kNsPerSecond;
 }
 
 
@@ -472,9 +472,9 @@ void AsyncUsage::Disable()
 		_prev_total_wait_ns = 0;
 		_prev_total_dispatch_ns = 0;
 		_prev_total_events = 0;
-		_ewma_1m = EwmaState();
-		_ewma_5m = EwmaState();
-		_ewma_15m = EwmaState();
+		_ewma_short = EwmaState();
+		_ewma_medium = EwmaState();
+		_ewma_long = EwmaState();
 		_skip_first_iteration = true;
 	}
 }
@@ -533,23 +533,23 @@ AsyncUsage::UsageInfo AsyncUsage::GetUsageInfo() const
 		return (int64_t)ewma.event_rate;
 	};
 
-	info.wait_ratio_1m = ratio_or_ewma(kEwmaTau1m, _ewma_1m,
-	                                   &EwmaState::wait, _total_time_wait_ns);
-	info.wait_ratio_5m = ratio_or_ewma(kEwmaTau5m, _ewma_5m,
-	                                   &EwmaState::wait, _total_time_wait_ns);
-	info.wait_ratio_15m = ratio_or_ewma(kEwmaTau15m, _ewma_15m,
-	                                    &EwmaState::wait, _total_time_wait_ns);
+	info.wait_ratio_short = ratio_or_ewma(kEwmaTauShort, _ewma_short,
+	                                      &EwmaState::wait, _total_time_wait_ns);
+	info.wait_ratio_medium = ratio_or_ewma(kEwmaTauMedium, _ewma_medium,
+	                                       &EwmaState::wait, _total_time_wait_ns);
+	info.wait_ratio_long = ratio_or_ewma(kEwmaTauLong, _ewma_long,
+	                                     &EwmaState::wait, _total_time_wait_ns);
 
-	info.dispatch_ratio_1m = ratio_or_ewma(kEwmaTau1m, _ewma_1m,
-	                                       &EwmaState::dispatch, _total_time_dispatch_ns);
-	info.dispatch_ratio_5m = ratio_or_ewma(kEwmaTau5m, _ewma_5m,
-	                                       &EwmaState::dispatch, _total_time_dispatch_ns);
-	info.dispatch_ratio_15m = ratio_or_ewma(kEwmaTau15m, _ewma_15m,
-	                                        &EwmaState::dispatch, _total_time_dispatch_ns);
+	info.dispatch_ratio_short = ratio_or_ewma(kEwmaTauShort, _ewma_short,
+	                                          &EwmaState::dispatch, _total_time_dispatch_ns);
+	info.dispatch_ratio_medium = ratio_or_ewma(kEwmaTauMedium, _ewma_medium,
+	                                           &EwmaState::dispatch, _total_time_dispatch_ns);
+	info.dispatch_ratio_long = ratio_or_ewma(kEwmaTauLong, _ewma_long,
+	                                         &EwmaState::dispatch, _total_time_dispatch_ns);
 
-	info.event_rate_1m = rate_or_ewma(kEwmaTau1m, _ewma_1m);
-	info.event_rate_5m = rate_or_ewma(kEwmaTau5m, _ewma_5m);
-	info.event_rate_15m = rate_or_ewma(kEwmaTau15m, _ewma_15m);
+	info.event_rate_short = rate_or_ewma(kEwmaTauShort, _ewma_short);
+	info.event_rate_medium = rate_or_ewma(kEwmaTauMedium, _ewma_medium);
+	info.event_rate_long = rate_or_ewma(kEwmaTauLong, _ewma_long);
 
 	return info;
 }
@@ -565,15 +565,15 @@ std::string AsyncUsage::GetUsageInfoString() const
 		"uptime=%s, %%wait=%.1f/%.1f/%.1f, "
 		"%%dispatch=%.1f/%.1f/%.1f, events/s=%lld/%lld/%lld",
 		UptimePrettify(info.uptime_ns / 1e9).c_str(),
-		info.wait_ratio_1m / 10000.0,
-		info.wait_ratio_5m / 10000.0,
-		info.wait_ratio_15m / 10000.0,
-		info.dispatch_ratio_1m / 10000.0,
-		info.dispatch_ratio_5m / 10000.0,
-		info.dispatch_ratio_15m / 10000.0,
-		info.event_rate_1m,
-		info.event_rate_5m,
-		info.event_rate_15m);
+		info.wait_ratio_short / 10000.0,
+		info.wait_ratio_medium / 10000.0,
+		info.wait_ratio_long / 10000.0,
+		info.dispatch_ratio_short / 10000.0,
+		info.dispatch_ratio_medium / 10000.0,
+		info.dispatch_ratio_long / 10000.0,
+		info.event_rate_short,
+		info.event_rate_medium,
+		info.event_rate_long);
 }
 
 
@@ -666,9 +666,9 @@ void AsyncUsage::OnPhaseChange(int phase)
 			_prev_total_wait_ns = 0;
 			_prev_total_dispatch_ns = 0;
 			_prev_total_events = 0;
-			_ewma_1m = EwmaState();
-			_ewma_5m = EwmaState();
-			_ewma_15m = EwmaState();
+			_ewma_short = EwmaState();
+			_ewma_medium = EwmaState();
+			_ewma_long = EwmaState();
 			_skip_first_iteration = false;
 		} else {
 			_total_iterations++;
@@ -731,9 +731,9 @@ void AsyncUsage::UpdateEwma(int64_t now_ns)
 		}
 	};
 
-	init_ewma(kEwmaTau1m, _ewma_1m);
-	init_ewma(kEwmaTau5m, _ewma_5m);
-	init_ewma(kEwmaTau15m, _ewma_15m);
+	init_ewma(kEwmaTauShort, _ewma_short);
+	init_ewma(kEwmaTauMedium, _ewma_medium);
+	init_ewma(kEwmaTauLong, _ewma_long);
 
 	double d_wait = (double)(_total_time_wait_ns - _prev_total_wait_ns);
 	double d_dispatch = (double)(_total_time_dispatch_ns - _prev_total_dispatch_ns);
@@ -746,17 +746,26 @@ void AsyncUsage::UpdateEwma(int64_t now_ns)
 		? (_total_events_dispatched - _prev_total_events) / dt
 		: 0.0;
 
-	_ewma_1m.wait = EwmaUpdate(_ewma_1m.wait, wait_sample, dt, 60.0);
-	_ewma_1m.dispatch = EwmaUpdate(_ewma_1m.dispatch, dispatch_sample, dt, 60.0);
-	_ewma_1m.event_rate = EwmaUpdate(_ewma_1m.event_rate, event_sample, dt, 60.0);
+	_ewma_short.wait = EwmaUpdate(_ewma_short.wait, wait_sample, dt,
+	                              (double)AsyncUsage::kTau1Seconds);
+	_ewma_short.dispatch = EwmaUpdate(_ewma_short.dispatch, dispatch_sample, dt,
+	                                  (double)AsyncUsage::kTau1Seconds);
+	_ewma_short.event_rate = EwmaUpdate(_ewma_short.event_rate, event_sample, dt,
+	                                    (double)AsyncUsage::kTau1Seconds);
 
-	_ewma_5m.wait = EwmaUpdate(_ewma_5m.wait, wait_sample, dt, 300.0);
-	_ewma_5m.dispatch = EwmaUpdate(_ewma_5m.dispatch, dispatch_sample, dt, 300.0);
-	_ewma_5m.event_rate = EwmaUpdate(_ewma_5m.event_rate, event_sample, dt, 300.0);
+	_ewma_medium.wait = EwmaUpdate(_ewma_medium.wait, wait_sample, dt,
+	                               (double)AsyncUsage::kTau2Seconds);
+	_ewma_medium.dispatch = EwmaUpdate(_ewma_medium.dispatch, dispatch_sample, dt,
+	                                   (double)AsyncUsage::kTau2Seconds);
+	_ewma_medium.event_rate = EwmaUpdate(_ewma_medium.event_rate, event_sample, dt,
+	                                     (double)AsyncUsage::kTau2Seconds);
 
-	_ewma_15m.wait = EwmaUpdate(_ewma_15m.wait, wait_sample, dt, 900.0);
-	_ewma_15m.dispatch = EwmaUpdate(_ewma_15m.dispatch, dispatch_sample, dt, 900.0);
-	_ewma_15m.event_rate = EwmaUpdate(_ewma_15m.event_rate, event_sample, dt, 900.0);
+	_ewma_long.wait = EwmaUpdate(_ewma_long.wait, wait_sample, dt,
+	                             (double)AsyncUsage::kTau3Seconds);
+	_ewma_long.dispatch = EwmaUpdate(_ewma_long.dispatch, dispatch_sample, dt,
+	                                 (double)AsyncUsage::kTau3Seconds);
+	_ewma_long.event_rate = EwmaUpdate(_ewma_long.event_rate, event_sample, dt,
+	                                   (double)AsyncUsage::kTau3Seconds);
 
 	_ewma_last_ns = now_ns;
 	_prev_total_ns = total_ns;

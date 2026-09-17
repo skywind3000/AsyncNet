@@ -296,6 +296,26 @@ static inline IUINT32 hash_update_murmur(IUINT32 h, IUINT32 x) {
 
 
 //=====================================================================
+// CRYPTO_OS_RANDOM - CSPRNG
+//=====================================================================
+
+// callback slot of CRYPTO_OS_RANDOM, can be replaced by user: since
+// isecure.c is pure algorithm without any system calls, the real os
+// random source (/dev/urandom, BCryptGenRandom, getrandom ...) should
+// be installed by upper layers. Default is NULL, which means using
+// the built-in fallback simulation (rand() based and whitened by
+// splitmix64 style mixing, NOT cryptographically secure, mainly for
+// simulation/tests).
+extern int (*CRYPTO_OS_RANDOM_CB)(void *buf, size_t size);
+
+// unified interface for os-random: call CRYPTO_OS_RANDOM_CB if it has
+// been installed, otherwise call the built-in fallback simulation.
+// returns zero for success, non-zero for failure (invalid arguments
+// or the installed CRYPTO_OS_RANDOM_CB reports an error).
+int CRYPTO_OS_RANDOM(void *buf, size_t size);
+
+
+//=====================================================================
 // Diffie-Hellman key exchange
 // http://zh.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange
 // usage: 1. get an local asymmetric-key a from DH_Random
