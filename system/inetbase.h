@@ -1120,9 +1120,7 @@ char *isockaddr_union_string(const isockaddr_union *su, char *text);
  * /dev/urandom on linux, arc4random_buf on bsd/macOS, /dev/urandom
  * elsewhere; a weak (NOT cryptographically secure) splitmix64
  * fallback keeps it always working. Returns zero for success, -1
- * for buf == NULL. Thread-safe, and the signature matches the
- * CRYPTO_OS_RANDOM_CB slot of isecure.h, installable directly:
- *     CRYPTO_OS_RANDOM_CB = iposix_random_bytes; */
+ * for buf == NULL. Thread-safe */
 int iposix_random_bytes(void *buf, size_t size);
 
 

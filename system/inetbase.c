@@ -7587,7 +7587,7 @@ char *isockaddr_union_string(const isockaddr_union *su, char *text)
 /* Cross-Platform Random Interface                                   */
 /*===================================================================*/
 
-/* splitmix64 finalizer, constants in DH_Random style (no ULL literal) */
+/* splitmix64 finalizer, constants split into 32-bit halves (no ULL) */
 static IUINT64 iposix_random_mix64(IUINT64 z)
 {
 	const IUINT64 m1 = 0xbf58476d;
