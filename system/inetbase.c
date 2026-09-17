@@ -462,6 +462,23 @@ void ithread_once(int *control, void (*run_once)(void))
 	}
 }
 
+/* thread once init, *control must be 0 */
+void ithread_once_ex(int *control, void (*run_once)(void*), void *arg)
+{
+	if (internal_atomic_get(control) != 2) {
+		int last;
+		last = internal_atomic_cmpxchg(control, 1, 0);
+		if (last == 0) {
+			if (run_once) {
+				run_once(arg);
+			}
+			internal_atomic_exchange(control, 2);
+		}	else {
+			while (internal_atomic_get(control) != 2) isleep(1);
+		}
+	}
+}
+
 
 /*===================================================================*/
 /* Cross-Platform Socket Interface                                   */

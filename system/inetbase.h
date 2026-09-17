@@ -481,6 +481,9 @@ int ithread_close(ilong id);
 /* thread once init, *control must be 0 */
 void ithread_once(int *control, void (*run_once)(void));
 
+/* thread once init, *control must be 0 */
+void ithread_once_ex(int *control, void (*run_once)(void*), void *arg);
+
 
 /*===================================================================*/
 /* Cross-Platform Mutex Interface                                    */
