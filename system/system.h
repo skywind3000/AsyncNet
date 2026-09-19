@@ -105,6 +105,7 @@
 
 #if _CPP_STANDARD >= 11
 #include <functional>
+#include <exception>
 #endif
 
 #ifdef _MSC_VER
@@ -773,6 +774,46 @@ private:
 protected:
 	iPosixSemaphore *_sem;
 };
+
+
+//---------------------------------------------------------------------
+// CallOnce: 线程安全的一次性初始化
+//---------------------------------------------------------------------
+#if _CPP_STANDARD >= 11
+
+// CallOnce 的内部上下文
+struct CallOnceData {
+	const std::function<void()> *fn;
+	std::exception_ptr eptr;
+};
+
+// trampoline: 必须捕获所有异常并正常返回, 否则 ithread_once_ex 的
+// 控制字会卡在 1, 之后对同一控制字的所有调用都将永久自旋
+static inline void CallOnceTrampoline(void *arg) {
+	CallOnceData *data = (CallOnceData*)arg;
+	try {
+		(*(data->fn))();
+	}
+	catch (...) {
+		data->eptr = std::current_exception();
+	}
+}
+
+// 线程安全的一次性初始化, *once 为控制字, 首次调用前必须为 0(静态清零即可)。
+// 多线程并发调用时 fn 至多执行一次: 最先到达的线程执行 fn, 其余阻塞等待其完成。
+// 注意: fn 抛出异常时控制字仍会标记完成(不重试), 异常只 rethrow 给发起该次
+// 执行的线程, 其它等待线程正常返回 —— 因此 fn 可能失败时应自行留下可检查
+// 的状态(参考 inetssl.c 的 ssl_ensure_init 模式)。fn 内部禁止对同一 once
+// 递归调用 CallOnce, 否则永久自旋。
+static inline void CallOnce(int *once, const std::function<void()> &fn) {
+	CallOnceData data;
+	data.fn = &fn;
+	data.eptr = std::exception_ptr();
+	ithread_once_ex(once, CallOnceTrampoline, (void*)&data);
+	if (data.eptr) std::rethrow_exception(data.eptr);
+}
+
+#endif
 
 
 //---------------------------------------------------------------------

@@ -7,6 +7,7 @@
 //
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
 // Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
+// Copyright 2008, Andrew Moon (curve25519-donna, public domain / MIT)
 //
 //=====================================================================
 #include <stdlib.h>
@@ -2265,7 +2266,9 @@ IUINT32 RANDOM_BOX_Next(RANDOM_BOX *box)
 
 // static initializer
 const RANDOM_PCG RANDOM_PCG_INITIALIZER = {
-	0x853c49e6748fea9b, 0xda3e39cb94b95bdb
+	// 0x853c49e6748fea9b, 0xda3e39cb94b95bdb
+	CRYPTO_MAKE_QWORD(0x853c49e6, 0x748fea9b), 
+	CRYPTO_MAKE_QWORD(0xda3e39cb, 0x94b95bdb),
 };
 
 // initialize pcg 
@@ -2282,7 +2285,7 @@ void RANDOM_PCG_Init(RANDOM_PCG *pcg, IUINT64 initstate, IUINT64 initseq)
 // next random number 
 IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg)
 {
-	const IUINT64 multiplier = 6364136223846793005u;
+	const IUINT64 multiplier = CRYPTO_MAKE_QWORD(0x5851f42d, 0x4c957f2d);
 	IUINT64 state = pcg->state;
 	IUINT32 xorshifted, rot, irot;
 	pcg->state = state * multiplier + pcg->inc;
@@ -2377,5 +2380,675 @@ IUINT32 hmac_signature_time(const char *signature)
 	is_decode32u_lsb((char*)buffer, &timestamp);
 	return (IUINT32)timestamp;
 }
+
+
+//=====================================================================
+// CRYPTO X25519 - Elliptic Curve Diffie-Hellman over Curve25519
+//=====================================================================
+
+//---------------------------------------------------------------------
+// X25519 implementation, ported from curve25519-donna (32-bit
+// portable path): https://github.com/floodyberry/curve25519-donna
+// Copyright 2008, Andrew Moon (public domain or MIT)
+//
+// only the portable 32-bit path is kept (10 limbs, 26/25 bits): it
+// works everywhere without uint128 or platform branches. faster
+// variants (donna 64-bit/SSE2, openssl) can be attached at runtime
+// through the CRYPTO_X25519_SCALARMULT_CB / _BASEPOINT_CB slots,
+// which is why all functions below are static and renamed: they can
+// coexist with a plain curve25519-donna build in the same binary
+// without any symbol clash.
+//---------------------------------------------------------------------
+
+// 32x32 -> 64 bit multiply: msvc (vs2005 or later) 32-bit targets need
+// __emulu to avoid the slow __allmul runtime call, everyone else is
+// fine with the cast (vc6 has no intrin.h / __emulu, uses the plain one)
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+	#include <intrin.h>
+	#if !defined(_DEBUG)
+		#define CRYPTO_MUL32X32_64(a,b) __emulu(a,b)
+	#endif
+#endif
+#if !defined(CRYPTO_MUL32X32_64)
+	#define CRYPTO_MUL32X32_64(a,b) (((IUINT64)(a))*(b))
+#endif
+
+#define X25519_MASK26   ((IUINT32)0x03ffffff)    // (1 << 26) - 1
+#define X25519_MASK25   ((IUINT32)0x01ffffff)    // (1 << 25) - 1
+
+// curve25519 field element: 10 limbs alternating 26/25 bits
+typedef IUINT32 x25519_bignum[10];
+
+
+/* out = in */
+static inline void
+crypto_x25519_copy(x25519_bignum out, const x25519_bignum in) {
+	out[0] = in[0];
+	out[1] = in[1];
+	out[2] = in[2];
+	out[3] = in[3];
+	out[4] = in[4];
+	out[5] = in[5];
+	out[6] = in[6];
+	out[7] = in[7];
+	out[8] = in[8];
+	out[9] = in[9];
+}
+
+/* out = a + b */
+static inline void
+crypto_x25519_add(x25519_bignum out, const x25519_bignum a, const x25519_bignum b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	out[3] = a[3] + b[3];
+	out[4] = a[4] + b[4];
+	out[5] = a[5] + b[5];
+	out[6] = a[6] + b[6];
+	out[7] = a[7] + b[7];
+	out[8] = a[8] + b[8];
+	out[9] = a[9] + b[9];
+}
+
+/* out = a - b */
+static inline void
+crypto_x25519_sub(x25519_bignum out, const x25519_bignum a, const x25519_bignum b) {
+	IUINT32 c;
+	out[0] = 0x7ffffda + a[0] - b[0]    ; c = (out[0] >> 26); out[0] &= X25519_MASK26;
+	out[1] = 0x3fffffe + a[1] - b[1] + c; c = (out[1] >> 25); out[1] &= X25519_MASK25;
+	out[2] = 0x7fffffe + a[2] - b[2] + c; c = (out[2] >> 26); out[2] &= X25519_MASK26;
+	out[3] = 0x3fffffe + a[3] - b[3] + c; c = (out[3] >> 25); out[3] &= X25519_MASK25;
+	out[4] = 0x7fffffe + a[4] - b[4] + c; c = (out[4] >> 26); out[4] &= X25519_MASK26;
+	out[5] = 0x3fffffe + a[5] - b[5] + c; c = (out[5] >> 25); out[5] &= X25519_MASK25;
+	out[6] = 0x7fffffe + a[6] - b[6] + c; c = (out[6] >> 26); out[6] &= X25519_MASK26;
+	out[7] = 0x3fffffe + a[7] - b[7] + c; c = (out[7] >> 25); out[7] &= X25519_MASK25;
+	out[8] = 0x7fffffe + a[8] - b[8] + c; c = (out[8] >> 26); out[8] &= X25519_MASK26;
+	out[9] = 0x3fffffe + a[9] - b[9] + c; c = (out[9] >> 25); out[9] &= X25519_MASK25;
+	out[0] += 19 * c;
+}
+
+/* out = in * scalar */
+static inline void
+crypto_x25519_scalar_product(x25519_bignum out, const x25519_bignum in, const IUINT32 scalar) {
+	IUINT64 a;
+	IUINT32 c;
+	a = CRYPTO_MUL32X32_64(in[0], scalar);     out[0] = (IUINT32)a & X25519_MASK26; c = (IUINT32)(a >> 26);
+	a = CRYPTO_MUL32X32_64(in[1], scalar) + c; out[1] = (IUINT32)a & X25519_MASK25; c = (IUINT32)(a >> 25);
+	a = CRYPTO_MUL32X32_64(in[2], scalar) + c; out[2] = (IUINT32)a & X25519_MASK26; c = (IUINT32)(a >> 26);
+	a = CRYPTO_MUL32X32_64(in[3], scalar) + c; out[3] = (IUINT32)a & X25519_MASK25; c = (IUINT32)(a >> 25);
+	a = CRYPTO_MUL32X32_64(in[4], scalar) + c; out[4] = (IUINT32)a & X25519_MASK26; c = (IUINT32)(a >> 26);
+	a = CRYPTO_MUL32X32_64(in[5], scalar) + c; out[5] = (IUINT32)a & X25519_MASK25; c = (IUINT32)(a >> 25);
+	a = CRYPTO_MUL32X32_64(in[6], scalar) + c; out[6] = (IUINT32)a & X25519_MASK26; c = (IUINT32)(a >> 26);
+	a = CRYPTO_MUL32X32_64(in[7], scalar) + c; out[7] = (IUINT32)a & X25519_MASK25; c = (IUINT32)(a >> 25);
+	a = CRYPTO_MUL32X32_64(in[8], scalar) + c; out[8] = (IUINT32)a & X25519_MASK26; c = (IUINT32)(a >> 26);
+	a = CRYPTO_MUL32X32_64(in[9], scalar) + c; out[9] = (IUINT32)a & X25519_MASK25; c = (IUINT32)(a >> 25);
+		                                      out[0] += c * 19;
+}
+
+/* out = a * b */
+static inline void
+crypto_x25519_mul(x25519_bignum out, const x25519_bignum a, const x25519_bignum b) {
+	IUINT32 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9;
+	IUINT32 s0,s1,s2,s3,s4,s5,s6,s7,s8,s9;
+	IUINT64 m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,c;
+	IUINT32 p;
+
+	r0 = b[0];
+	r1 = b[1];
+	r2 = b[2];
+	r3 = b[3];
+	r4 = b[4];
+	r5 = b[5];
+	r6 = b[6];
+	r7 = b[7];
+	r8 = b[8];
+	r9 = b[9];
+
+	s0 = a[0];
+	s1 = a[1];
+	s2 = a[2];
+	s3 = a[3];
+	s4 = a[4];
+	s5 = a[5];
+	s6 = a[6];
+	s7 = a[7];
+	s8 = a[8];
+	s9 = a[9];
+
+	m1 = CRYPTO_MUL32X32_64(r0, s1) + CRYPTO_MUL32X32_64(r1, s0);
+	m3 = CRYPTO_MUL32X32_64(r0, s3) + CRYPTO_MUL32X32_64(r1, s2) + CRYPTO_MUL32X32_64(r2, s1) + CRYPTO_MUL32X32_64(r3, s0);
+	m5 = CRYPTO_MUL32X32_64(r0, s5) + CRYPTO_MUL32X32_64(r1, s4) + CRYPTO_MUL32X32_64(r2, s3) + CRYPTO_MUL32X32_64(r3, s2) + CRYPTO_MUL32X32_64(r4, s1) + CRYPTO_MUL32X32_64(r5, s0);
+	m7 = CRYPTO_MUL32X32_64(r0, s7) + CRYPTO_MUL32X32_64(r1, s6) + CRYPTO_MUL32X32_64(r2, s5) + CRYPTO_MUL32X32_64(r3, s4) + CRYPTO_MUL32X32_64(r4, s3) + CRYPTO_MUL32X32_64(r5, s2) + CRYPTO_MUL32X32_64(r6, s1) + CRYPTO_MUL32X32_64(r7, s0);
+	m9 = CRYPTO_MUL32X32_64(r0, s9) + CRYPTO_MUL32X32_64(r1, s8) + CRYPTO_MUL32X32_64(r2, s7) + CRYPTO_MUL32X32_64(r3, s6) + CRYPTO_MUL32X32_64(r4, s5) + CRYPTO_MUL32X32_64(r5, s4) + CRYPTO_MUL32X32_64(r6, s3) + CRYPTO_MUL32X32_64(r7, s2) + CRYPTO_MUL32X32_64(r8, s1) + CRYPTO_MUL32X32_64(r9, s0);
+
+	r1 *= 2;
+	r3 *= 2;
+	r5 *= 2;
+	r7 *= 2;
+
+	m0 = CRYPTO_MUL32X32_64(r0, s0);
+	m2 = CRYPTO_MUL32X32_64(r0, s2) + CRYPTO_MUL32X32_64(r1, s1) + CRYPTO_MUL32X32_64(r2, s0);
+	m4 = CRYPTO_MUL32X32_64(r0, s4) + CRYPTO_MUL32X32_64(r1, s3) + CRYPTO_MUL32X32_64(r2, s2) + CRYPTO_MUL32X32_64(r3, s1) + CRYPTO_MUL32X32_64(r4, s0);
+	m6 = CRYPTO_MUL32X32_64(r0, s6) + CRYPTO_MUL32X32_64(r1, s5) + CRYPTO_MUL32X32_64(r2, s4) + CRYPTO_MUL32X32_64(r3, s3) + CRYPTO_MUL32X32_64(r4, s2) + CRYPTO_MUL32X32_64(r5, s1) + CRYPTO_MUL32X32_64(r6, s0);
+	m8 = CRYPTO_MUL32X32_64(r0, s8) + CRYPTO_MUL32X32_64(r1, s7) + CRYPTO_MUL32X32_64(r2, s6) + CRYPTO_MUL32X32_64(r3, s5) + CRYPTO_MUL32X32_64(r4, s4) + CRYPTO_MUL32X32_64(r5, s3) + CRYPTO_MUL32X32_64(r6, s2) + CRYPTO_MUL32X32_64(r7, s1) + CRYPTO_MUL32X32_64(r8, s0);
+
+	r1 *= 19;
+	r2 *= 19;
+	r3 = (r3 / 2) * 19;
+	r4 *= 19;
+	r5 = (r5 / 2) * 19;
+	r6 *= 19;
+	r7 = (r7 / 2) * 19;
+	r8 *= 19;
+	r9 *= 19;
+
+	m1 += (CRYPTO_MUL32X32_64(r9, s2) + CRYPTO_MUL32X32_64(r8, s3) + CRYPTO_MUL32X32_64(r7, s4) + CRYPTO_MUL32X32_64(r6, s5) + CRYPTO_MUL32X32_64(r5, s6) + CRYPTO_MUL32X32_64(r4, s7) + CRYPTO_MUL32X32_64(r3, s8) + CRYPTO_MUL32X32_64(r2, s9));
+	m3 += (CRYPTO_MUL32X32_64(r9, s4) + CRYPTO_MUL32X32_64(r8, s5) + CRYPTO_MUL32X32_64(r7, s6) + CRYPTO_MUL32X32_64(r6, s7) + CRYPTO_MUL32X32_64(r5, s8) + CRYPTO_MUL32X32_64(r4, s9));
+	m5 += (CRYPTO_MUL32X32_64(r9, s6) + CRYPTO_MUL32X32_64(r8, s7) + CRYPTO_MUL32X32_64(r7, s8) + CRYPTO_MUL32X32_64(r6, s9));
+	m7 += (CRYPTO_MUL32X32_64(r9, s8) + CRYPTO_MUL32X32_64(r8, s9));
+
+	r3 *= 2;
+	r5 *= 2;
+	r7 *= 2;
+	r9 *= 2;
+
+	m0 += (CRYPTO_MUL32X32_64(r9, s1) + CRYPTO_MUL32X32_64(r8, s2) + CRYPTO_MUL32X32_64(r7, s3) + CRYPTO_MUL32X32_64(r6, s4) + CRYPTO_MUL32X32_64(r5, s5) + CRYPTO_MUL32X32_64(r4, s6) + CRYPTO_MUL32X32_64(r3, s7) + CRYPTO_MUL32X32_64(r2, s8) + CRYPTO_MUL32X32_64(r1, s9));
+	m2 += (CRYPTO_MUL32X32_64(r9, s3) + CRYPTO_MUL32X32_64(r8, s4) + CRYPTO_MUL32X32_64(r7, s5) + CRYPTO_MUL32X32_64(r6, s6) + CRYPTO_MUL32X32_64(r5, s7) + CRYPTO_MUL32X32_64(r4, s8) + CRYPTO_MUL32X32_64(r3, s9));
+	m4 += (CRYPTO_MUL32X32_64(r9, s5) + CRYPTO_MUL32X32_64(r8, s6) + CRYPTO_MUL32X32_64(r7, s7) + CRYPTO_MUL32X32_64(r6, s8) + CRYPTO_MUL32X32_64(r5, s9));
+	m6 += (CRYPTO_MUL32X32_64(r9, s7) + CRYPTO_MUL32X32_64(r8, s8) + CRYPTO_MUL32X32_64(r7, s9));
+	m8 += (CRYPTO_MUL32X32_64(r9, s9));
+
+	                             r0 = (IUINT32)m0 & X25519_MASK26; c = (m0 >> 26);
+	m1 += c;                     r1 = (IUINT32)m1 & X25519_MASK25; c = (m1 >> 25);
+	m2 += c;                     r2 = (IUINT32)m2 & X25519_MASK26; c = (m2 >> 26);
+	m3 += c;                     r3 = (IUINT32)m3 & X25519_MASK25; c = (m3 >> 25);
+	m4 += c;                     r4 = (IUINT32)m4 & X25519_MASK26; c = (m4 >> 26);
+	m5 += c;                     r5 = (IUINT32)m5 & X25519_MASK25; c = (m5 >> 25);
+	m6 += c;                     r6 = (IUINT32)m6 & X25519_MASK26; c = (m6 >> 26);
+	m7 += c;                     r7 = (IUINT32)m7 & X25519_MASK25; c = (m7 >> 25);
+	m8 += c;                     r8 = (IUINT32)m8 & X25519_MASK26; c = (m8 >> 26);
+	m9 += c;                     r9 = (IUINT32)m9 & X25519_MASK25; p = (IUINT32)(m9 >> 25);
+	m0 = r0 + CRYPTO_MUL32X32_64(p,19); r0 = (IUINT32)m0 & X25519_MASK26; p = (IUINT32)(m0 >> 26);
+	r1 += p;
+
+	out[0] = r0;
+	out[1] = r1;
+	out[2] = r2;
+	out[3] = r3;
+	out[4] = r4;
+	out[5] = r5;
+	out[6] = r6;
+	out[7] = r7;
+	out[8] = r8;
+	out[9] = r9;
+}
+
+/* out = in * in */
+static inline void
+crypto_x25519_square(x25519_bignum out, const x25519_bignum in) {
+	IUINT32 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9;
+	IUINT32 d6,d7,d8,d9;
+	IUINT64 m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,c;
+	IUINT32 p;
+
+	r0 = in[0];
+	r1 = in[1];
+	r2 = in[2];
+	r3 = in[3];
+	r4 = in[4];
+	r5 = in[5];
+	r6 = in[6];
+	r7 = in[7];
+	r8 = in[8];
+	r9 = in[9];
+
+	m0 = CRYPTO_MUL32X32_64(r0, r0);
+	r0 *= 2;
+	m1 = CRYPTO_MUL32X32_64(r0, r1);
+	m2 = CRYPTO_MUL32X32_64(r0, r2) + CRYPTO_MUL32X32_64(r1, r1 * 2);
+	r1 *= 2;
+	m3 = CRYPTO_MUL32X32_64(r0, r3) + CRYPTO_MUL32X32_64(r1, r2    );
+	m4 = CRYPTO_MUL32X32_64(r0, r4) + CRYPTO_MUL32X32_64(r1, r3 * 2) + CRYPTO_MUL32X32_64(r2, r2);
+	r2 *= 2;
+	m5 = CRYPTO_MUL32X32_64(r0, r5) + CRYPTO_MUL32X32_64(r1, r4    ) + CRYPTO_MUL32X32_64(r2, r3);
+	m6 = CRYPTO_MUL32X32_64(r0, r6) + CRYPTO_MUL32X32_64(r1, r5 * 2) + CRYPTO_MUL32X32_64(r2, r4) + CRYPTO_MUL32X32_64(r3, r3 * 2);
+	r3 *= 2;
+	m7 = CRYPTO_MUL32X32_64(r0, r7) + CRYPTO_MUL32X32_64(r1, r6    ) + CRYPTO_MUL32X32_64(r2, r5) + CRYPTO_MUL32X32_64(r3, r4    );
+	m8 = CRYPTO_MUL32X32_64(r0, r8) + CRYPTO_MUL32X32_64(r1, r7 * 2) + CRYPTO_MUL32X32_64(r2, r6) + CRYPTO_MUL32X32_64(r3, r5 * 2) + CRYPTO_MUL32X32_64(r4, r4    );
+	m9 = CRYPTO_MUL32X32_64(r0, r9) + CRYPTO_MUL32X32_64(r1, r8    ) + CRYPTO_MUL32X32_64(r2, r7) + CRYPTO_MUL32X32_64(r3, r6    ) + CRYPTO_MUL32X32_64(r4, r5 * 2);
+
+	d6 = r6 * 19;
+	d7 = r7 * 2 * 19;
+	d8 = r8 * 19;
+	d9 = r9 * 2 * 19;
+
+	m0 += (CRYPTO_MUL32X32_64(d9, r1    ) + CRYPTO_MUL32X32_64(d8, r2    ) + CRYPTO_MUL32X32_64(d7, r3    ) + CRYPTO_MUL32X32_64(d6, r4 * 2) + CRYPTO_MUL32X32_64(r5, r5 * 2 * 19));
+	m1 += (CRYPTO_MUL32X32_64(d9, r2 / 2) + CRYPTO_MUL32X32_64(d8, r3    ) + CRYPTO_MUL32X32_64(d7, r4    ) + CRYPTO_MUL32X32_64(d6, r5 * 2));
+	m2 += (CRYPTO_MUL32X32_64(d9, r3    ) + CRYPTO_MUL32X32_64(d8, r4 * 2) + CRYPTO_MUL32X32_64(d7, r5 * 2) + CRYPTO_MUL32X32_64(d6, r6    ));
+	m3 += (CRYPTO_MUL32X32_64(d9, r4    ) + CRYPTO_MUL32X32_64(d8, r5 * 2) + CRYPTO_MUL32X32_64(d7, r6    ));
+	m4 += (CRYPTO_MUL32X32_64(d9, r5 * 2) + CRYPTO_MUL32X32_64(d8, r6 * 2) + CRYPTO_MUL32X32_64(d7, r7    ));
+	m5 += (CRYPTO_MUL32X32_64(d9, r6    ) + CRYPTO_MUL32X32_64(d8, r7 * 2));
+	m6 += (CRYPTO_MUL32X32_64(d9, r7 * 2) + CRYPTO_MUL32X32_64(d8, r8    ));
+	m7 += (CRYPTO_MUL32X32_64(d9, r8    ));
+	m8 += (CRYPTO_MUL32X32_64(d9, r9    ));
+
+	                             r0 = (IUINT32)m0 & X25519_MASK26; c = (m0 >> 26);
+	m1 += c;                     r1 = (IUINT32)m1 & X25519_MASK25; c = (m1 >> 25);
+	m2 += c;                     r2 = (IUINT32)m2 & X25519_MASK26; c = (m2 >> 26);
+	m3 += c;                     r3 = (IUINT32)m3 & X25519_MASK25; c = (m3 >> 25);
+	m4 += c;                     r4 = (IUINT32)m4 & X25519_MASK26; c = (m4 >> 26);
+	m5 += c;                     r5 = (IUINT32)m5 & X25519_MASK25; c = (m5 >> 25);
+	m6 += c;                     r6 = (IUINT32)m6 & X25519_MASK26; c = (m6 >> 26);
+	m7 += c;                     r7 = (IUINT32)m7 & X25519_MASK25; c = (m7 >> 25);
+	m8 += c;                     r8 = (IUINT32)m8 & X25519_MASK26; c = (m8 >> 26);
+	m9 += c;                     r9 = (IUINT32)m9 & X25519_MASK25; p = (IUINT32)(m9 >> 25);
+	m0 = r0 + CRYPTO_MUL32X32_64(p,19); r0 = (IUINT32)m0 & X25519_MASK26; p = (IUINT32)(m0 >> 26);
+	r1 += p;
+
+	out[0] = r0;
+	out[1] = r1;
+	out[2] = r2;
+	out[3] = r3;
+	out[4] = r4;
+	out[5] = r5;
+	out[6] = r6;
+	out[7] = r7;
+	out[8] = r8;
+	out[9] = r9;
+}
+
+/* out = in^(2 * count) */
+static void
+crypto_x25519_square_times(x25519_bignum out, const x25519_bignum in, int count) {
+	IUINT32 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9;
+	IUINT32 d6,d7,d8,d9;
+	IUINT64 m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,c;
+	IUINT32 p;
+
+	r0 = in[0];
+	r1 = in[1];
+	r2 = in[2];
+	r3 = in[3];
+	r4 = in[4];
+	r5 = in[5];
+	r6 = in[6];
+	r7 = in[7];
+	r8 = in[8];
+	r9 = in[9];
+
+	do {
+		m0 = CRYPTO_MUL32X32_64(r0, r0);
+		r0 *= 2;
+		m1 = CRYPTO_MUL32X32_64(r0, r1);
+		m2 = CRYPTO_MUL32X32_64(r0, r2) + CRYPTO_MUL32X32_64(r1, r1 * 2);
+		r1 *= 2;
+		m3 = CRYPTO_MUL32X32_64(r0, r3) + CRYPTO_MUL32X32_64(r1, r2    );
+		m4 = CRYPTO_MUL32X32_64(r0, r4) + CRYPTO_MUL32X32_64(r1, r3 * 2) + CRYPTO_MUL32X32_64(r2, r2);
+		r2 *= 2;
+		m5 = CRYPTO_MUL32X32_64(r0, r5) + CRYPTO_MUL32X32_64(r1, r4    ) + CRYPTO_MUL32X32_64(r2, r3);
+		m6 = CRYPTO_MUL32X32_64(r0, r6) + CRYPTO_MUL32X32_64(r1, r5 * 2) + CRYPTO_MUL32X32_64(r2, r4) + CRYPTO_MUL32X32_64(r3, r3 * 2);
+		r3 *= 2;
+		m7 = CRYPTO_MUL32X32_64(r0, r7) + CRYPTO_MUL32X32_64(r1, r6    ) + CRYPTO_MUL32X32_64(r2, r5) + CRYPTO_MUL32X32_64(r3, r4    );
+		m8 = CRYPTO_MUL32X32_64(r0, r8) + CRYPTO_MUL32X32_64(r1, r7 * 2) + CRYPTO_MUL32X32_64(r2, r6) + CRYPTO_MUL32X32_64(r3, r5 * 2) + CRYPTO_MUL32X32_64(r4, r4    );
+		m9 = CRYPTO_MUL32X32_64(r0, r9) + CRYPTO_MUL32X32_64(r1, r8    ) + CRYPTO_MUL32X32_64(r2, r7) + CRYPTO_MUL32X32_64(r3, r6    ) + CRYPTO_MUL32X32_64(r4, r5 * 2);
+
+		d6 = r6 * 19;
+		d7 = r7 * 2 * 19;
+		d8 = r8 * 19;
+		d9 = r9 * 2 * 19;
+
+		m0 += (CRYPTO_MUL32X32_64(d9, r1    ) + CRYPTO_MUL32X32_64(d8, r2    ) + CRYPTO_MUL32X32_64(d7, r3    ) + CRYPTO_MUL32X32_64(d6, r4 * 2) + CRYPTO_MUL32X32_64(r5, r5 * 2 * 19));
+		m1 += (CRYPTO_MUL32X32_64(d9, r2 / 2) + CRYPTO_MUL32X32_64(d8, r3    ) + CRYPTO_MUL32X32_64(d7, r4    ) + CRYPTO_MUL32X32_64(d6, r5 * 2));
+		m2 += (CRYPTO_MUL32X32_64(d9, r3    ) + CRYPTO_MUL32X32_64(d8, r4 * 2) + CRYPTO_MUL32X32_64(d7, r5 * 2) + CRYPTO_MUL32X32_64(d6, r6    ));
+		m3 += (CRYPTO_MUL32X32_64(d9, r4    ) + CRYPTO_MUL32X32_64(d8, r5 * 2) + CRYPTO_MUL32X32_64(d7, r6    ));
+		m4 += (CRYPTO_MUL32X32_64(d9, r5 * 2) + CRYPTO_MUL32X32_64(d8, r6 * 2) + CRYPTO_MUL32X32_64(d7, r7    ));
+		m5 += (CRYPTO_MUL32X32_64(d9, r6    ) + CRYPTO_MUL32X32_64(d8, r7 * 2));
+		m6 += (CRYPTO_MUL32X32_64(d9, r7 * 2) + CRYPTO_MUL32X32_64(d8, r8    ));
+		m7 += (CRYPTO_MUL32X32_64(d9, r8    ));
+		m8 += (CRYPTO_MUL32X32_64(d9, r9    ));
+
+		                             r0 = (IUINT32)m0 & X25519_MASK26; c = (m0 >> 26);
+		m1 += c;                     r1 = (IUINT32)m1 & X25519_MASK25; c = (m1 >> 25);
+		m2 += c;                     r2 = (IUINT32)m2 & X25519_MASK26; c = (m2 >> 26);
+		m3 += c;                     r3 = (IUINT32)m3 & X25519_MASK25; c = (m3 >> 25);
+		m4 += c;                     r4 = (IUINT32)m4 & X25519_MASK26; c = (m4 >> 26);
+		m5 += c;                     r5 = (IUINT32)m5 & X25519_MASK25; c = (m5 >> 25);
+		m6 += c;                     r6 = (IUINT32)m6 & X25519_MASK26; c = (m6 >> 26);
+		m7 += c;                     r7 = (IUINT32)m7 & X25519_MASK25; c = (m7 >> 25);
+		m8 += c;                     r8 = (IUINT32)m8 & X25519_MASK26; c = (m8 >> 26);
+		m9 += c;                     r9 = (IUINT32)m9 & X25519_MASK25; p = (IUINT32)(m9 >> 25);
+		m0 = r0 + CRYPTO_MUL32X32_64(p,19); r0 = (IUINT32)m0 & X25519_MASK26; p = (IUINT32)(m0 >> 26);
+		r1 += p;
+	} while (--count);
+
+	out[0] = r0;
+	out[1] = r1;
+	out[2] = r2;
+	out[3] = r3;
+	out[4] = r4;
+	out[5] = r5;
+	out[6] = r6;
+	out[7] = r7;
+	out[8] = r8;
+	out[9] = r9;
+}
+
+/* Take a little-endian, 32-byte number and expand it into polynomial form */
+static void
+crypto_x25519_expand(x25519_bignum out, const unsigned char in[32]) {
+	IUINT32 x0,x1,x2,x3,x4,x5,x6,x7;
+
+	x0 = crypto_get_le32(in + 0);
+	x1 = crypto_get_le32(in + 4);
+	x2 = crypto_get_le32(in + 8);
+	x3 = crypto_get_le32(in + 12);
+	x4 = crypto_get_le32(in + 16);
+	x5 = crypto_get_le32(in + 20);
+	x6 = crypto_get_le32(in + 24);
+	x7 = crypto_get_le32(in + 28);
+
+	out[0] = (                        x0       ) & X25519_MASK26;
+	out[1] = (IUINT32)(((((IUINT64)x1 << 32) | x0) >> 26) & X25519_MASK25);
+	out[2] = (IUINT32)(((((IUINT64)x2 << 32) | x1) >> 19) & X25519_MASK26);
+	out[3] = (IUINT32)(((((IUINT64)x3 << 32) | x2) >> 13) & X25519_MASK25);
+	out[4] = ((                       x3) >>  6) & X25519_MASK26;
+	out[5] = (                        x4       ) & X25519_MASK25;
+	out[6] = (IUINT32)(((((IUINT64)x5 << 32) | x4) >> 25) & X25519_MASK26);
+	out[7] = (IUINT32)(((((IUINT64)x6 << 32) | x5) >> 19) & X25519_MASK25);
+	out[8] = (IUINT32)(((((IUINT64)x7 << 32) | x6) >> 12) & X25519_MASK26);
+	out[9] = ((                       x7) >>  6) & X25519_MASK25; /* ignore the top bit */
+}
+
+/* Take a fully reduced polynomial form number and contract it into a little-endian, 32-byte array
+   NOTE: the first byte of each 4-byte group is |= (not =) on purpose: the shifted limbs
+   overlap at the group boundary bytes and those bits must be merged, never overwritten */
+static void
+crypto_x25519_contract(unsigned char out[32], const x25519_bignum in) {
+	x25519_bignum f;
+	crypto_x25519_copy(f, in);
+
+	#define carry_pass() \
+		f[1] += f[0] >> 26; f[0] &= X25519_MASK26; \
+		f[2] += f[1] >> 25; f[1] &= X25519_MASK25; \
+		f[3] += f[2] >> 26; f[2] &= X25519_MASK26; \
+		f[4] += f[3] >> 25; f[3] &= X25519_MASK25; \
+		f[5] += f[4] >> 26; f[4] &= X25519_MASK26; \
+		f[6] += f[5] >> 25; f[5] &= X25519_MASK25; \
+		f[7] += f[6] >> 26; f[6] &= X25519_MASK26; \
+		f[8] += f[7] >> 25; f[7] &= X25519_MASK25; \
+		f[9] += f[8] >> 26; f[8] &= X25519_MASK26;
+
+	#define carry_pass_full() \
+		carry_pass() \
+		f[0] += 19 * (f[9] >> 25); f[9] &= X25519_MASK25;
+
+	#define carry_pass_final() \
+		carry_pass() \
+		f[9] &= X25519_MASK25;
+
+	carry_pass_full()
+	carry_pass_full()
+
+	/* now t is between 0 and 2^255-1, properly carried. */
+	/* case 1: between 0 and 2^255-20. case 2: between 2^255-19 and 2^255-1. */
+	f[0] += 19;
+	carry_pass_full()
+
+	/* now between 19 and 2^255-1 in both cases, and offset by 19. */
+	f[0] += (1 << 26) - 19;
+	f[1] += (1 << 25) - 1;
+	f[2] += (1 << 26) - 1;
+	f[3] += (1 << 25) - 1;
+	f[4] += (1 << 26) - 1;
+	f[5] += (1 << 25) - 1;
+	f[6] += (1 << 26) - 1;
+	f[7] += (1 << 25) - 1;
+	f[8] += (1 << 26) - 1;
+	f[9] += (1 << 25) - 1;
+
+	/* now between 2^255 and 2^256-20, and offset by 2^255. */
+	carry_pass_final()
+
+	#undef carry_pass
+	#undef carry_pass_full
+	#undef carry_pass_final
+
+	f[1] <<= 2;
+	f[2] <<= 3;
+	f[3] <<= 5;
+	f[4] <<= 6;
+	f[6] <<= 1;
+	f[7] <<= 3;
+	f[8] <<= 4;
+	f[9] <<= 6;
+
+	#define F(i, s) \
+		out[s+0] |= (unsigned char )(f[i] & 0xff); \
+		out[s+1] = (unsigned char )((f[i] >> 8) & 0xff); \
+		out[s+2] = (unsigned char )((f[i] >> 16) & 0xff); \
+		out[s+3] = (unsigned char )((f[i] >> 24) & 0xff);
+
+	out[0] = 0;
+	out[16] = 0;
+	F(0,0);
+	F(1,3);
+	F(2,6);
+	F(3,9);
+	F(4,12);
+	F(5,16);
+	F(6,19);
+	F(7,22);
+	F(8,25);
+	F(9,28);
+	#undef F
+}
+
+/*
+ * Swap the contents of [qx] and [qpx] iff @swap is non-zero
+ */
+static inline void
+crypto_x25519_swap_cond(x25519_bignum x, x25519_bignum qpx, IUINT32 iswap) {
+	const IUINT32 swap = (IUINT32)(-(IINT32)iswap);
+	IUINT32 x0,x1,x2,x3,x4,x5,x6,x7,x8,x9;
+
+	x0 = swap & (x[0] ^ qpx[0]); x[0] ^= x0; qpx[0] ^= x0;
+	x1 = swap & (x[1] ^ qpx[1]); x[1] ^= x1; qpx[1] ^= x1;
+	x2 = swap & (x[2] ^ qpx[2]); x[2] ^= x2; qpx[2] ^= x2;
+	x3 = swap & (x[3] ^ qpx[3]); x[3] ^= x3; qpx[3] ^= x3;
+	x4 = swap & (x[4] ^ qpx[4]); x[4] ^= x4; qpx[4] ^= x4;
+	x5 = swap & (x[5] ^ qpx[5]); x[5] ^= x5; qpx[5] ^= x5;
+	x6 = swap & (x[6] ^ qpx[6]); x[6] ^= x6; qpx[6] ^= x6;
+	x7 = swap & (x[7] ^ qpx[7]); x[7] ^= x7; qpx[7] ^= x7;
+	x8 = swap & (x[8] ^ qpx[8]); x[8] ^= x8; qpx[8] ^= x8;
+	x9 = swap & (x[9] ^ qpx[9]); x[9] ^= x9; qpx[9] ^= x9;
+}
+
+/*
+ * In:  b =   2^5 - 2^0
+ * Out: b = 2^250 - 2^0
+ */
+static void
+crypto_x25519_pow250(x25519_bignum b) {
+	x25519_bignum t0,c;
+
+	/* 2^5  - 2^0 */ /* b */
+	/* 2^10 - 2^5 */ crypto_x25519_square_times(t0, b, 5);
+	/* 2^10 - 2^0 */ crypto_x25519_mul(b, t0, b);
+	/* 2^20 - 2^10 */ crypto_x25519_square_times(t0, b, 10);
+	/* 2^20 - 2^0 */ crypto_x25519_mul(c, t0, b);
+	/* 2^40 - 2^20 */ crypto_x25519_square_times(t0, c, 20);
+	/* 2^40 - 2^0 */ crypto_x25519_mul(t0, t0, c);
+	/* 2^50 - 2^10 */ crypto_x25519_square_times(t0, t0, 10);
+	/* 2^50 - 2^0 */ crypto_x25519_mul(b, t0, b);
+	/* 2^100 - 2^50 */ crypto_x25519_square_times(t0, b, 50);
+	/* 2^100 - 2^0 */ crypto_x25519_mul(c, t0, b);
+	/* 2^200 - 2^100 */ crypto_x25519_square_times(t0, c, 100);
+	/* 2^200 - 2^0 */ crypto_x25519_mul(t0, t0, c);
+	/* 2^250 - 2^50 */ crypto_x25519_square_times(t0, t0, 50);
+	/* 2^250 - 2^0 */ crypto_x25519_mul(b, t0, b);
+}
+
+/*
+ * z^(p - 2) = z(2^255 - 21)
+ */
+static void
+crypto_x25519_recip(x25519_bignum out, const x25519_bignum z) {
+	x25519_bignum a,t0,b;
+
+	/* 2 */ crypto_x25519_square(a, z); /* a = 2 */
+	/* 8 */ crypto_x25519_square_times(t0, a, 2);
+	/* 9 */ crypto_x25519_mul(b, t0, z); /* b = 9 */
+	/* 11 */ crypto_x25519_mul(a, b, a); /* a = 11 */
+	/* 22 */ crypto_x25519_square(t0, a);
+	/* 2^5 - 2^0 = 31 */ crypto_x25519_mul(b, t0, b);
+	/* 2^250 - 2^0 */ crypto_x25519_pow250(b);
+	/* 2^255 - 2^5 */ crypto_x25519_square_times(b, b, 5);
+	/* 2^255 - 21 */ crypto_x25519_mul(out, b, a);
+}
+
+/* Calculates nQ where Q is the x-coordinate of a point on the curve
+ *
+ *   mypublic: the packed little endian x coordinate of the resulting curve point
+ *   n: a little endian, 32-byte number
+ *   basepoint: a packed little endian point of the curve
+ */
+static void
+crypto_x25519_scalarmult(unsigned char mypublic[32], const unsigned char n[32],
+		const unsigned char basepoint[32]) {
+	x25519_bignum nqpqx = {1}, nqpqz = {0}, nqz = {1}, nqx;
+	x25519_bignum q, qx, qpqx, qqx, zzz, zmone;
+	IUINT32 bit, lastbit;
+	int i;
+
+	crypto_x25519_expand(q, basepoint);
+	crypto_x25519_copy(nqx, q);
+
+	/* bit 255 is always 0, and bit 254 is always 1, so skip bit 255 and
+	   start pre-swapped on bit 254 */
+	lastbit = 1;
+
+	/* we are doing bits 254..3 in the loop, but are swapping in bits 253..2 */
+	for (i = 253; i >= 2; i--) {
+		crypto_x25519_add(qx, nqx, nqz);
+		crypto_x25519_sub(nqz, nqx, nqz);
+		crypto_x25519_add(qpqx, nqpqx, nqpqz);
+		crypto_x25519_sub(nqpqz, nqpqx, nqpqz);
+		crypto_x25519_mul(nqpqx, qpqx, nqz);
+		crypto_x25519_mul(nqpqz, qx, nqpqz);
+		crypto_x25519_add(qqx, nqpqx, nqpqz);
+		crypto_x25519_sub(nqpqz, nqpqx, nqpqz);
+		crypto_x25519_square(nqpqz, nqpqz);
+		crypto_x25519_square(nqpqx, qqx);
+		crypto_x25519_mul(nqpqz, nqpqz, q);
+		crypto_x25519_square(qx, qx);
+		crypto_x25519_square(nqz, nqz);
+		crypto_x25519_mul(nqx, qx, nqz);
+		crypto_x25519_sub(nqz, qx, nqz);
+		crypto_x25519_scalar_product(zzz, nqz, 121665);
+		crypto_x25519_add(zzz, zzz, qx);
+		crypto_x25519_mul(nqz, nqz, zzz);
+
+		bit = (n[i/8] >> (i & 7)) & 1;
+		crypto_x25519_swap_cond(nqx, nqpqx, bit ^ lastbit);
+		crypto_x25519_swap_cond(nqz, nqpqz, bit ^ lastbit);
+		lastbit = bit;
+	}
+
+	/* the final 3 bits are always zero, so we only need to double */
+	for (i = 0; i < 3; i++) {
+		crypto_x25519_add(qx, nqx, nqz);
+		crypto_x25519_sub(nqz, nqx, nqz);
+		crypto_x25519_square(qx, qx);
+		crypto_x25519_square(nqz, nqz);
+		crypto_x25519_mul(nqx, qx, nqz);
+		crypto_x25519_sub(nqz, qx, nqz);
+		crypto_x25519_scalar_product(zzz, nqz, 121665);
+		crypto_x25519_add(zzz, zzz, qx);
+		crypto_x25519_mul(nqz, nqz, zzz);
+	}
+
+	crypto_x25519_recip(zmone, nqz);
+	crypto_x25519_mul(nqz, nqx, zmone);
+	crypto_x25519_contract(mypublic, nqz);
+}
+
+/* clamp a raw private key: e[0]&=0xf8, e[31]&=0x7f, e[31]|=0x40 */
+static void
+crypto_x25519_clamp(unsigned char e[32]) {
+	e[0] &= 0xf8;
+	e[31] &= 0x7f;
+	e[31] |= 0x40;
+}
+
+/* built-in default for the SCALARMULT slot: out = clamp(secret) * basepoint */
+static void
+crypto_x25519_dh(unsigned char mypublic[32], const unsigned char secret[32],
+		const unsigned char basepoint[32]) {
+	unsigned char e[32];
+	size_t i;
+
+	for (i = 0;i < 32;++i) e[i] = secret[i];
+	crypto_x25519_clamp(e);
+	crypto_x25519_scalarmult(mypublic, e, basepoint);
+}
+
+/* built-in default for the BASEPOINT slot: out = clamp(secret) * 9 */
+static void
+crypto_x25519_dh_base(unsigned char mypublic[32], const unsigned char secret[32]) {
+	static const unsigned char basepoint[32] = {9};
+	crypto_x25519_dh(mypublic, secret, basepoint);
+}
+
+// callback slots, default NULL = built-in implementation above.
+// install once at startup, never swap at runtime (see isecure.h)
+CRYPTO_X25519_SCALARMULT_PROC CRYPTO_X25519_SCALARMULT_CB = NULL;
+CRYPTO_X25519_BASEPOINT_PROC CRYPTO_X25519_BASEPOINT_CB = NULL;
+
+// generate random private key (32 bytes) via CRYPTO_OS_RANDOM
+int CRYPTO_X25519_Keygen(unsigned char private_key[CRYPTO_X25519_KEY_SIZE])
+{
+	return CRYPTO_OS_RANDOM(private_key, CRYPTO_X25519_KEY_SIZE);
+}
+
+// public_key = private_key * basepoint(9)
+void CRYPTO_X25519_Public(unsigned char public_key[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE])
+{
+	static const unsigned char basepoint[CRYPTO_X25519_KEY_SIZE] = {9};
+	if (CRYPTO_X25519_BASEPOINT_CB) {
+		CRYPTO_X25519_BASEPOINT_CB(public_key, private_key);
+	}
+	else if (CRYPTO_X25519_SCALARMULT_CB) {
+		CRYPTO_X25519_SCALARMULT_CB(public_key, private_key, basepoint);
+	}
+	else {
+		crypto_x25519_dh_base(public_key, private_key);
+	}
+}
+
+// shared secret = private_key * peer_public, all-zero output => -1
+int CRYPTO_X25519_Shared(unsigned char secret[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char peer_public[CRYPTO_X25519_KEY_SIZE])
+{
+	size_t i;
+	int zero = 1;
+
+	if (CRYPTO_X25519_SCALARMULT_CB) {
+		CRYPTO_X25519_SCALARMULT_CB(secret, private_key, peer_public);
+	}
+	else {
+		crypto_x25519_dh(secret, private_key, peer_public);
+	}
+	for (i = 0; i < CRYPTO_X25519_KEY_SIZE; i++) {
+		zero &= (secret[i] == 0);
+	}
+	if (zero) {
+		memset(secret, 0, CRYPTO_X25519_KEY_SIZE);
+		return -1;
+	}
+	return 0;
+}
+
 
 

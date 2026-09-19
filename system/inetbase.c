@@ -82,34 +82,41 @@ typedef int DSOCKLEN_T;
 #define INTERNAL_MUTEX_SIZE		(1 << INTERNAL_MUTEX_SHIFT)
 #define INTERNAL_MUTEX_MASK		(INTERNAL_MUTEX_SIZE - 1)
 
+#if defined(__MACH__)
+/* repeat PTHREAD_MUTEX_INITIALIZER to statically fill the lock pool */
+#define IMUTEX_SI_1		PTHREAD_MUTEX_INITIALIZER
+#define IMUTEX_SI_4		IMUTEX_SI_1, IMUTEX_SI_1, IMUTEX_SI_1, IMUTEX_SI_1
+#define IMUTEX_SI_16	IMUTEX_SI_4, IMUTEX_SI_4, IMUTEX_SI_4, IMUTEX_SI_4
+#define IMUTEX_SI_32	IMUTEX_SI_16, IMUTEX_SI_16
+#define IMUTEX_SI_64	IMUTEX_SI_32, IMUTEX_SI_32
+/* fail to compile if pool size and initializer list ever disagree */
+typedef char IMUTEX_POOL_CHECK[(INTERNAL_MUTEX_SIZE * 2 == 64) ? 1 : -1];
+#endif
+
 /* get an initialized mutex id between 0 and 63 */
 static IMUTEX_TYPE* internal_mutex_get(int id)
 {
-	static IMUTEX_TYPE locks[INTERNAL_MUTEX_SIZE * 2];
-	static volatile int init_locks = 0;
 #if defined(WIN32) || defined(_WIN32) || defined(_WIN64) || defined(WIN64)
-	if (init_locks == 0) {
-		static DWORD align_dwords[20] = { 
-		0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0, 0, 0, 0, 0 };
-		unsigned char *align_ptr = (unsigned char*)align_dwords;
-		LONG *once;
-		LONG last = 0;
-		while (((size_t)align_ptr) & 63) align_ptr++;
-		once = (LONG*)align_ptr;
-		last = InterlockedExchange(once, 1);
-		if (last == 0) {
+	static IMUTEX_TYPE locks[INTERNAL_MUTEX_SIZE * 2];
+	static LONG once1 = 0, once2 = 0;
+	if (InterlockedExchangeAdd(&once2, 0) == 0) {
+		if (InterlockedExchange(&once1, 1) == 0) {
 			int i;
 			for (i = 0; i < INTERNAL_MUTEX_SIZE * 2; i++) {
 				IMUTEX_INIT(&locks[i]);
 			}
-			init_locks = 1;
+			InterlockedExchange(&once2, 1);
 		}	else {
-			while (init_locks == 0) {
+			while (InterlockedExchangeAdd(&once2, 0) == 0) {
 				Sleep(1);
 			}
 		}
 	}
-#elif defined(__unix) || defined(__unix__) || defined(__MACH__)
+#elif defined(__MACH__)
+	static IMUTEX_TYPE locks[INTERNAL_MUTEX_SIZE * 2] = { IMUTEX_SI_64 };
+#elif defined(__unix) || defined(__unix__)
+	static IMUTEX_TYPE locks[INTERNAL_MUTEX_SIZE * 2];
+	static volatile int init_locks = 0;
 	if (init_locks == 0) {
 		static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 		pthread_mutex_lock(&mutex);
@@ -123,6 +130,8 @@ static IMUTEX_TYPE* internal_mutex_get(int id)
 		pthread_mutex_unlock(&mutex);
 	}
 #else
+	static IMUTEX_TYPE locks[INTERNAL_MUTEX_SIZE * 2];
+	static volatile int init_locks = 0;
 	if (init_locks == 0) {
 		int i;
 		for (i = 0; i < INTERNAL_MUTEX_SIZE * 2; i++) {
@@ -224,7 +233,7 @@ void itimeofday(IINT64 *sec, long *usec)
 	value = ((IINT64)s) * 1000 + (u / 1000);
 	itimeclock = value;
 	if (*once == 0) {
-		IMUTEX_TYPE *lock = internal_mutex_get(0);
+		IMUTEX_TYPE *lock = internal_mutex_get(1);
 		IMUTEX_LOCK(lock);
 		if (*once == 0) {
 			itimestart = itimeclock;
@@ -2374,7 +2383,7 @@ int ipoll_create(ipolld *ipd, int param)
 	ipolld pd;
 
 	if (ipoll_inited == 0) {
-		IMUTEX_TYPE *lock = internal_mutex_get(1);
+		IMUTEX_TYPE *lock = internal_mutex_get(2);
 		IMUTEX_LOCK(lock);
 		if (ipoll_inited == 0) {
 			ipoll_init(IDEVICE_AUTO);
@@ -4694,7 +4703,7 @@ static int iposix_cond_win32_init(iConditionVariableWin32 *cond)
 	cond->eventid = IWAKEALL_0;
 
 	if (iposix_cond_win32_inited == 0) {
-		IMUTEX_TYPE *lock = internal_mutex_get(2);
+		IMUTEX_TYPE *lock = internal_mutex_get(3);
 		IMUTEX_LOCK(lock);
 		if (iposix_cond_win32_inited == 0) {
 			if (iposix_kernel32 == NULL) {

@@ -7,6 +7,7 @@
 //
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
 // Copyright 2014 Melissa O'Neill <oneill@pcg-random.org>
+// Copyright 2008, Andrew Moon (curve25519-donna, public domain / MIT)
 //
 //=====================================================================
 #ifndef __ISECURE_H__
@@ -175,6 +176,13 @@ typedef unsigned long long IUINT64;
 extern "C" {
 #endif
 
+
+//=====================================================================
+// Global Definition
+//=====================================================================
+#define CRYPTO_MAKE_QWORD(h, l) ((((IUINT64)(h)) << 32) | (IUINT64)(l))
+
+
 //=====================================================================
 // Copyright (C) 1990, RSA Data Security, Inc. All rights reserved.
 //=====================================================================
@@ -293,6 +301,7 @@ static inline IUINT32 hash_update_murmur(IUINT32 h, IUINT32 x) {
 	h = h * 5 + 0xe6546b64;
 	return h;
 }
+
 
 
 //=====================================================================
@@ -560,6 +569,63 @@ char *hmac_signature(
 
 // extract timestamp from signature
 IUINT32 hmac_signature_time(const char *signature);
+
+
+//=====================================================================
+// CRYPTO X25519: Elliptic Curve Diffie-Hellman (Curve25519, RFC 7748)
+//=====================================================================
+
+#define CRYPTO_X25519_KEY_SIZE    32      // size of key/secret (bytes)
+
+/**
+ * replaceable scalar multiplication callback (curve25519_donna
+ * semantics): out = clamp(secret) * point, the callback MUST apply
+ * RFC 7748 clamping (e[0]&=0xf8, e[31]&=0x7f, e[31]|=0x40) itself.
+ * same convention as CRYPTO_OS_RANDOM_CB: install once at startup,
+ * never swap at runtime, isecure reads it without locking.
+ * default NULL = built-in portable pure C implementation.
+ */
+typedef void (*CRYPTO_X25519_SCALARMULT_PROC)(unsigned char out[32],
+		const unsigned char secret[32], const unsigned char point[32]);
+
+/**
+ * optional fixed basepoint acceleration: out = clamp(secret) * 9.
+ * when NULL, CRYPTO_X25519_Public falls back to the scalarmult slot
+ * above (both slots NULL = built-in implementation).
+ */
+typedef void (*CRYPTO_X25519_BASEPOINT_PROC)(unsigned char out[32],
+		const unsigned char secret[32]);
+
+// callback slots, default NULL (built-in implementation)
+extern CRYPTO_X25519_SCALARMULT_PROC CRYPTO_X25519_SCALARMULT_CB;
+extern CRYPTO_X25519_BASEPOINT_PROC CRYPTO_X25519_BASEPOINT_CB;
+
+/**
+ * generate a random private key (32 bytes) via CRYPTO_OS_RANDOM.
+ * WARNING: when CRYPTO_OS_RANDOM_CB is not installed, the built-in
+ * rand()-based fallback is used and the private key is predictable
+ * (NOT cryptographically secure) -- install a real OS CSPRNG before
+ * production use. always returns 0.
+ */
+int CRYPTO_X25519_Keygen(unsigned char private_key[CRYPTO_X25519_KEY_SIZE]);
+
+/**
+ * derive the public key: public_key = private_key * basepoint(9).
+ * pure computation, never fails.
+ */
+void CRYPTO_X25519_Public(unsigned char public_key[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE]);
+
+/**
+ * derive the shared secret: secret = private_key * peer_public.
+ * returns 0 on success, -1 when the output is all-zero (low order
+ * point, RFC 7748 recommended check, NOT a complete small-subgroup
+ * detection): the caller MUST discard the session and never use
+ * that key.
+ */
+int CRYPTO_X25519_Shared(unsigned char secret[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE],
+		const unsigned char peer_public[CRYPTO_X25519_KEY_SIZE]);
 
 
 #ifdef __cplusplus
