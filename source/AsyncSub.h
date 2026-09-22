@@ -2,7 +2,7 @@
 //
 // AsyncSub.h - 
 //
-// Last Modified: 2025/06/10 11:11:28
+// Last Modified: 2026/09/23 00:00:00
 //
 //=====================================================================
 #ifndef _ASYNCSUB_H_
@@ -175,6 +175,55 @@ private:
 	CAsyncLoop *_loop;
 	CAsyncPoll *_poll;
 	typedef std::function<void(int fd, int events, void *udata)> Callback;
+	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
+};
+
+
+//---------------------------------------------------------------------
+// AsyncInvoke - synchronous cross-thread invocation
+//---------------------------------------------------------------------
+class AsyncInvoke final
+{
+public:
+	~AsyncInvoke();
+	AsyncInvoke(AsyncLoop &loop);
+	AsyncInvoke(CAsyncLoop *loop);
+	AsyncInvoke(AsyncInvoke &&src);
+
+	AsyncInvoke(const AsyncInvoke &) = delete;
+	AsyncInvoke &operator=(const AsyncInvoke &) = delete;
+
+public:
+
+	// Get the underlying CAsyncInvoke pointer
+	CAsyncInvoke *GetInvoke() { return _invoke; }
+	const CAsyncInvoke *GetInvoke() const { return _invoke; }
+
+	// set the callback to be invoked in the loop thread only.
+	// must be set before Call(): an unset callback makes calls
+	// execute nothing and return ASYNC_INVOKE_OK.
+	void SetCallback(std::function<int(void *arg)> cb);
+
+	// synchronous call: blocks the calling thread until the callback
+	// has been executed in the loop thread, or the timeout expires.
+	// when called from the loop thread itself the callback runs
+	// immediately without blocking. millisec: negative (or
+	// IEVENT_INFINITE) waits forever, otherwise timeout in ms.
+	// retval: optional output for the callback return value.
+	// returns ASYNC_INVOKE_OK / ASYNC_INVOKE_ETIMEDOUT /
+	// ASYNC_INVOKE_EINVAL / ASYNC_INVOKE_ECLOSING (see inetsub.h).
+	// a callback that throws is caught and logged in the loop thread:
+	// Call() returns OK with *retval left at 0. full contract
+	// (creation, timeout, destruction) in docs/AsyncSub.md.
+	int Call(void *arg, IINT32 millisec = -1, int *retval = NULL);
+
+private:
+	static int InvokeCB(CAsyncInvoke *invoke, void *arg);
+
+private:
+	CAsyncLoop *_loop = NULL;
+	CAsyncInvoke *_invoke = NULL;
+	typedef std::function<int(void *arg)> Callback;
 	std::shared_ptr<Callback> _cb_ptr = std::make_shared<Callback>();
 };
 

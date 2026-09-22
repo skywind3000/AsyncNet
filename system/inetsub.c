@@ -2,7 +2,7 @@
 //
 // inetsub.h - 
 //
-// Last Modified: 2025/06/10 11:08:09
+// Last Modified: 2026/09/23 00:00:00
 //
 //=====================================================================
 #include <stddef.h>
@@ -1238,6 +1238,321 @@ int async_poll_set(CAsyncPoll *poll, int fd, int events)
 	}
 	item->events = events;
 	return 0;
+}
+
+
+//=====================================================================
+// CAsyncInvoke
+//=====================================================================
+
+//---------------------------------------------------------------------
+// internal request node: it lives on the caller's stack, so each
+// invocation needs no dynamic allocation
+//---------------------------------------------------------------------
+typedef struct CAsyncInvokeRequest {
+    ilist_head node;
+    void *arg;
+    int done;      // 1 when the callback has finished (or canceled)
+    int canceled;  // 1 when the request was dropped during delete
+    int retval;    // callback return value
+}   CAsyncInvokeRequest;
+
+//---------------------------------------------------------------------
+// internal functions
+//---------------------------------------------------------------------
+static unsigned long async_invoke_thread_id(void);
+static void async_invoke_wakeup(CAsyncLoop *loop, CAsyncSemaphore *sem);
+static void async_invoke_refresh(CAsyncLoop *loop, CAsyncOnce *once);
+static void async_invoke_destroy(CAsyncInvoke *invoke);
+
+//---------------------------------------------------------------------
+// current thread id, used to detect the loop (owner) thread
+//---------------------------------------------------------------------
+static unsigned long async_invoke_thread_id(void)
+{
+#ifdef _WIN32
+    return (unsigned long)GetCurrentThreadId();
+#else
+    return (unsigned long)pthread_self();
+#endif
+}
+
+//---------------------------------------------------------------------
+// once callback: refresh owner to the thread driving the loop every
+// iteration, keeping the fast path correct after a loop migration
+// (single aligned word written lock-free on purpose)
+//---------------------------------------------------------------------
+static void async_invoke_refresh(CAsyncLoop *loop, CAsyncOnce *once)
+{
+    CAsyncInvoke *invoke = (CAsyncInvoke*)once->user;
+    (void)loop;
+    invoke->owner = async_invoke_thread_id();
+}
+
+//---------------------------------------------------------------------
+// final destruction: no dispatching, no blocked callers remain
+//---------------------------------------------------------------------
+static void async_invoke_destroy(CAsyncInvoke *invoke)
+{
+    assert(invoke->waiting == 0);
+    async_once_stop(invoke->loop, &invoke->evt_once);
+    async_sem_stop(invoke->loop, &invoke->evt_sem);
+    async_sem_destroy(&invoke->evt_sem);
+    iposix_cond_delete(invoke->cond);
+    IMUTEX_DESTROY(&invoke->lock);
+    ikmem_free(invoke);
+}
+
+//---------------------------------------------------------------------
+// create a new invoke object
+//---------------------------------------------------------------------
+CAsyncInvoke *async_invoke_new(CAsyncLoop *loop,
+        CAsyncInvokeCallback callback)
+{
+    CAsyncInvoke *invoke;
+    if (loop == NULL || callback == NULL) {
+        return NULL;
+    }
+    invoke = (CAsyncInvoke*)ikmem_malloc(sizeof(CAsyncInvoke));
+    if (invoke == NULL) {
+        return NULL;
+    }
+    invoke->loop = loop;
+    invoke->callback = callback;
+    invoke->user = NULL;
+    invoke->owner = async_invoke_thread_id();
+    invoke->busy = 0;
+    invoke->releasing = 0;
+    invoke->waiting = 0;
+    invoke->cond = iposix_cond_new();
+    if (invoke->cond == NULL) {
+        ikmem_free(invoke);
+        return NULL;
+    }
+    ilist_init(&invoke->requests);
+    async_sem_init(&invoke->evt_sem, async_invoke_wakeup);
+    invoke->evt_sem.user = invoke;
+    async_once_init(&invoke->evt_once, async_invoke_refresh);
+    invoke->evt_once.user = invoke;
+    IMUTEX_INIT(&invoke->lock);
+    async_sem_start(loop, &invoke->evt_sem);
+    async_once_start(loop, &invoke->evt_once);
+    return invoke;
+}
+
+//---------------------------------------------------------------------
+// destroy the invoke object
+//---------------------------------------------------------------------
+void async_invoke_delete(CAsyncInvoke *invoke)
+{
+    if (invoke == NULL) {
+        return;
+    }
+    IMUTEX_LOCK(&invoke->lock);
+    if (invoke->busy != 0 || invoke->waiting != 0) {
+        // busy or blocked callers: cancel queued requests, wake them
+        // with ECLOSING, and defer the destruction to the loop thread
+        invoke->releasing = 1;
+        while (ilist_is_empty(&invoke->requests) == 0) {
+            CAsyncInvokeRequest *req;
+            req = ilist_entry(invoke->requests.next,
+                    CAsyncInvokeRequest, node);
+            ilist_del_init(&req->node);
+            req->canceled = 1;
+            req->done = 1;
+        }
+        iposix_cond_wake_all(invoke->cond);
+        if (invoke->busy == 0) {
+            // ensure one more wakeup pass to perform the deferred destroy
+            async_sem_post(&invoke->evt_sem);
+        }
+        IMUTEX_UNLOCK(&invoke->lock);
+        return;
+    }
+    // idle object: destroy right here (loop thread, see the header)
+    IMUTEX_UNLOCK(&invoke->lock);
+    async_invoke_destroy(invoke);
+}
+
+//---------------------------------------------------------------------
+// semaphore callback (loop thread): drain the pending request list,
+// executing the user callback for one request at a time
+//---------------------------------------------------------------------
+static void async_invoke_wakeup(CAsyncLoop *loop, CAsyncSemaphore *sem)
+{
+    CAsyncInvoke *invoke = (CAsyncInvoke*)sem->user;
+    CAsyncInvokeCallback callback = invoke->callback;
+    int releasing = 0;
+    (void)loop;
+
+    // refresh owner at dispatch time (evt_once covers idle iterations)
+    invoke->owner = async_invoke_thread_id();
+
+    IMUTEX_LOCK(&invoke->lock);
+    invoke->busy = 1;
+    IMUTEX_UNLOCK(&invoke->lock);
+
+    for (;;) {
+        CAsyncInvokeRequest *req = NULL;
+        int retval = 0;
+
+        IMUTEX_LOCK(&invoke->lock);
+        if (invoke->releasing != 0) {
+            IMUTEX_UNLOCK(&invoke->lock);
+            break;
+        }
+        if (ilist_is_empty(&invoke->requests) == 0) {
+            req = ilist_entry(invoke->requests.next,
+                    CAsyncInvokeRequest, node);
+            ilist_del_init(&req->node);
+        }
+        IMUTEX_UNLOCK(&invoke->lock);
+
+        if (req == NULL) {
+            break;
+        }
+
+        // critical section: the user callback runs here, in the
+        // loop thread, holding exclusive access to the state it
+        // protects
+        if (callback != NULL) {
+            retval = callback(invoke, req->arg);
+        }
+
+        IMUTEX_LOCK(&invoke->lock);
+        req->retval = retval;
+        req->done = 1;
+        iposix_cond_wake_all(invoke->cond);
+        IMUTEX_UNLOCK(&invoke->lock);
+    }
+
+    IMUTEX_LOCK(&invoke->lock);
+    invoke->busy = 0;
+    // deferred delete: wait until the last blocked caller has left
+    // before freeing the object (they still need this lock to go)
+    while (invoke->releasing != 0 && invoke->waiting > 0) {
+        iposix_cond_sleep_cs(invoke->cond, &invoke->lock);
+    }
+    releasing = invoke->releasing;
+    IMUTEX_UNLOCK(&invoke->lock);
+
+    if (releasing != 0) {
+        async_invoke_destroy(invoke);
+    }
+}
+
+//---------------------------------------------------------------------
+// synchronously invoke the callback in the loop thread
+//---------------------------------------------------------------------
+int async_invoke_call(CAsyncInvoke *invoke, void *arg,
+        IINT32 millisec, int *retval)
+{
+    CAsyncInvokeRequest req;
+    CAsyncInvokeCallback callback = NULL;
+    IINT64 deadline = 0;
+    IINT64 remain = 0;
+    int result = ASYNC_INVOKE_OK;
+    int hr = 0;
+
+    if (retval != NULL) {
+        *retval = 0;
+    }
+    if (invoke == NULL) {
+        return ASYNC_INVOKE_EINVAL;
+    }
+    callback = invoke->callback;
+    if (callback == NULL) {
+        return ASYNC_INVOKE_EINVAL;
+    }
+
+    // fast path: called from the loop thread, run it directly
+    // without queueing (also covers recursion inside the callback)
+    if (async_invoke_thread_id() == invoke->owner) {
+        hr = callback(invoke, arg);
+        if (retval != NULL) {
+            *retval = hr;
+        }
+        return ASYNC_INVOKE_OK;
+    }
+
+    // enqueue the stack-resident request: the enqueue and the wakeup
+    // post share one lock section (atomic visibility for the loop)
+    ilist_init(&req.node);
+    req.arg = arg;
+    req.done = 0;
+    req.canceled = 0;
+    req.retval = 0;
+
+    IMUTEX_LOCK(&invoke->lock);
+    if (invoke->releasing != 0) {
+        IMUTEX_UNLOCK(&invoke->lock);
+        return ASYNC_INVOKE_ECLOSING;
+    }
+    ilist_add_tail(&req.node, &invoke->requests);
+    invoke->waiting++;
+    async_sem_post(&invoke->evt_sem);
+    IMUTEX_UNLOCK(&invoke->lock);
+
+    // wait until the loop thread has executed the callback. a finite
+    // timeout uses an absolute deadline: wakes are broadcast and can
+    // be spurious, re-sleeping the full span each time would extend
+    // the total wait without bound (see docs/inetsub.md)
+    if (millisec >= 0) {
+        deadline = iclockrt() / 1000 + (IINT64)millisec;
+    }
+
+    IMUTEX_LOCK(&invoke->lock);
+    for (;;) {
+        if (req.done != 0) {
+            break;
+        }
+        if (millisec < 0) {
+            iposix_cond_sleep_cs(invoke->cond, &invoke->lock);
+            continue;
+        }
+        remain = deadline - (iclockrt() / 1000);
+        if (remain <= 0) {
+            break;  // deadline reached
+        }
+        // re-check done and the remaining time: only the deadline
+        // decides when the wait is over
+        iposix_cond_sleep_cs_time(invoke->cond, &invoke->lock,
+                (unsigned long)remain);
+    }
+
+    if (req.done != 0) {
+        // executed (or canceled during delete)
+        result = (req.canceled != 0)? ASYNC_INVOKE_ECLOSING :
+                ASYNC_INVOKE_OK;
+        if (retval != NULL && req.canceled == 0) {
+            *retval = req.retval;
+        }
+    }
+    else if (ilist_is_empty(&req.node) == 0) {
+        // still queued: detach it, the callback will never touch arg
+        ilist_del_init(&req.node);
+        result = ASYNC_INVOKE_ETIMEDOUT;
+    }
+    else {
+        // callback already running with arg: cannot return early,
+        // wait for the completion (elapsed may exceed millisec)
+        while (req.done == 0) {
+            iposix_cond_sleep_cs(invoke->cond, &invoke->lock);
+        }
+        result = (req.canceled != 0)? ASYNC_INVOKE_ECLOSING :
+                ASYNC_INVOKE_OK;
+        if (retval != NULL && req.canceled == 0) {
+            *retval = req.retval;
+        }
+    }
+
+    invoke->waiting--;
+    if (invoke->releasing != 0 && invoke->waiting == 0) {
+        // deferred delete waits for the last blocked caller to leave
+        iposix_cond_wake_all(invoke->cond);
+    }
+    IMUTEX_UNLOCK(&invoke->lock);
+    return result;
 }
 
 

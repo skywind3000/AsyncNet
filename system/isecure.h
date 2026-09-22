@@ -180,6 +180,8 @@ extern "C" {
 //=====================================================================
 // Global Definition
 //=====================================================================
+
+// some old compilers do not support ULL suffix, so we use a macro.
 #define CRYPTO_MAKE_QWORD(h, l) ((((IUINT64)(h)) << 32) | (IUINT64)(l))
 
 
@@ -247,6 +249,9 @@ IUINT32 hash_crc32(const void *in, unsigned int len);
 
 // sum all bytes together
 IUINT32 hash_checksum(const void *in, unsigned int len);
+
+// calculate adler32 and return result
+IUINT32 hash_adler32(const void *in, unsigned int len);
 
 
 //=====================================================================
@@ -479,13 +484,13 @@ int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
 //=====================================================================
 
 // xor mask with each byte
-void CRYPTO_XOR_Byte(void *in, const void *out, int size, IUINT8 mask);
+void CRYPTO_XOR_Byte(void *out, const void *in, int size, IUINT8 mask);
 
 // xor mask with each uint32
-void CRYPTO_XOR_DWord(void *in, const void *out, int size, IUINT32 mask);
+void CRYPTO_XOR_DWord(void *out, const void *in, int size, IUINT32 mask);
 
 // xor string with each byte
-void CRYPTO_XOR_String(void *in, const void *out, int size, 
+void CRYPTO_XOR_String(void *out, const void *in, int size, 
 		const unsigned char *mask, int msize, IUINT32 nonce);
 
 // xor two buffers: out[i] = in1[i] ^ in2[i]
@@ -626,6 +631,22 @@ void CRYPTO_X25519_Public(unsigned char public_key[CRYPTO_X25519_KEY_SIZE],
 int CRYPTO_X25519_Shared(unsigned char secret[CRYPTO_X25519_KEY_SIZE],
 		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE],
 		const unsigned char peer_public[CRYPTO_X25519_KEY_SIZE]);
+
+
+//=====================================================================
+// Utility: helpful functions
+//=====================================================================
+
+// splitmix64 style mixing, used in PCG and other RNGs, also useful
+// for whitening low-quality entropy sources.
+static inline IUINT64 CRYPTO_SplitMix64(IUINT64 x) {
+	x ^= x >> 30;
+	x *= CRYPTO_MAKE_QWORD(0xbf58476d, 0x1ce4e5b9);
+	x ^= x >> 27;
+	x *= CRYPTO_MAKE_QWORD(0x94d049bb, 0x133111eb);
+	x ^= x >> 31;
+	return x;
+}
 
 
 #ifdef __cplusplus

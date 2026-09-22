@@ -2,11 +2,12 @@
 //
 // AsyncSub.h - 
 //
-// Last Modified: 2025/06/10 11:11:28
+// Last Modified: 2026/09/23 00:00:00
 //
 //=====================================================================
 #include <stddef.h>
 #include <cmath>
+#include <exception>
 
 #include "AsyncSub.h"
 
@@ -407,6 +408,109 @@ int AsyncPoll::SetFd(int fd, int events)
 {
 	if (_poll == NULL) return -1;
 	return async_poll_set(_poll, fd, events);
+}
+
+
+//=====================================================================
+// AsyncInvoke
+//=====================================================================
+
+
+//---------------------------------------------------------------------
+// dtor
+//---------------------------------------------------------------------
+AsyncInvoke::~AsyncInvoke()
+{
+	if (_invoke) {
+		async_invoke_delete(_invoke);
+		_invoke = NULL;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncInvoke::AsyncInvoke(CAsyncLoop *loop)
+{
+	_loop = loop;
+	assert(loop);
+	if (loop == NULL) return;
+	_invoke = async_invoke_new(loop, InvokeCB);
+	if (_invoke == NULL) return;
+	_invoke->user = this;
+}
+
+
+//---------------------------------------------------------------------
+// ctor
+//---------------------------------------------------------------------
+AsyncInvoke::AsyncInvoke(AsyncLoop &loop): AsyncInvoke(loop.GetLoop())
+{
+
+}
+
+
+//---------------------------------------------------------------------
+// move ctor
+//---------------------------------------------------------------------
+AsyncInvoke::AsyncInvoke(AsyncInvoke &&src)
+	: _loop(src._loop), _invoke(src._invoke), _cb_ptr(std::move(src._cb_ptr))
+{
+	if (_invoke) {
+		_invoke->user = this;
+	}
+	src._loop = NULL;
+	src._invoke = NULL;
+}
+
+
+//---------------------------------------------------------------------
+// set callback
+//---------------------------------------------------------------------
+void AsyncInvoke::SetCallback(std::function<int(void *arg)> cb)
+{
+	_cb_ptr = std::make_shared<Callback>(std::move(cb));
+}
+
+
+//---------------------------------------------------------------------
+// internal callback
+//---------------------------------------------------------------------
+int AsyncInvoke::InvokeCB(CAsyncInvoke *invoke, void *arg)
+{
+	AsyncInvoke *self = (AsyncInvoke*)invoke->user;
+	if ((*self->_cb_ptr) != nullptr) {
+		auto ref_ptr = self->_cb_ptr;
+		try {
+			return (*ref_ptr)(arg);
+		}
+		catch (const std::exception &e) {
+			// never let an exception unwind through the C dispatch
+			// frames: it would leave the request incomplete (the
+			// blocked caller hangs forever) and kill the loop thread.
+			// log it in the loop thread and keep going: the caller
+			// gets OK with retval 0 and must handle errors inside
+			// the callback or report them via its return value
+			async_loop_log(self->_loop, -1,
+				"AsyncInvoke callback threw an exception: %s", e.what());
+		}
+		catch (...) {
+			async_loop_log(self->_loop, -1,
+				"AsyncInvoke callback threw an unknown exception");
+		}
+	}
+	return 0;
+}
+
+
+//---------------------------------------------------------------------
+// synchronous call
+//---------------------------------------------------------------------
+int AsyncInvoke::Call(void *arg, IINT32 millisec, int *retval)
+{
+	if (_invoke == NULL) return ASYNC_INVOKE_EINVAL;
+	return async_invoke_call(_invoke, arg, millisec, retval);
 }
 
 

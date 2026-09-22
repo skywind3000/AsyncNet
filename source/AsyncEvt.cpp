@@ -37,6 +37,10 @@ NAMESPACE_BEGIN(System);
 //---------------------------------------------------------------------
 AsyncLoop::~AsyncLoop()
 {
+	// 持锁销毁：与其它线程正在进行的 GetService/QueryService/InstallService/
+	// ObjectQuery/ObjectInstall 串行化，销毁期间进入的调用看到 _loop 为
+	// NULL 或 closing 后会安全失败（契约见 AsyncEvt.h 的 service 部分）
+	std::lock_guard<std::recursive_mutex> guard(_service_lock);
 	if (_loop != NULL) {
 		_loop->on_wait = NULL;
 		_loop->on_idle = NULL;
@@ -68,6 +72,7 @@ AsyncLoop::AsyncLoop()
 	_loop->logger = this;
 	_borrow = false;
 	_ptr = NULL;
+	_owner = std::this_thread::get_id();
 	UpdateTime();
 }
 
@@ -84,6 +89,9 @@ AsyncLoop::AsyncLoop(CAsyncLoop *loop)
 	_loop->on_wait = OnWait;
 	_ptr = NULL;
 	_borrow = true;
+	// borrow 模式：owner 记为包装对象的构造线程，调用方应保证这就是
+	// 实际运行该 loop 的线程
+	_owner = std::this_thread::get_id();
 	UpdateTime();
 }
 
@@ -95,6 +103,8 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 {
 	this->_loop = src._loop;
 	this->_borrow = src._borrow;
+	// owner 跟随源对象：loop 身份属于底层 CAsyncLoop，move 不换 owner
+	this->_owner = src._owner;
 	if (this->_loop) {
 		this->_loop->self = this;
 		this->_loop->writelog = OnLog;
@@ -469,6 +479,7 @@ void AsyncLoop::SetPhaseHandler(std::function<void(int phase)> handler)
 //---------------------------------------------------------------------
 void* AsyncLoop::ObjectQuery(const char *key)
 {
+	std::lock_guard<std::recursive_mutex> guard(_service_lock);
 	if (_loop == NULL) return NULL;
 	return async_loop_query(_loop, key);
 }
@@ -487,6 +498,7 @@ const void* AsyncLoop::ObjectQuery(const char *key) const {
 //---------------------------------------------------------------------
 void AsyncLoop::ObjectInstall(const char *key, void *obj, void (*destroy)(void*))
 {
+	std::lock_guard<std::recursive_mutex> guard(_service_lock);
 	if (_loop == NULL) return;
 	async_loop_install(_loop, key, obj, destroy);
 }

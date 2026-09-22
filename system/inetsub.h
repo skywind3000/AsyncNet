@@ -27,12 +27,14 @@ struct CAsyncSubscribe;
 struct CAsyncSignal;
 struct CAsyncCodec;
 struct CAsyncPoll;
+struct CAsyncInvoke;
 
 typedef struct CAsyncTopic CAsyncTopic;
 typedef struct CAsyncSubscribe CAsyncSubscribe;
 typedef struct CAsyncSignal CAsyncSignal;
 typedef struct CAsyncCodec CAsyncCodec;
 typedef struct CAsyncPoll CAsyncPoll;
+typedef struct CAsyncInvoke CAsyncInvoke;
 
 
 //---------------------------------------------------------------------
@@ -260,6 +262,60 @@ int async_poll_del(CAsyncPoll *poll, int fd);
 // modify events for a file descriptor in poll
 // returns 0 on success, -1 on failure (e.g., fd not found)
 int async_poll_set(CAsyncPoll *poll, int fd, int events);
+
+
+//---------------------------------------------------------------------
+// CAsyncInvoke - synchronous cross-thread invocation
+//---------------------------------------------------------------------
+
+// callback return value is delivered to the caller through the
+// retval output parameter of async_invoke_call
+typedef int (*CAsyncInvokeCallback)(CAsyncInvoke *invoke, void *arg);
+
+// status codes returned by async_invoke_call
+#define ASYNC_INVOKE_OK         0    // callback executed, *retval set
+#define ASYNC_INVOKE_ETIMEDOUT  -1   // timed out, callback not executed
+#define ASYNC_INVOKE_EINVAL     -2   // invalid object or unset callback
+#define ASYNC_INVOKE_ECLOSING   -3   // object is being destroyed
+
+struct CAsyncInvoke {
+    CAsyncLoop *loop;               // bound loop
+    CAsyncSemaphore evt_sem;        // cross-thread wakeup channel
+    CAsyncOnce evt_once;            // refreshes owner every iteration
+    IMUTEX_TYPE lock;               // protects the fields below
+    iConditionVariable *cond;       // wakeup for blocked callers
+    ilist_head requests;            // pending request list
+    CAsyncInvokeCallback callback;  // user callback, loop thread only
+    void *user;                     // user data pointer for callback
+    unsigned long owner;            // thread id driving the loop
+    int busy;                       // 1 while dispatching in loop thread
+    int releasing;                  // 1 when deferred delete is pending
+    int waiting;                    // number of callers blocked in call
+};
+
+// create a new invoke object bound to the loop. must be called from
+// the thread that runs the loop (or while the loop is not running).
+// returns NULL on failure. see docs/inetsub.md for the full contract.
+CAsyncInvoke *async_invoke_new(CAsyncLoop *loop,
+        CAsyncInvokeCallback callback);
+
+// destroy the invoke object. call it from the loop thread (or after
+// the loop has stopped). callers blocked in async_invoke_call are
+// released with ASYNC_INVOKE_ECLOSING; see docs/inetsub.md for the
+// deferred-destruction contract and its edge cases.
+void async_invoke_delete(CAsyncInvoke *invoke);
+
+// synchronously invoke the callback in the loop thread: the calling
+// thread blocks until the callback has been executed (or the
+// timeout expires). called from the loop thread itself, the
+// callback runs immediately without blocking. millisec: negative
+// (or IEVENT_INFINITE) waits forever, otherwise timeout in ms.
+// retval: optional output for the callback return value. returns
+// ASYNC_INVOKE_OK / ASYNC_INVOKE_ETIMEDOUT / ASYNC_INVOKE_EINVAL /
+// ASYNC_INVOKE_ECLOSING. timeout and in-flight semantics: see
+// docs/inetsub.md.
+int async_invoke_call(CAsyncInvoke *invoke, void *arg,
+        IINT32 millisec, int *retval);
 
 
 #ifdef __cplusplus

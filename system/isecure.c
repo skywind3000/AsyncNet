@@ -849,6 +849,19 @@ IUINT32 hash_checksum(const void *in, unsigned int len)
 	return checksum;
 }
 
+// calculate adler32 and return result
+IUINT32 hash_adler32(const void *in, unsigned int len)
+{
+	const unsigned char* p = (const unsigned char *)in;
+	IUINT32 a = 1, b = 0;
+	unsigned int i = 0;
+	for (i = 0; i < len; i++){
+		a = (a + p[i]) % 65521;
+		b = (b + a) % 65521;
+	}
+	return (b << 16) | a;
+}
+
 
 //=====================================================================
 // HMAC functions
@@ -2048,7 +2061,7 @@ int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
 //=====================================================================
 
 // xor mask with each byte
-void CRYPTO_XOR_Byte(void *in, const void *out, int size, IUINT8 mask)
+void CRYPTO_XOR_Byte(void *out, const void *in, int size, IUINT8 mask)
 {
 	const unsigned char *src = (const unsigned char*)in;
 	unsigned char *dst = (unsigned char*)out;
@@ -2057,24 +2070,34 @@ void CRYPTO_XOR_Byte(void *in, const void *out, int size, IUINT8 mask)
 	}
 }
 
-// xor mask with each uint32
-void CRYPTO_XOR_DWord(void *in, const void *out, int size, IUINT32 mask)
+// xor mask with each uint32: the 4 mask bytes are applied LSB-first and
+// repeat every 4 bytes (dst[i] = src[i] ^ ((mask >> (8*(i&3))) & 0xff)).
+// semantics are host-endian independent; on little-endian the word path
+// below collapses to memcpy and gets auto-vectorized (broadcast + pxor).
+void CRYPTO_XOR_DWord(void *out, const void *in, int size, IUINT32 mask)
 {
-	const unsigned char *src = (const unsigned char*)in;
-	unsigned char *dst = (unsigned char*)out;
-	unsigned char cc[4];
-	int i;
-	cc[0] = (unsigned char)(mask & 0xff);
-	cc[1] = (unsigned char)((mask >> 8) & 0xff);
-	cc[2] = (unsigned char)((mask >> 16) & 0xff);
-	cc[3] = (unsigned char)((mask >> 24) & 0xff);
-	for (i = 0; i < size; i++) {
-		dst[i] = src[i] ^ cc[i & 3];
+	const char *src = (const char*)in;
+	char *dst = (char*)out;
+	int i = 0;
+	for (; i + 4 <= size; i += 4, src += 4, dst += 4) {
+		IUINT32 w;
+		is_decode32u_lsb(src, &w);
+		is_encode32u_lsb(dst, w ^ mask);
+	}
+	if (i < size) {   // trailing (size & 3) bytes, mask restarts at cc[0]
+		unsigned char cc[4];
+		cc[0] = (unsigned char)(mask & 0xff);
+		cc[1] = (unsigned char)((mask >> 8) & 0xff);
+		cc[2] = (unsigned char)((mask >> 16) & 0xff);
+		cc[3] = (unsigned char)((mask >> 24) & 0xff);
+		for (; i < size; i++, src++, dst++) {
+			*(unsigned char*)dst = *(const unsigned char*)src ^ cc[i & 3];
+		}
 	}
 }
 
 // xor string with each byte
-void CRYPTO_XOR_String(void *in, const void *out, int size, 
+void CRYPTO_XOR_String(void *out, const void *in, int size, 
 		const unsigned char *mask, int msize, IUINT32 nonce)
 {
 	const unsigned char *src = (const unsigned char*)in;

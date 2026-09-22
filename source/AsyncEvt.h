@@ -32,6 +32,8 @@
 #include <string>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <stdexcept>
 
 #include "../system/inetevt.h"
@@ -220,24 +222,37 @@ public:
 	inline void Ptr(void *ptr) { _ptr = ptr; }
 
 	// user object query, if key exists, return the object, otherwise return NULL
+	// 与 service 接口共用同一把锁，允许非 loop 线程调用（契约见 docs/AsyncEvt.md「线程安全」）
 	void* ObjectQuery(const char *key);
 
 	// user object query, if key exists, return the object, otherwise return NULL
 	const void* ObjectQuery(const char *key) const;
 
 	// User object install, if key exists, return old object and replace it with new one
+	// 与 service 接口共用同一把锁，允许非 loop 线程调用（契约见 docs/AsyncEvt.md「线程安全」）
 	void ObjectInstall(const char *key, void *obj, void (*destroy)(void*));
 
 public:
 
-	// 按 T 取/建服务，已存在则直接返回引用；需新建时若 _loop 为 NULL
-	// 或处于 closing 则抛 std::runtime_error
+	// service 单例接口（含 ObjectQuery/ObjectInstall，析构函数也共用
+	// 同一把可重入锁）：允许非 loop 线程调用；但需要新建服务的路径仅限
+	// owner 线程——跨线程使用前先由 owner 线程 PrewarmService。锁的
+	// 边界、与析构的交错、死锁规避等完整契约见 docs/AsyncEvt.md
+	// 「线程安全」一节
+
+	// 按 T 取/建服务，已存在则直接返回引用；需新建时若 _loop 为 NULL、
+	// 处于 closing 或当前线程不是 owner 线程，则抛 std::runtime_error
 	template <typename T> T& GetService() {
+		std::lock_guard<std::recursive_mutex> guard(_service_lock);
 		if (_loop == NULL) throw std::runtime_error("CAsyncLoop is NULL");
 		const char *key = KeyOf<T>();
 		void *ptr = async_loop_query(_loop, key);
 		if (ptr != NULL) return *(T*)ptr;
 		if (_loop->closing) throw std::runtime_error("CAsyncLoop is closing");
+		if (std::this_thread::get_id() != _owner) {
+			throw std::runtime_error(
+				"service creation outside the loop owner thread");
+		}
 		T *obj = AsyncTraits<T>::Create(*this);
 		async_loop_install(_loop, key, obj, Deleter<T>);
 		return *obj;
@@ -245,31 +260,31 @@ public:
 
 	// 按 T 查询已安装对象，不存在返回 NULL；只读，closing 期间仍可安全调用
 	template <typename T> T* QueryService() {
+		std::lock_guard<std::recursive_mutex> guard(_service_lock);
 		if (_loop == NULL) return NULL;
 		return (T*)async_loop_query(_loop, KeyOf<T>());
 	}
 
-	// 按 T 安装对象，ownership=true 时由 loop 接管并在销毁时 delete
-	// closing 期间直接返回不接管，避免当场销毁用户传入的对象
+	// 按 T 安装已构造好的对象，ownership=true 时由 loop 接管并在销毁时
+	// delete（closing 行为与线程限制等边界见 docs/AsyncEvt.md）
 	template <typename T> void InstallService(T *obj, bool ownership = false) {
+		std::lock_guard<std::recursive_mutex> guard(_service_lock);
 		if (_loop == NULL) return;
 		if (_loop->closing) return;
 		const char *key = KeyOf<T>();
 		async_loop_install(_loop, key, obj, ownership? Deleter<T> : NULL);
 	}
 
+	// 提前创建服务（等价首次 GetService<T>()）：跨线程使用服务前由
+	// owner 线程先行调用，此后其它线程命中缓存路径不再受 owner 限制
 	template <typename T> void PrewarmService() { GetService<T>(); }
 
 private:
 
 	template <typename T> static void Deleter(void *ptr) { delete ((T*)ptr); }
 
-	// 生成 T 对应的 service key：固定前缀 ".svc:" + 类型名字符串
-	// 有 RTTI 时用 typeid(T).name()，否则用编译器的函数签名宏，两者都是按
-	// 字符串内容比较，跨动态库安全（同一编译器下同一类型在任意 DSO 中内容
-	// 一致）；前缀用于与 C 层直接 install 的 key 隔离
-	// 注意：共享同一个 loop 的各模块必须用同一套编译开关 —— 开与关 RTTI
-	// 生成的 key 内容不同，混编会让同一个 T 变成两个 service
+	// 生成 T 对应的 service key：".svc:" 前缀 + 类型名（各编译器的分支
+	// 优先级与混编注意点见 docs/AsyncEvt.md「key 的生成方式」）
 	template <typename T> static const char *KeyOf() {
 	#if defined(__GNUC__) || defined(__clang__)
 		static const std::string key = std::string(".svc:") + __PRETTY_FUNCTION__;
@@ -278,8 +293,7 @@ private:
 	#elif ASYNC_SERVICE_KEY_RTTI
 		static const std::string key = std::string(".svc:") + typeid(T).name();
 	#else
-		// 兜底：仅单模块可用！函数内 static 的地址在每个 dll/so 里各有一
-		// 份，同一个 T 会被当成两个不同的 service（详见上面注释）
+		// 兜底：仅单模块可用（原因见 docs/AsyncEvt.md「key 的生成方式」）
 		static const int sid = 0;
 		static const std::string key = std::string(".svc:") + std::to_string((size_t)&sid);
 	#endif
@@ -293,6 +307,13 @@ private:
 	std::function<void()> _cb_wait;
 	std::function<void()> _cb_timer;
 	std::function<void(int)> _cb_phase;
+
+	// service/object 接口的可重入锁（可重入的必要性见 docs/AsyncEvt.md）
+	mutable std::recursive_mutex _service_lock;
+
+	// owner 线程（构造时记录，move 跟随源对象）：service 创建路径仅限
+	// 该线程执行
+	std::thread::id _owner;
 
 	std::string _log_cache;
 	void *_ptr = NULL;
