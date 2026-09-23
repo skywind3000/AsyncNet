@@ -219,6 +219,7 @@ struct CAsyncLoop {
 	IINT64 uptime;                 // loop uptime in nanosec (monotonic)
 	IMUTEX_TYPE lock_xfd;          // lock for xfd
 	IMUTEX_TYPE lock_queue;        // lock for pending queue
+	IMUTEX_TYPE lock_obj;          // lock for object map
 	ib_array *sem_dict;            // semaphore dictionary
 	ib_array *array_idle;          // idle array
 	ib_array *array_once;          // once array

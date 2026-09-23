@@ -33,6 +33,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <atomic>
 #include <thread>
 #include <stdexcept>
 
@@ -119,11 +120,20 @@ public:
 	// 函数 RunEndless 在没在运行。
 	bool IsRunning() const { return (_loop->exiting == 0); }
 
+	// 判断当前线程是否为本 loop 的所属线程（owner）。owner 初始为构造
+	// 线程，之后每轮 RunOnce 的 on_wait 里刷新为实际运行 loop 的线程，
+	// 因此 loop 跑起来后本接口判定的就是事件线程。owner 以 atomic 存储，
+	// 本接口无锁读取，可在任意线程安全调用
+	inline bool IsOwnerThread() const {
+		return std::this_thread::get_id() == 
+			_owner.load(std::memory_order_acquire);
+	}
+
 	// 运行一次迭代（iteration），即调用一次 epoll_wait 捕获所有被激活
 	// 的事件并进行分发，参数 millisec 是等待时间。
 	// 重入保护：任何回调（含 once/idle）内嵌套调用本函数会立即返回 0，
 	// 不等待、不派发任何事件（C 层以 loop->depth 检测，见 inetevt.c 的
-	// async_loop_once 与 docs/inetevt.md）——重入是无效但安全的；需要在
+	// async_loop_once）——重入是无效但安全的；需要在
 	// 回调内追加处理请改用 AsyncPostpone 安排到本轮迭代末尾
 	void RunOnce(uint32_t millisec = 10);
 
@@ -209,7 +219,7 @@ public:
 	// 设置一个函数，每次 jiffies 改变时被调用（即毫秒更新）
 	void SetTimerHandler(std::function<void()> handler);
 
-	// 设置一个函数，每次 poll wait 结束时被调用（分发具体事件前）
+	// 设置一个函数，每次 poll wait 结束时被调用（分发具体事件前）。
 	void SetWaitHandler(std::function<void()> handler);
 
 	// 设置一个函数，每轮 RunOnce 的指定阶段被调用，phase 取值见
@@ -222,23 +232,21 @@ public:
 	inline void Ptr(void *ptr) { _ptr = ptr; }
 
 	// user object query, if key exists, return the object, otherwise return NULL
-	// 与 service 接口共用同一把锁，允许非 loop 线程调用（契约见 docs/AsyncEvt.md「线程安全」）
+	// 与 service 接口共用同一把锁，允许非 loop 线程调用
 	void* ObjectQuery(const char *key);
 
 	// user object query, if key exists, return the object, otherwise return NULL
 	const void* ObjectQuery(const char *key) const;
 
 	// User object install, if key exists, return old object and replace it with new one
-	// 与 service 接口共用同一把锁，允许非 loop 线程调用（契约见 docs/AsyncEvt.md「线程安全」）
+	// 与 service 接口共用同一把锁，允许非 loop 线程调用
 	void ObjectInstall(const char *key, void *obj, void (*destroy)(void*));
 
 public:
 
 	// service 单例接口（含 ObjectQuery/ObjectInstall，析构函数也共用
 	// 同一把可重入锁）：允许非 loop 线程调用；但需要新建服务的路径仅限
-	// owner 线程——跨线程使用前先由 owner 线程 PrewarmService。锁的
-	// 边界、与析构的交错、死锁规避等完整契约见 docs/AsyncEvt.md
-	// 「线程安全」一节
+	// owner 线程——跨线程使用前先由 owner 线程 PrewarmService。
 
 	// 按 T 取/建服务，已存在则直接返回引用；需新建时若 _loop 为 NULL、
 	// 处于 closing 或当前线程不是 owner 线程，则抛 std::runtime_error
@@ -249,7 +257,7 @@ public:
 		void *ptr = async_loop_query(_loop, key);
 		if (ptr != NULL) return *(T*)ptr;
 		if (_loop->closing) throw std::runtime_error("CAsyncLoop is closing");
-		if (std::this_thread::get_id() != _owner) {
+		if (std::this_thread::get_id() != _owner.load(std::memory_order_acquire)) {
 			throw std::runtime_error(
 				"service creation outside the loop owner thread");
 		}
@@ -266,7 +274,7 @@ public:
 	}
 
 	// 按 T 安装已构造好的对象，ownership=true 时由 loop 接管并在销毁时
-	// delete（closing 行为与线程限制等边界见 docs/AsyncEvt.md）
+	// delete
 	template <typename T> void InstallService(T *obj, bool ownership = false) {
 		std::lock_guard<std::recursive_mutex> guard(_service_lock);
 		if (_loop == NULL) return;
@@ -283,8 +291,7 @@ private:
 
 	template <typename T> static void Deleter(void *ptr) { delete ((T*)ptr); }
 
-	// 生成 T 对应的 service key：".svc:" 前缀 + 类型名（各编译器的分支
-	// 优先级与混编注意点见 docs/AsyncEvt.md「key 的生成方式」）
+	// 生成 T 对应的 service key：".svc:" 前缀 + 类型名
 	template <typename T> static const char *KeyOf() {
 	#if defined(__GNUC__) || defined(__clang__)
 		static const std::string key = std::string(".svc:") + __PRETTY_FUNCTION__;
@@ -293,7 +300,7 @@ private:
 	#elif ASYNC_SERVICE_KEY_RTTI
 		static const std::string key = std::string(".svc:") + typeid(T).name();
 	#else
-		// 兜底：仅单模块可用（原因见 docs/AsyncEvt.md「key 的生成方式」）
+		// 兜底：仅单模块可用
 		static const int sid = 0;
 		static const std::string key = std::string(".svc:") + std::to_string((size_t)&sid);
 	#endif
@@ -308,12 +315,14 @@ private:
 	std::function<void()> _cb_timer;
 	std::function<void(int)> _cb_phase;
 
-	// service/object 接口的可重入锁（可重入的必要性见 docs/AsyncEvt.md）
+	// service/object 接口的可重入锁
 	mutable std::recursive_mutex _service_lock;
 
-	// owner 线程（构造时记录，move 跟随源对象）：service 创建路径仅限
-	// 该线程执行
-	std::thread::id _owner;
+	// owner 线程：构造时记录为构造线程（move 跟随源对象），之后每轮
+	// RunOnce 的 on_wait 回调里刷新为实际运行 loop 的线程——service
+	// 创建路径仅限该线程执行。atomic 存储：on_wait 每轮写入、任意线程
+	// 无锁读取（IsOwnerThread/GetService），避免和 service 锁互相阻塞
+	std::atomic<std::thread::id> _owner;
 
 	std::string _log_cache;
 	void *_ptr = NULL;

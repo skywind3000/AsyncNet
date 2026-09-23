@@ -1496,7 +1496,7 @@ int async_invoke_call(CAsyncInvoke *invoke, void *arg,
     // wait until the loop thread has executed the callback. a finite
     // timeout uses an absolute deadline: wakes are broadcast and can
     // be spurious, re-sleeping the full span each time would extend
-    // the total wait without bound (see docs/inetsub.md)
+    // the total wait without bound
     if (millisec >= 0) {
         deadline = iclockrt() / 1000 + (IINT64)millisec;
     }

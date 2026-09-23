@@ -259,6 +259,7 @@ CAsyncLoop* async_loop_new(void)
 
 	IMUTEX_INIT(&loop->lock_xfd);
 	IMUTEX_INIT(&loop->lock_queue);
+	IMUTEX_INIT(&loop->lock_obj);
 
 	cc = (int)sizeof(ASYNC_LOOP_GUARD);
 	required = IROUND_UP(ASYNC_LOOP_BUFFER_SIZE + cc, 64);
@@ -347,7 +348,9 @@ void async_loop_delete(CAsyncLoop *loop)
 
 	assert(loop != NULL);
 
+	IMUTEX_LOCK(&loop->lock_obj);
 	loop->closing = 1;
+	IMUTEX_UNLOCK(&loop->lock_obj);
 
 	async_loop_obj_quit(loop);
 
@@ -468,6 +471,7 @@ void async_loop_delete(CAsyncLoop *loop)
 
 	IMUTEX_DESTROY(&loop->lock_xfd);
 	IMUTEX_DESTROY(&loop->lock_queue);
+	IMUTEX_DESTROY(&loop->lock_obj);
 
 	ikmem_free(loop);
 }
@@ -1455,17 +1459,28 @@ static void async_loop_obj_init(CAsyncLoop *loop)
 //---------------------------------------------------------------------
 static void async_loop_obj_quit(CAsyncLoop *loop)
 {
-	while (!ilist_is_empty(&loop->obj_head)) {
-		ilist_head *it = loop->obj_head.next;
+	ilist_head pending;
+
+	// detach the object list under the lock but KEEP obj_map alive: the
+	// destructors below run outside lock_obj (plain, non-recursive mutex)
+	ilist_init(&pending);
+
+	IMUTEX_LOCK(&loop->lock_obj);
+	ilist_splice_init(&loop->obj_head, &pending);
+	IMUTEX_UNLOCK(&loop->lock_obj);
+
+	while (!ilist_is_empty(&pending)) {
+		ilist_head *it = pending.next;
 		CAsyncObject *object = ilist_entry(it, CAsyncObject, node);
 		void *ptr = object->ptr;
 		void (*dtor)(void*) = object->dtor;
 		ilist_del_init(&object->node);
-		ib_map_remove(loop->obj_map, object->key);
+		IMUTEX_LOCK(&loop->lock_obj);
+		if (loop->obj_map) ib_map_remove(loop->obj_map, object->key);
+		IMUTEX_UNLOCK(&loop->lock_obj);
 		if (loop->logmask & ASYNC_LOOP_LOG_OBJECT) {
 			async_loop_log(loop, ASYNC_LOOP_LOG_OBJECT,
-				"[object] destroy key=%s ptr=%p", 
-				object->key, object->ptr);
+				"[object] destroy key=%s ptr=%p", object->key, ptr);
 		}
 		object->ptr = NULL;
 		if (object->key) {
@@ -1479,32 +1494,42 @@ static void async_loop_obj_quit(CAsyncLoop *loop)
 			}
 		}
 	}
-	ib_map_destroy(loop->obj_map);
-	ikmem_free(loop->obj_map);
-	loop->obj_map = NULL;
+
+	// every object is gone: tear down the now-empty map
+	IMUTEX_LOCK(&loop->lock_obj);
+	if (loop->obj_map) {
+		ib_map_destroy(loop->obj_map);
+		ikmem_free(loop->obj_map);
+		loop->obj_map = NULL;
+	}
+	IMUTEX_UNLOCK(&loop->lock_obj);
 }
 
 
 //---------------------------------------------------------------------
-// install user object, the optional dtor will be called reversely 
-// when deleting loop. if obj is NULL existing obj will be removed.
+// install user object - implementation
 //---------------------------------------------------------------------
-void async_loop_install(CAsyncLoop *loop, const char *key, void *obj,
-		void (*dtor)(void *obj))
+static void async_loop_obj_install(CAsyncLoop *loop, const char *key, 
+		void *obj, void (*dtor)(void *obj),
+		void **pend_ptr, void (**pend_dtor)(void *))
 {
 	struct ib_hash_entry *entry;
 	CAsyncObject *object;
 	void *oldptr = NULL;
 	void (*olddtor)(void*) = NULL;
+	*pend_ptr = NULL;
+	*pend_dtor = NULL;
 	if (key == NULL) {
 		assert(key);
 		return;
 	}
 	if (loop->closing || loop->obj_map == NULL) {
 		// the loop is being destroyed, nothing can be installed any
-		// more: destroy the object in place to avoid leaking it
+		// more: hand the object back so the caller destroys it after
+		// releasing the lock, avoiding a leak
 		if (obj) {
-			if (dtor) dtor(obj);
+			*pend_ptr = obj;
+			*pend_dtor = dtor;
 			return;
 		}
 	}
@@ -1589,8 +1614,27 @@ void async_loop_install(CAsyncLoop *loop, const char *key, void *obj,
 			ikmem_free(object);
 		}
 	}
-	if (olddtor) {
-		if (oldptr) olddtor(oldptr);
+	*pend_ptr = oldptr;
+	*pend_dtor = olddtor;
+}
+
+
+//---------------------------------------------------------------------
+// install user object, the optional dtor will be called reversely 
+// when deleting loop. if obj is NULL existing obj will be removed.
+//---------------------------------------------------------------------
+void async_loop_install(CAsyncLoop *loop, const char *key, 
+		void *obj, void (*dtor)(void *obj))
+{
+	void *pend_ptr = NULL;
+	void (*pend_dtor)(void*) = NULL;
+	IMUTEX_LOCK(&loop->lock_obj);
+	async_loop_obj_install(loop, key, obj, dtor, &pend_ptr, &pend_dtor);
+	IMUTEX_UNLOCK(&loop->lock_obj);
+	// run the displaced/rejected destructor outside lock_obj so it may
+	// safely re-enter the object API (lock_obj is non-recursive)
+	if (pend_dtor) {
+		if (pend_ptr) pend_dtor(pend_ptr);
 	}
 }
 
@@ -1602,16 +1646,20 @@ void *async_loop_query(CAsyncLoop *loop, const char *key)
 {
 	struct ib_hash_entry *entry;
 	CAsyncObject *object;
+	void *ptr = NULL;
 	if (key == NULL) return NULL;
-	if (loop->obj_map == NULL) return NULL;
-	entry = ib_map_find(loop->obj_map, key);
-	if (entry) {
-		object = (CAsyncObject*)ib_hash_value(entry);
-		if (object) {
-			return object->ptr;
+	IMUTEX_LOCK(&loop->lock_obj);
+	if (loop->obj_map) {
+		entry = ib_map_find(loop->obj_map, key);
+		if (entry) {
+			object = (CAsyncObject*)ib_hash_value(entry);
+			if (object) {
+				ptr = object->ptr;
+			}
 		}
 	}
-	return NULL;
+	IMUTEX_UNLOCK(&loop->lock_obj);
+	return ptr;
 }
 
 

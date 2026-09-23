@@ -89,8 +89,8 @@ AsyncLoop::AsyncLoop(CAsyncLoop *loop)
 	_loop->on_wait = OnWait;
 	_ptr = NULL;
 	_borrow = true;
-	// borrow 模式：owner 记为包装对象的构造线程，调用方应保证这就是
-	// 实际运行该 loop 的线程
+	// borrow 模式：owner 先记为包装对象的构造线程，之后每轮迭代由
+	// on_wait 刷新为实际运行 loop 的线程
 	_owner = std::this_thread::get_id();
 	UpdateTime();
 }
@@ -104,7 +104,8 @@ AsyncLoop::AsyncLoop(AsyncLoop &&src)
 	this->_loop = src._loop;
 	this->_borrow = src._borrow;
 	// owner 跟随源对象：loop 身份属于底层 CAsyncLoop，move 不换 owner
-	this->_owner = src._owner;
+	this->_owner.store(src._owner.load(std::memory_order_relaxed), 
+		std::memory_order_relaxed);
 	if (this->_loop) {
 		this->_loop->self = this;
 		this->_loop->writelog = OnLog;
@@ -312,11 +313,11 @@ void AsyncLoop::OnOnce(CAsyncLoop *loop)
 void AsyncLoop::OnWait(CAsyncLoop *loop)
 {
 	AsyncLoop *self = (AsyncLoop*)loop->self;
+	if (self == NULL) return;
 	self->UpdateTime();
-	if (self) {
-		if (self->_cb_wait != nullptr) {
-			self->_cb_wait();
-		}
+	self->_owner.store(std::this_thread::get_id(), std::memory_order_release);
+	if (self->_cb_wait != nullptr) {
+		self->_cb_wait();
 	}
 }
 

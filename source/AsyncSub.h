@@ -213,8 +213,7 @@ public:
 	// returns ASYNC_INVOKE_OK / ASYNC_INVOKE_ETIMEDOUT /
 	// ASYNC_INVOKE_EINVAL / ASYNC_INVOKE_ECLOSING (see inetsub.h).
 	// a callback that throws is caught and logged in the loop thread:
-	// Call() returns OK with *retval left at 0. full contract
-	// (creation, timeout, destruction) in docs/AsyncSub.md.
+	// Call() returns OK with *retval left at 0.
 	int Call(void *arg, IINT32 millisec = -1, int *retval = NULL);
 
 private:

@@ -532,6 +532,21 @@ void ithread_once_ex(int *control, void (*run_once)(void*), void *arg);
 #endif
 
 
+/*===================================================================*/
+/* Cross-Platform Recursive Mutex                                    */
+/*===================================================================*/
+#if defined(__unix) || defined(__unix__) || defined(__MACH__)
+#define IMUTEX_INIT_RECURSIVE(m) do { \
+		pthread_mutexattr_t attr; \
+		pthread_mutexattr_init(&attr); \
+		pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE); \
+		pthread_mutex_init((pthread_mutex_t*)(m), &attr); \
+		pthread_mutexattr_destroy(&attr); \
+	} while (0)
+#else
+#define IMUTEX_INIT_RECURSIVE(m)   IMUTEX_INIT(m)
+#endif
+
 
 /*===================================================================*/
 /* Cross-Platform Socket Interface                                   */

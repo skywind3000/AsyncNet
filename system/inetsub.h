@@ -295,14 +295,13 @@ struct CAsyncInvoke {
 
 // create a new invoke object bound to the loop. must be called from
 // the thread that runs the loop (or while the loop is not running).
-// returns NULL on failure. see docs/inetsub.md for the full contract.
+// returns NULL on failure.
 CAsyncInvoke *async_invoke_new(CAsyncLoop *loop,
         CAsyncInvokeCallback callback);
 
 // destroy the invoke object. call it from the loop thread (or after
 // the loop has stopped). callers blocked in async_invoke_call are
-// released with ASYNC_INVOKE_ECLOSING; see docs/inetsub.md for the
-// deferred-destruction contract and its edge cases.
+// released with ASYNC_INVOKE_ECLOSING.
 void async_invoke_delete(CAsyncInvoke *invoke);
 
 // synchronously invoke the callback in the loop thread: the calling
@@ -312,8 +311,7 @@ void async_invoke_delete(CAsyncInvoke *invoke);
 // (or IEVENT_INFINITE) waits forever, otherwise timeout in ms.
 // retval: optional output for the callback return value. returns
 // ASYNC_INVOKE_OK / ASYNC_INVOKE_ETIMEDOUT / ASYNC_INVOKE_EINVAL /
-// ASYNC_INVOKE_ECLOSING. timeout and in-flight semantics: see
-// docs/inetsub.md.
+// ASYNC_INVOKE_ECLOSING.
 int async_invoke_call(CAsyncInvoke *invoke, void *arg,
         IINT32 millisec, int *retval);
 
