@@ -426,6 +426,30 @@ static inline uint32_t SignatureTime(const char *signature) {
 	return static_cast<uint32_t>(hmac_signature_time(signature));
 }
 
+
+// 十六进制字符串转二进制数据：跳过前导空白与可选的 0x/$ 前缀，遇非法字符即截断
+static inline std::string Hex2Bin(const std::string &hex) {
+	std::string bin;
+	if (hex.empty()) return bin;
+	bin.resize(hex.size() / 2);
+	int size = hash_string_to_digest((unsigned char*)&bin[0], hex.c_str(), (int)hex.size());
+	bin.resize(size < 0? 0 : size);
+	return bin;
+}
+
+// 二进制数据转十六进制小写字符串：prefix 为 true 时添加 "0x" 前缀（空输入恒返回空串）
+static inline std::string Bin2Hex(const std::string &bin, bool prefix = false) {
+	std::string hex;
+	if (bin.empty()) return hex;
+	hex.resize(bin.size() * 2 + 1);
+	hash_digest_to_string(&hex[0], (const unsigned char*)bin.c_str(), (int)bin.size());
+	hex.resize(bin.size() * 2);
+	if (prefix) {
+		hex.insert(0, "0x");
+	}
+	return hex;
+}
+
 // 设置全局配置表
 static inline void SetOption(const std::string &key, const std::string &value) {
 	iposix_reg_setenv(key.c_str(), value.c_str());

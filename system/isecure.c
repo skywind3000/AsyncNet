@@ -427,6 +427,13 @@ void HASH_MD5_Final(HASH_MD5_CTX *ctx, unsigned char digest[16])
 #define SHA1_R4(v,w,x,y,z,i) z+=(w^x^y)+SHA1_BLK(i)+0xCA62C1D6+SHA1_ROL(v,5);w=SHA1_ROL(w,30);
 
 
+// callback slots for SHA hardware acceleration, default NULL =
+// built-in implementations below. install once at startup (see
+// the contracts in isecure.h)
+HASH_SHA1_COMPRESS_PROC HASH_SHA1_COMPRESS_CB = NULL;
+HASH_SHA256_COMPRESS_PROC HASH_SHA256_COMPRESS_CB = NULL;
+
+
 /* Hash a single 512-bit block. This is the core of the algorithm. */
 void HASH_SHA1_Transform(IUINT32 state[5], const unsigned char *buffer)
 {
@@ -436,6 +443,12 @@ void HASH_SHA1_Transform(IUINT32 state[5], const unsigned char *buffer)
 	}	CHAR64LONG16;
 	CHAR64LONG16 blk;
 	CHAR64LONG16 *block = &blk;
+
+	if (HASH_SHA1_COMPRESS_CB) {
+		HASH_SHA1_COMPRESS_CB(state, buffer);
+		return;
+	}
+
 	for (e = 0; e < 16; e++) {
 		a = buffer[(e << 2) + 0];
 		b = buffer[(e << 2) + 1];
@@ -443,7 +456,12 @@ void HASH_SHA1_Transform(IUINT32 state[5], const unsigned char *buffer)
 		d = buffer[(e << 2) + 3];
 		block->l[e] = a | (b << 8) | (c << 16) | (d << 24);
 	}
-    block = (CHAR64LONG16*)buffer;
+    /* the upstream reference code reassigned block to point at
+     * buffer here so the message schedule expansion (SHA1_BLK)
+     * could scribble the W values in place - that writes into a
+     * const input and corrupts the caller's data when Update
+     * passes whole blocks straight through; keep the schedule on
+     * the stack copy instead (identical math, input untouched) */
     /* Copy ctx->state[] to working vars */
     a = state[0];
     b = state[1];
@@ -586,6 +604,11 @@ static void HASH_SHA256_Transform(IUINT32 state[8], const unsigned char *buffer)
     IUINT32 a, b, c, d, e, f, g, h, t1, t2;
     IUINT32 w[64];
     int i;
+
+    if (HASH_SHA256_COMPRESS_CB) {
+        HASH_SHA256_COMPRESS_CB(state, buffer);
+        return;
+    }
 
     /* Prepare message schedule */
     for (i = 0; i < 16; i++) {
@@ -732,13 +755,14 @@ char* hash_digest_to_string(char *out, const unsigned char *in, int size)
 {
 	static const char hex[17] = "0123456789abcdef";
 	static char buffer[96];
-	char *ptr = out;
+	char *ptr;
 	if (size <= 0) {
 		if (out == NULL) out = buffer;
 		out[0] = 0;
 		return out;
 	}
 	if (out == NULL) out = buffer;
+	ptr = out;
 	for (; 0 < size; size--) {
 		unsigned char ch = *in++;
 		*ptr++ = hex[ch >> 4];
@@ -746,6 +770,58 @@ char* hash_digest_to_string(char *out, const unsigned char *in, int size)
 	}
 	*ptr++ = 0;
 	return out;
+}
+
+// convert hex string to digests, returns the number of bytes written to
+// out (or the number of bytes that would be written if out is NULL, so it
+// can be used to probe the required buffer size). leading whitespace and
+// an optional "0x"/"0X"/"$" prefix are skipped, and conversion stops at
+// the first non-hex character (trailing garbage is silently ignored).
+// if size < 0 the input is treated as NUL-terminated, otherwise only the
+// first size bytes are used, and out must hold at least size/2 bytes.
+int hash_string_to_digest(unsigned char *out, const char *in, int size)
+{
+	int length = (size < 0)? ((int)strlen(in)): size;
+	const char *src = in;
+	const char *end = in + length;
+	int count = 0;
+	// leading whitespace is ignored
+	while (src < end) {
+		if (*src == ' ' || *src == '\t' || *src == '\r' || *src == '\n') {
+			src++;
+			continue;
+		}
+		break;
+	}
+	// skip 0x or 0X prefix if present
+	if (src + 2 <= end) {
+		if (src[0] == '0' && (src[1] == 'x' || src[1] == 'X')) {
+			src += 2;
+		}
+	}
+	// skip $ prefix if present
+	if (src + 1 <= end) {
+		if (src[0] == '$') src += 1;
+	}
+	// convert hex string to bytes
+	while (src < end) {
+		unsigned char c1 = 0;
+		unsigned char c2 = 0;
+		if (*src >= '0' && *src <= '9') c1 = *src - '0';
+		else if (*src >= 'a' && *src <= 'f') c1 = *src - 'a' + 10;
+		else if (*src >= 'A' && *src <= 'F') c1 = *src - 'A' + 10;
+		else break;
+		src++;
+		if (src >= end) break;
+		if (*src >= '0' && *src <= '9') c2 = *src - '0';
+		else if (*src >= 'a' && *src <= 'f') c2 = *src - 'a' + 10;
+		else if (*src >= 'A' && *src <= 'F') c2 = *src - 'A' + 10;
+		else break;
+		src++;
+		if (out != NULL) out[count] = (unsigned char)((c1 << 4) | c2);
+		count++;
+	}
+	return count;
 }
 
 // calculate md5sum and convert digests to string
@@ -860,6 +936,17 @@ IUINT32 hash_adler32(const void *in, unsigned int len)
 		b = (b + a) % 65521;
 	}
 	return (b << 16) | a;
+}
+
+// calculate a hash value for a Lua string, used in Lua internal string table
+IUINT32 hash_lua_string(const void *in, unsigned int len, unsigned int seed)
+{
+	const unsigned char *name = (const unsigned char*)in;
+	unsigned int step = (len >> 5) + 1;
+	unsigned int h = len ^ seed, i;
+    for (i = len; i >= step; i -= step)
+        h = h ^ ((h << 5) + (h >> 2) + (size_t)name[i - 1]);
+    return (IUINT32)h;
 }
 
 
@@ -1291,7 +1378,13 @@ void CRYPTO_RC4_Direct(const void *key, int keylen, void *out,
 // CRYPTO chacha20:
 //=====================================================================
 
-static void cipher_chacha20_init_block(CRYPTO_CHACHA20_CTX *ctx, 
+// callback slots for hardware acceleration, default NULL = built-in
+// implementations below. install once at startup, never swap at
+// runtime (see the contracts in isecure.h).
+CRYPTO_CHACHA20_BLOCKS_PROC CRYPTO_CHACHA20_BLOCKS_CB = NULL;
+CRYPTO_POLY1305_BLOCK_PROC CRYPTO_POLY1305_BLOCK_CB = NULL;
+
+static void cipher_chacha20_init_block(CRYPTO_CHACHA20_CTX *ctx,
 		const IUINT8 key[], const IUINT8 nonce[])
 {
 	const IUINT8 *magic_constant = (const IUINT8*)"expand 32-byte k";
@@ -1360,19 +1453,55 @@ void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx,
 	ctx->position = 64;
 }
 
-void CRYPTO_CHACHA20_Update(CRYPTO_CHACHA20_CTX *ctx, void *out, 
+void CRYPTO_CHACHA20_Update(CRYPTO_CHACHA20_CTX *ctx, void *out,
 		const void *in, size_t size)
 {
 	const IUINT8 *src = (const IUINT8*)in;
 	IUINT8 *dst = (IUINT8*)out;
-	size_t i;
-	for (i = size; i > 0; src++, dst++, i--) {
-		if (ctx->position >= 64) {
-			cipher_chacha20_block_next(ctx);
-			ctx->position = 0;
+
+	if (CRYPTO_CHACHA20_BLOCKS_CB) {
+		// bulk path: consume the current partial keystream block,
+		// then generate whole 64-byte groups through the backend
+		// into a stack buffer (8 blocks per call), and let the
+		// trailing partial block reuse the ctx->keystream position
+		// machinery. zero changes to the ctx layout.
+		IUINT8 ks[8 * 64];
+		while (size > 0 && ctx->position < 64) {
+			*dst++ = *src++ ^ ctx->keystream[ctx->position++];
+			size--;
 		}
-		dst[0] = src[0] ^ ctx->keystream[ctx->position];
-		ctx->position++;
+		while (size >= 64) {
+			size_t blocks = size >> 6;
+			size_t use, i;
+			if (blocks > 8) blocks = 8;
+			use = blocks << 6;
+			CRYPTO_CHACHA20_BLOCKS_CB(ctx, ks, blocks);
+			for (i = 0; i < use; i++) {
+				dst[i] = src[i] ^ ks[i];
+			}
+			dst += use; src += use; size -= use;
+		}
+		if (size > 0) {
+			CRYPTO_CHACHA20_BLOCKS_CB(ctx, ctx->keystream, 1);
+			ctx->position = 0;
+			while (size > 0) {
+				*dst++ = *src++ ^ ctx->keystream[ctx->position++];
+				size--;
+			}
+		}
+		return;
+	}
+
+	{
+		size_t i;
+		for (i = size; i > 0; src++, dst++, i--) {
+			if (ctx->position >= 64) {
+				cipher_chacha20_block_next(ctx);
+				ctx->position = 0;
+			}
+			dst[0] = src[0] ^ ctx->keystream[ctx->position];
+			ctx->position++;
+		}
 	}
 }
 
@@ -1554,31 +1683,25 @@ static inline void crypto_put_le32(IUINT32 x, void *p) {
 	is_encode32u_lsb((char*)p, x);
 }
 
-// keylen: 16, 24, 32 bytes
-void CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen)
+// callback slots for hardware acceleration, default NULL = built-in
+// implementations below. install once at startup, never swap at
+// runtime (see the contract in isecure.h). CRYPTO_GCM_HASHKEY_CB and
+// CRYPTO_GCM_MUL_CB must be installed as a pair.
+CRYPTO_AES_CRYPT_PROC CRYPTO_AES_ENCRYPT_CB = NULL;
+CRYPTO_GCM_HASHKEY_PROC CRYPTO_GCM_HASHKEY_CB = NULL;
+CRYPTO_GCM_MUL_PROC CRYPTO_GCM_MUL_CB = NULL;
+
+// keylen: 16, 24, 32 bytes; returns 0 on success and -1 on invalid
+// arguments. non-standard key lengths are rejected instead of being
+// silently extended or truncated, and the context is zeroed on error
+int CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen)
 {
 	IUINT32 kwords, rc, i, j;
-	IUINT8 keycache[32];
 
-	if (keylen != 16 && keylen != 24 && keylen != 32) {
-		if (keylen > 0 && key != NULL) {
-			int pos = 0;
-			for (; pos < 32; ) {
-				int canwrite = 32 - pos;
-				int canread = keylen;
-				int n = (canwrite < canread) ? canwrite : canread;
-				memcpy(keycache + pos, key, n);
-				pos += n;
-			}
-			key = keycache;
-			if (keylen <= 16) keylen = 16;
-			else if (keylen <= 24) keylen = 24;
-			else keylen = 32;
-		} else {
-			memset(keycache, 0, 32);
-			key = keycache;
-			keylen = 16;
-		}
+	IASSERT(ctx != NULL);
+	if (key == NULL || (keylen != 16 && keylen != 24 && keylen != 32)) {
+		memset(ctx, 0, sizeof(CRYPTO_AES_CTX));
+		return -1;
 	}
 
 	memset(ctx, 0, sizeof(CRYPTO_AES_CTX));
@@ -1630,6 +1753,7 @@ void CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen)
 	ctx->key_dec[i + 1] = ctx->key_enc[1];
 	ctx->key_dec[i + 2] = ctx->key_enc[2];
 	ctx->key_dec[i + 3] = ctx->key_enc[3];
+	return 0;
 }
 
 // encrypt a single AES block (16 bytes)
@@ -1639,6 +1763,11 @@ void CRYPTO_AES_Encrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in)
 	int rounds = 6 + ctx->key_length / 4;
 	IUINT32 st0[4], st1[4];
 	int round;
+
+	if (CRYPTO_AES_ENCRYPT_CB) {
+		CRYPTO_AES_ENCRYPT_CB(ctx, out, in);
+		return;
+	}
 
 	// initial AddRoundKey
 	st0[0] = ctx->key_enc[0] ^ crypto_get_le32(in);
@@ -1744,6 +1873,10 @@ static void crypto_gcm_mul(IUINT8 *X, const IUINT8 *Y) {
 	IUINT8 Z[GCM_BLOCK_SIZE];
 	IUINT8 V[GCM_BLOCK_SIZE];
 	int i;
+	if (CRYPTO_GCM_MUL_CB) {
+		CRYPTO_GCM_MUL_CB(X, Y);
+		return;
+	}
 	memset(Z, 0, sizeof(Z));
 	memcpy(V, Y, sizeof(V));
 	for (i = 0; i < GCM_BLOCK_SIZE; ++i) {
@@ -1900,47 +2033,69 @@ static void crypto_gcm_reset_state(CRYPTO_GCM_CTX *ctx) {
 	ctx->data_started = 0;
 }
 
-// initialize AES-GCM context with key
-void CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
+// initialize AES-GCM context with key (keylen: 16/24/32 bytes),
+// returns 0 on success, -1 on invalid arguments
+int CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
 		IUINT32 keylen)
 {
 	IUINT8 zero[GCM_BLOCK_SIZE];
 	IASSERT(ctx != NULL);
-	IASSERT(key != NULL);
 	memset(ctx, 0, sizeof(*ctx));
-	CRYPTO_AES_Init(&ctx->aes, key, keylen);
+	if (key == NULL || (keylen != 16 && keylen != 24 && keylen != 32)) {
+		return -1;
+	}
+	if (CRYPTO_AES_Init(&ctx->aes, key, keylen) != 0) {
+		return -1;
+	}
 	memset(zero, 0, sizeof(zero));
 	CRYPTO_AES_Encrypt(&ctx->aes, ctx->H, zero);
+	if (CRYPTO_GCM_HASHKEY_CB && CRYPTO_GCM_MUL_CB) {
+		CRYPTO_GCM_HASHKEY_CB(ctx->H);
+	}
 	ctx->active = 0;
+	return 0;
 }
 
-// reset AES-GCM context with iv
-void CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
+// reset AES-GCM context with iv (any length > 0), returns 0 on
+// success, -1 on invalid arguments or uninitialized key (Reset after
+// a failed Init refuses to run with the zeroed key schedule)
+int CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
 		size_t iv_len)
 {
 	IASSERT(ctx != NULL);
-	IASSERT(iv != NULL);
-	IASSERT(iv_len > 0);
+	if (iv == NULL || iv_len == 0) {
+		return -1;
+	}
+	if (ctx->aes.key_length != 16 && ctx->aes.key_length != 24 &&
+			ctx->aes.key_length != 32) {
+		return -1;
+	}
 	crypto_gcm_reset_state(ctx);
 	crypto_gcm_setup_j0(ctx, iv, iv_len);
 	memcpy(ctx->counter, ctx->J0, GCM_BLOCK_SIZE);
 	ctx->active = 1;
+	return 0;
 }
 
-// update additional authenticated data (AAD)
-void CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
+// update additional authenticated data (AAD), must precede
+// Encrypt/Decrypt, returns 0 on success, -1 on misuse
+int CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
 		size_t aad_len)
 {
 	IASSERT(ctx != NULL);
-	IASSERT(aad_len == 0 || aad != NULL);
-	IASSERT(ctx->active != 0);
-	IASSERT(ctx->data_started == 0);
+	if (ctx->active == 0 || ctx->data_started != 0) {
+		return -1;
+	}
 	if (aad_len == 0) {
-		return;
+		return 0;
+	}
+	if (aad == NULL) {
+		return -1;
 	}
 	crypto_gcm_feed_bytes(ctx, (const IUINT8*)aad, aad_len, ctx->aad_buf,
 		&ctx->aad_buf_len);
 	ctx->aad_len += (IUINT64)aad_len;
+	return 0;
 }
 
 // encrypt/decrypt bytes
@@ -1966,16 +2121,19 @@ static void crypto_gcm_encrypt_bytes(CRYPTO_GCM_CTX *ctx, IUINT8 *out,
 	}
 }
 
-// encrypt data
-void CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
+// encrypt data, returns 0 on success, -1 on misuse or bad arguments
+int CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
 		const void *in, size_t len)
 {
 	IASSERT(ctx != NULL);
-	IASSERT(in != NULL || len == 0);
-	IASSERT(out != NULL || len == 0);
-	IASSERT(ctx->active != 0);
+	if (ctx->active == 0) {
+		return -1;
+	}
 	if (len == 0) {
-		return;
+		return 0;
+	}
+	if (in == NULL || out == NULL) {
+		return -1;
 	}
 	crypto_gcm_finalize_aad(ctx);
 	ctx->data_started = 1;
@@ -1983,18 +2141,22 @@ void CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
 	crypto_gcm_feed_bytes(ctx, (const IUINT8*)out, len, ctx->data_buf,
 		&ctx->data_buf_len);
 	ctx->data_len += (IUINT64)len;
+	return 0;
 }
 
-// decrypt data
-void CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
+// decrypt data, returns 0 on success, -1 on misuse or bad arguments
+int CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
 		const void *in, size_t len)
 {
 	IASSERT(ctx != NULL);
-	IASSERT(in != NULL || len == 0);
-	IASSERT(out != NULL || len == 0);
-	IASSERT(ctx->active != 0);
+	if (ctx->active == 0) {
+		return -1;
+	}
 	if (len == 0) {
-		return;
+		return 0;
+	}
+	if (in == NULL || out == NULL) {
+		return -1;
 	}
 	crypto_gcm_finalize_aad(ctx);
 	ctx->data_started = 1;
@@ -2002,18 +2164,24 @@ void CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
 		&ctx->data_buf_len);
 	crypto_gcm_encrypt_bytes(ctx, (IUINT8*)out, (const IUINT8*)in, len);
 	ctx->data_len += (IUINT64)len;
+	return 0;
 }
 
-// finalize and get authentication tag
-void CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
+// finalize and get authentication tag (tag_len <= 16), returns 0 on
+// success, -1 on invalid tag_len or inactive ctx
+int CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
 		size_t tag_len)
 {
 	IUINT8 block[GCM_BLOCK_SIZE];
 	IUINT8 S[GCM_BLOCK_SIZE];
 	size_t copy_len;
 	IASSERT(ctx != NULL);
-	IASSERT(tag_len == 0 || tag != NULL);
-	IASSERT(ctx->active != 0);
+	if (ctx->active == 0) {
+		return -1;
+	}
+	if ((tag == NULL && tag_len != 0) || tag_len > CRYPTO_GCM_TAG_SIZE) {
+		return -1;
+	}
 	crypto_gcm_finalize_aad(ctx);
 	crypto_gcm_pad_buffer(ctx, ctx->data_buf, &ctx->data_buf_len);
 	crypto_gcm_build_length(ctx, block);
@@ -2021,15 +2189,16 @@ void CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
 	crypto_gcm_mul(ctx->auth, ctx->H);
 	CRYPTO_AES_Encrypt(&ctx->aes, S, ctx->J0);
 	crypto_gcm_block_xor(S, ctx->auth);
-	copy_len = (tag_len > CRYPTO_GCM_TAG_SIZE) ?
-		CRYPTO_GCM_TAG_SIZE : tag_len;
+	copy_len = tag_len;
 	if (tag != NULL && copy_len > 0) {
 		memcpy(tag, S, copy_len);
 	}
 	ctx->active = 0;
+	return 0;
 }
 
-// check authentication tag, return 0 if tag matches
+// check authentication tag, return 0 if tag matches, -1 on mismatch,
+// invalid tag_len (0 or > 16) or inactive ctx
 int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
 		size_t tag_len)
 {
@@ -2037,12 +2206,380 @@ int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
 	unsigned int diff = 0;
 	size_t i;
 	IASSERT(ctx != NULL);
-	IASSERT(tag != NULL || tag_len == 0);
-	CRYPTO_GCM_Final(ctx, expected, CRYPTO_GCM_TAG_SIZE);
-	if (tag_len == 0 || tag_len > CRYPTO_GCM_TAG_SIZE) {
+	if (ctx->active == 0) {
 		return -1;
 	}
+	if (tag == NULL || tag_len == 0 || tag_len > CRYPTO_GCM_TAG_SIZE) {
+		return -1;
+	}
+	CRYPTO_GCM_Final(ctx, expected, CRYPTO_GCM_TAG_SIZE);
 	for (i = 0; i < CRYPTO_GCM_TAG_SIZE; ++i) {
+		IUINT8 provided = 0;
+		IUINT8 mask = 0;
+		if (i < tag_len) {
+			provided = tag[i];
+			mask = 0xffu;
+		}
+		diff |= (unsigned int)((expected[i] ^ provided) & mask);
+	}
+	return (diff == 0) ? 0 : -1;
+}
+
+
+//=====================================================================
+// CRYPTO_POLY1305: ChaCha20-Poly1305 AEAD (RFC 8439)
+//=====================================================================
+#define POLY1305_BLOCK_SIZE 16
+
+// store little-endian uint64 (poly1305 lengths are in bytes, not bits)
+static inline void crypto_store_le64(IUINT64 value, IUINT8 *out) {
+	int i;
+	for (i = 0; i < 8; ++i) {
+		out[i] = (IUINT8)(value >> (i * 8));
+	}
+}
+
+// setup poly1305 state from a 32-byte one-time key: r is clamped to
+// 0x0ffffffc0ffffffc0ffffffc0fffffff, s is kept as is
+static void crypto_poly1305_mac_init(CRYPTO_POLY1305_CTX *ctx,
+		const IUINT8 key[32])
+{
+	ctx->poly_r[0] = (is_pack4(key + 0)      ) & 0x3ffffff;
+	ctx->poly_r[1] = (is_pack4(key + 3) >> 2) & 0x3ffff03;
+	ctx->poly_r[2] = (is_pack4(key + 6) >> 4) & 0x3ffc0ff;
+	ctx->poly_r[3] = (is_pack4(key + 9) >> 6) & 0x3f03fff;
+	ctx->poly_r[4] = (is_pack4(key + 12) >> 8) & 0x00fffff;
+	ctx->poly_pad[0] = is_pack4(key + 16);
+	ctx->poly_pad[1] = is_pack4(key + 20);
+	ctx->poly_pad[2] = is_pack4(key + 24);
+	ctx->poly_pad[3] = is_pack4(key + 28);
+	memset(ctx->poly_h, 0, sizeof(ctx->poly_h));
+}
+
+// absorb one 16-byte block into the poly1305 accumulator (26-bit limb
+// arithmetic, mod 2^130 - 5). every block of the AEAD mac input
+// (aad || pad16(aad) || ct || pad16(ct) || lengths) is complete, so
+// each one carries the implicit 2^128 bit
+static void crypto_poly1305_block(CRYPTO_POLY1305_CTX *ctx,
+		const IUINT8 m[16])
+{
+	IUINT32 r0 = ctx->poly_r[0], r1 = ctx->poly_r[1], r2 = ctx->poly_r[2];
+	IUINT32 r3 = ctx->poly_r[3], r4 = ctx->poly_r[4];
+	IUINT32 s1 = r1 * 5, s2 = r2 * 5, s3 = r3 * 5, s4 = r4 * 5;
+	IUINT32 h0 = ctx->poly_h[0], h1 = ctx->poly_h[1], h2 = ctx->poly_h[2];
+	IUINT32 h3 = ctx->poly_h[3], h4 = ctx->poly_h[4];
+	IUINT32 c;
+	IUINT64 d0, d1, d2, d3, d4;
+
+	if (CRYPTO_POLY1305_BLOCK_CB) {
+		CRYPTO_POLY1305_BLOCK_CB(ctx, m, 1);
+		return;
+	}
+
+	// h += m
+	h0 += (is_pack4(m + 0)      ) & 0x3ffffff;
+	h1 += (is_pack4(m + 3) >> 2) & 0x3ffffff;
+	h2 += (is_pack4(m + 6) >> 4) & 0x3ffffff;
+	h3 += (is_pack4(m + 9) >> 6) & 0x3ffffff;
+	h4 += (is_pack4(m + 12) >> 8) | (1u << 24);
+
+	// h *= r
+	d0 = ((IUINT64)h0 * r0) + ((IUINT64)h1 * s4) + ((IUINT64)h2 * s3)
+		+ ((IUINT64)h3 * s2) + ((IUINT64)h4 * s1);
+	d1 = ((IUINT64)h0 * r1) + ((IUINT64)h1 * r0) + ((IUINT64)h2 * s4)
+		+ ((IUINT64)h3 * s3) + ((IUINT64)h4 * s2);
+	d2 = ((IUINT64)h0 * r2) + ((IUINT64)h1 * r1) + ((IUINT64)h2 * r0)
+		+ ((IUINT64)h3 * s4) + ((IUINT64)h4 * s3);
+	d3 = ((IUINT64)h0 * r3) + ((IUINT64)h1 * r2) + ((IUINT64)h2 * r1)
+		+ ((IUINT64)h3 * r0) + ((IUINT64)h4 * s4);
+	d4 = ((IUINT64)h0 * r4) + ((IUINT64)h1 * r3) + ((IUINT64)h2 * r2)
+		+ ((IUINT64)h3 * r1) + ((IUINT64)h4 * r0);
+
+	// (partial) h %= p
+	d1 += c = (IUINT32)(d0 >> 26); h0 = (IUINT32)d0 & 0x3ffffff;
+	d2 += c = (IUINT32)(d1 >> 26); h1 = (IUINT32)d1 & 0x3ffffff;
+	d3 += c = (IUINT32)(d2 >> 26); h2 = (IUINT32)d2 & 0x3ffffff;
+	d4 += c = (IUINT32)(d3 >> 26); h3 = (IUINT32)d3 & 0x3ffffff;
+	c = (IUINT32)(d4 >> 26); h4 = (IUINT32)d4 & 0x3ffffff;
+	h0 += c * 5; c = (h0 >> 26); h0 &= 0x3ffffff;
+	h1 += c;
+
+	ctx->poly_h[0] = h0;
+	ctx->poly_h[1] = h1;
+	ctx->poly_h[2] = h2;
+	ctx->poly_h[3] = h3;
+	ctx->poly_h[4] = h4;
+}
+
+// finalize the poly1305 accumulator into the 16-byte tag:
+// full carry, reduce mod 2^130 - 5, add s mod 2^128
+static void crypto_poly1305_mac_finish(CRYPTO_POLY1305_CTX *ctx,
+		IUINT8 out[16])
+{
+	IUINT32 h0 = ctx->poly_h[0], h1 = ctx->poly_h[1], h2 = ctx->poly_h[2];
+	IUINT32 h3 = ctx->poly_h[3], h4 = ctx->poly_h[4];
+	IUINT32 g0, g1, g2, g3, g4, c, mask;
+	IUINT64 f;
+
+	// fully carry h
+	c = h0 >> 26; h1 += c; h0 &= 0x3ffffff;
+	c = h1 >> 26; h2 += c; h1 &= 0x3ffffff;
+	c = h2 >> 26; h3 += c; h2 &= 0x3ffffff;
+	c = h3 >> 26; h4 += c; h3 &= 0x3ffffff;
+	c = h4 >> 26; h4 &= 0x3ffffff;
+	h0 += c * 5; c = (h0 >> 26); h0 &= 0x3ffffff;
+	h1 += c;
+
+	// compute h + -p, select h if h < p or h + -p if h >= p
+	g0 = h0 + 5; c = (g0 >> 26); g0 &= 0x3ffffff;
+	g1 = h1 + c; c = (g1 >> 26); g1 &= 0x3ffffff;
+	g2 = h2 + c; c = (g2 >> 26); g2 &= 0x3ffffff;
+	g3 = h3 + c; c = (g3 >> 26); g3 &= 0x3ffffff;
+	g4 = h4 + c - (1u << 26);
+
+	mask = (g4 >> 31) - 1;
+	g0 &= mask; g1 &= mask; g2 &= mask; g3 &= mask; g4 &= mask;
+	mask = ~mask;
+	h0 = (h0 & mask) | g0;
+	h1 = (h1 & mask) | g1;
+	h2 = (h2 & mask) | g2;
+	h3 = (h3 & mask) | g3;
+
+	// pack to 128 bits and add s
+	f = (IUINT64)((h0      ) | (h1 << 26)) + ctx->poly_pad[0]; h0 = (IUINT32)f;
+	f = (IUINT64)((h1 >>  6) | (h2 << 20)) + ctx->poly_pad[1] + (f >> 32); h1 = (IUINT32)f;
+	f = (IUINT64)((h2 >> 12) | (h3 << 14)) + ctx->poly_pad[2] + (f >> 32); h2 = (IUINT32)f;
+	f = (IUINT64)((h3 >> 18) | (h4 <<  8)) + ctx->poly_pad[3] + (f >> 32); h3 = (IUINT32)f;
+
+	is_unpack4(h0, out + 0);
+	is_unpack4(h1, out + 4);
+	is_unpack4(h2, out + 8);
+	is_unpack4(h3, out + 12);
+}
+
+// feed bytes into the poly1305 accumulator through a 16-byte staging
+// buffer, same model as crypto_gcm_feed_bytes. when the block
+// callback is installed, aligned whole-block spans bypass the
+// staging copy and go straight to the backend in bulk so it can
+// amortize its key-rotation vectors; staging still handles the
+// head/tail of the input and all padding.
+static void crypto_poly1305_feed_bytes(CRYPTO_POLY1305_CTX *ctx,
+		const IUINT8 *data, size_t len, IUINT8 *buffer, IUINT32 *buffer_len)
+{
+	if (CRYPTO_POLY1305_BLOCK_CB) {
+		while (*buffer_len == 0 && len >= POLY1305_BLOCK_SIZE) {
+			size_t blocks = len / POLY1305_BLOCK_SIZE;
+			CRYPTO_POLY1305_BLOCK_CB(ctx, data, blocks);
+			data += blocks * POLY1305_BLOCK_SIZE;
+			len -= blocks * POLY1305_BLOCK_SIZE;
+			break;
+		}
+	}
+	while (len > 0) {
+		size_t space = (size_t)POLY1305_BLOCK_SIZE - (size_t)(*buffer_len);
+		size_t step = (len < space) ? len : space;
+		memcpy(buffer + *buffer_len, data, step);
+		*buffer_len += (IUINT32)step;
+		data += step;
+		len -= step;
+		if (*buffer_len == POLY1305_BLOCK_SIZE) {
+			crypto_poly1305_block(ctx, buffer);
+			memset(buffer, 0, POLY1305_BLOCK_SIZE);
+			*buffer_len = 0;
+		}
+	}
+}
+
+// pad a partial staging block with zeros and absorb it as a complete
+// block (same padding rule as crypto_gcm_pad_buffer)
+static void crypto_poly1305_pad_buffer(CRYPTO_POLY1305_CTX *ctx,
+		IUINT8 *buffer, IUINT32 *buffer_len)
+{
+	if (*buffer_len == 0) {
+		return;
+	}
+	memset(buffer + *buffer_len, 0,
+		(size_t)(POLY1305_BLOCK_SIZE - *buffer_len));
+	crypto_poly1305_block(ctx, buffer);
+	memset(buffer, 0, POLY1305_BLOCK_SIZE);
+	*buffer_len = 0;
+}
+
+// finalize AAD processing
+static void crypto_poly1305_finalize_aad(CRYPTO_POLY1305_CTX *ctx) {
+	if (ctx->aad_finalized) {
+		return;
+	}
+	crypto_poly1305_pad_buffer(ctx, ctx->aad_buf, &ctx->aad_buf_len);
+	ctx->aad_finalized = 1;
+}
+
+// reset per-message state (poly_r/poly_pad are re-derived by
+// crypto_poly1305_mac_init on each Reset)
+static void crypto_poly1305_reset_state(CRYPTO_POLY1305_CTX *ctx) {
+	memset(ctx->poly_h, 0, sizeof(ctx->poly_h));
+	memset(ctx->aad_buf, 0, POLY1305_BLOCK_SIZE);
+	memset(ctx->data_buf, 0, POLY1305_BLOCK_SIZE);
+	ctx->aad_buf_len = 0;
+	ctx->data_buf_len = 0;
+	ctx->aad_len = 0;
+	ctx->data_len = 0;
+	ctx->aad_finalized = 0;
+	ctx->data_started = 0;
+}
+
+// initialize ChaCha20-Poly1305 context with a 32-byte key, returns 0
+// on success, -1 on NULL key
+int CRYPTO_POLY1305_Init(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *key)
+{
+	IASSERT(ctx != NULL);
+	memset(ctx, 0, sizeof(*ctx));
+	if (key == NULL) {
+		return -1;
+	}
+	memcpy(ctx->key, key, 32);
+	ctx->active = 0;
+	return 0;
+}
+
+// reset context with a 12-byte nonce: chacha20 block 0 supplies the
+// poly1305 one-time key, message encryption starts at block 1,
+// returns 0 on success, -1 on NULL nonce
+int CRYPTO_POLY1305_Reset(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *nonce)
+{
+	IUINT8 block[64];
+	IASSERT(ctx != NULL);
+	if (nonce == NULL) {
+		return -1;
+	}
+	crypto_poly1305_reset_state(ctx);
+	CRYPTO_CHACHA20_Init(&ctx->chacha, ctx->key, nonce, 0);
+	memset(block, 0, sizeof(block));
+	// in-place xor with zeros yields the raw keystream of block 0
+	CRYPTO_CHACHA20_Update(&ctx->chacha, block, block, sizeof(block));
+	crypto_poly1305_mac_init(ctx, block);
+	memset(block, 0, sizeof(block));
+	ctx->active = 1;
+	return 0;
+}
+
+// update additional authenticated data (AAD), must precede data,
+// returns 0 on success, -1 on misuse
+int CRYPTO_POLY1305_UpdateAAD(CRYPTO_POLY1305_CTX *ctx, const void *aad,
+		size_t aad_len)
+{
+	IASSERT(ctx != NULL);
+	if (ctx->active == 0 || ctx->data_started != 0) {
+		return -1;
+	}
+	if (aad_len == 0) {
+		return 0;
+	}
+	if (aad == NULL) {
+		return -1;
+	}
+	crypto_poly1305_feed_bytes(ctx, (const IUINT8*)aad, aad_len,
+		ctx->aad_buf, &ctx->aad_buf_len);
+	ctx->aad_len += (IUINT64)aad_len;
+	return 0;
+}
+
+// encrypt data, then absorb the ciphertext into the tag, returns 0 on
+// success, -1 on misuse or bad arguments
+int CRYPTO_POLY1305_Encrypt(CRYPTO_POLY1305_CTX *ctx, void *out,
+		const void *in, size_t len)
+{
+	IASSERT(ctx != NULL);
+	if (ctx->active == 0) {
+		return -1;
+	}
+	if (len == 0) {
+		return 0;
+	}
+	if (in == NULL || out == NULL) {
+		return -1;
+	}
+	crypto_poly1305_finalize_aad(ctx);
+	ctx->data_started = 1;
+	CRYPTO_CHACHA20_Update(&ctx->chacha, out, in, len);
+	crypto_poly1305_feed_bytes(ctx, (const IUINT8*)out, len,
+		ctx->data_buf, &ctx->data_buf_len);
+	ctx->data_len += (IUINT64)len;
+	return 0;
+}
+
+// absorb the ciphertext into the tag first, then decrypt it (the order
+// keeps in-place operation safe), returns 0 on success, -1 on misuse
+// or bad arguments
+int CRYPTO_POLY1305_Decrypt(CRYPTO_POLY1305_CTX *ctx, void *out,
+		const void *in, size_t len)
+{
+	IASSERT(ctx != NULL);
+	if (ctx->active == 0) {
+		return -1;
+	}
+	if (len == 0) {
+		return 0;
+	}
+	if (in == NULL || out == NULL) {
+		return -1;
+	}
+	crypto_poly1305_finalize_aad(ctx);
+	ctx->data_started = 1;
+	crypto_poly1305_feed_bytes(ctx, (const IUINT8*)in, len,
+		ctx->data_buf, &ctx->data_buf_len);
+	CRYPTO_CHACHA20_Update(&ctx->chacha, out, in, len);
+	ctx->data_len += (IUINT64)len;
+	return 0;
+}
+
+// finalize and get the authentication tag (tag_len <= 16), returns 0
+// on success, -1 on invalid tag_len or inactive ctx
+int CRYPTO_POLY1305_Final(CRYPTO_POLY1305_CTX *ctx, IUINT8 *tag,
+		size_t tag_len)
+{
+	IUINT8 length[POLY1305_BLOCK_SIZE];
+	IUINT8 mac[POLY1305_BLOCK_SIZE];
+	size_t copy_len;
+	IASSERT(ctx != NULL);
+	if (ctx->active == 0) {
+		return -1;
+	}
+	if ((tag == NULL && tag_len != 0) || tag_len > CRYPTO_POLY1305_TAG_SIZE) {
+		return -1;
+	}
+	crypto_poly1305_finalize_aad(ctx);
+	crypto_poly1305_pad_buffer(ctx, ctx->data_buf, &ctx->data_buf_len);
+	// length block: little-endian aad_len and data_len, both in bytes
+	crypto_store_le64(ctx->aad_len, length);
+	crypto_store_le64(ctx->data_len, length + 8);
+	crypto_poly1305_block(ctx, length);
+	crypto_poly1305_mac_finish(ctx, mac);
+	copy_len = tag_len;
+	if (tag != NULL && copy_len > 0) {
+		memcpy(tag, mac, copy_len);
+	}
+	ctx->active = 0;
+	return 0;
+}
+
+// check authentication tag, return 0 if tag matches (constant time),
+// -1 on mismatch, invalid tag_len (0 or > 16) or inactive ctx
+int CRYPTO_POLY1305_CheckTag(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *tag,
+		size_t tag_len)
+{
+	IUINT8 expected[CRYPTO_POLY1305_TAG_SIZE];
+	unsigned int diff = 0;
+	size_t i;
+	IASSERT(ctx != NULL);
+	if (ctx->active == 0) {
+		return -1;
+	}
+	if (tag == NULL || tag_len == 0 || tag_len > CRYPTO_POLY1305_TAG_SIZE) {
+		return -1;
+	}
+	CRYPTO_POLY1305_Final(ctx, expected, CRYPTO_POLY1305_TAG_SIZE);
+	for (i = 0; i < CRYPTO_POLY1305_TAG_SIZE; ++i) {
 		IUINT8 provided = 0;
 		IUINT8 mask = 0;
 		if (i < tag_len) {
@@ -2312,10 +2849,10 @@ IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg)
 	IUINT64 state = pcg->state;
 	IUINT32 xorshifted, rot, irot;
 	pcg->state = state * multiplier + pcg->inc;
-    xorshifted = (IUINT32)(((state >> 18) ^ state) >> 27);
-    rot = (IUINT32)(state >> 59);
+	xorshifted = (IUINT32)(((state >> 18) ^ state) >> 27);
+	rot = (IUINT32)(state >> 59);
 	irot = (0xffffffff - rot) + 1;
-    return (xorshifted >> rot) | (xorshifted << (irot & 31));
+	return (xorshifted >> rot) | (xorshifted << (irot & 31));
 }
 
 
@@ -2333,6 +2870,27 @@ IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound)
 		}
     }
 	return hr;
+}
+
+// fill buffer with random bytes
+void RANDOM_PCG_Fill(RANDOM_PCG *pcg, void *buf, size_t size)
+{
+	IUINT8 *dst = (IUINT8*)buf;
+	while (size >= 4) {
+		IUINT32 r = RANDOM_PCG_Next(pcg);
+		is_encode32u_lsb((char*)dst, r);
+		dst += 4;
+		size -= 4;
+	}
+	if (size > 0) {
+		IUINT32 r = RANDOM_PCG_Next(pcg);
+		while (size > 0) {
+			dst[0] = (IUINT8)(r & 0xff);
+			r >>= 8;
+			dst++;
+			size--;
+		}
+	}
 }
 
 
@@ -2417,7 +2975,7 @@ IUINT32 hmac_signature_time(const char *signature)
 // only the portable 32-bit path is kept (10 limbs, 26/25 bits): it
 // works everywhere without uint128 or platform branches. faster
 // variants (donna 64-bit/SSE2, openssl) can be attached at runtime
-// through the CRYPTO_X25519_SCALARMULT_CB / _BASEPOINT_CB slots,
+// through the CRYPTO_X25519_SCALARMULT_CB slot,
 // which is why all functions below are static and renamed: they can
 // coexist with a plain curve25519-donna build in the same binary
 // without any symbol clash.
@@ -3015,17 +3573,16 @@ crypto_x25519_dh(unsigned char mypublic[32], const unsigned char secret[32],
 	crypto_x25519_scalarmult(mypublic, e, basepoint);
 }
 
-/* built-in default for the BASEPOINT slot: out = clamp(secret) * 9 */
+/* fixed basepoint shortcut used by CRYPTO_X25519_Public: out = clamp(secret) * 9 */
 static void
 crypto_x25519_dh_base(unsigned char mypublic[32], const unsigned char secret[32]) {
 	static const unsigned char basepoint[32] = {9};
 	crypto_x25519_dh(mypublic, secret, basepoint);
 }
 
-// callback slots, default NULL = built-in implementation above.
+// callback slot, default NULL = built-in implementation above.
 // install once at startup, never swap at runtime (see isecure.h)
 CRYPTO_X25519_SCALARMULT_PROC CRYPTO_X25519_SCALARMULT_CB = NULL;
-CRYPTO_X25519_BASEPOINT_PROC CRYPTO_X25519_BASEPOINT_CB = NULL;
 
 // generate random private key (32 bytes) via CRYPTO_OS_RANDOM
 int CRYPTO_X25519_Keygen(unsigned char private_key[CRYPTO_X25519_KEY_SIZE])
@@ -3038,10 +3595,7 @@ void CRYPTO_X25519_Public(unsigned char public_key[CRYPTO_X25519_KEY_SIZE],
 		const unsigned char private_key[CRYPTO_X25519_KEY_SIZE])
 {
 	static const unsigned char basepoint[CRYPTO_X25519_KEY_SIZE] = {9};
-	if (CRYPTO_X25519_BASEPOINT_CB) {
-		CRYPTO_X25519_BASEPOINT_CB(public_key, private_key);
-	}
-	else if (CRYPTO_X25519_SCALARMULT_CB) {
+	if (CRYPTO_X25519_SCALARMULT_CB) {
 		CRYPTO_X25519_SCALARMULT_CB(public_key, private_key, basepoint);
 	}
 	else {
@@ -3069,6 +3623,140 @@ int CRYPTO_X25519_Shared(unsigned char secret[CRYPTO_X25519_KEY_SIZE],
 	if (zero) {
 		memset(secret, 0, CRYPTO_X25519_KEY_SIZE);
 		return -1;
+	}
+	return 0;
+}
+
+
+
+
+
+//=====================================================================
+// CRYPTO HKDF: HMAC-SHA256 based key derivation (RFC 5869)
+// built directly on the multi-segment hash_hmac_sha256() above:
+// the expand iteration T(i) = HMAC(PRK, T(i-1) || info || i) is a
+// plain 3-segment HMAC call, so no incremental HMAC is needed
+//=====================================================================
+
+// Extract: PRK = HMAC-SHA256(salt, IKM), an absent salt is replaced
+// by 32 zero bytes as required by RFC 5869
+int CRYPTO_HKDF_SHA256_Extract(IUINT8 prk[CRYPTO_HKDF_SHA256_SIZE],
+		const void *salt, int salt_len, const void *ikm, int ikm_len)
+{
+	const void *msgs[1];
+	int sizes[1];
+	IUINT8 zeros[CRYPTO_HKDF_SHA256_SIZE];
+
+	IASSERT(prk != NULL);
+	if (ikm_len < 0 || salt_len < 0) {
+		return -1;
+	}
+	if ((ikm == NULL && ikm_len != 0)) {
+		return -1;
+	}
+	if (salt == NULL || salt_len == 0) {
+		// RFC 5869: optional salt defaults to HashLen zeros
+		memset(zeros, 0, sizeof(zeros));
+		salt = zeros;
+		salt_len = CRYPTO_HKDF_SHA256_SIZE;
+	}
+	msgs[0] = (ikm != NULL) ? ikm : (const void*)zeros;
+	sizes[0] = ikm_len;
+	hash_hmac_sha256(msgs, sizes, 1, salt, salt_len, prk);
+	return 0;
+}
+
+// Expand: OKM = T(1) || T(2) || ... || T(n), truncated to okm_len,
+// where T(i) = HMAC-SHA256(PRK, T(i-1) || info || [i]) and T(0) is
+// the empty string
+int CRYPTO_HKDF_SHA256_Expand(void *okm, size_t okm_len,
+		const IUINT8 prk[CRYPTO_HKDF_SHA256_SIZE],
+		const void *info, int info_len)
+{
+	const void *msgs[3];
+	int sizes[3];
+	IUINT8 t[CRYPTO_HKDF_SHA256_SIZE];
+	IUINT8 counter = 1;
+	size_t done = 0;
+
+	IASSERT(prk != NULL);
+	if (okm == NULL || okm_len == 0 ||
+			okm_len > (size_t)CRYPTO_HKDF_SHA256_MAX) {
+		return -1;
+	}
+	if (info_len < 0 || (info == NULL && info_len != 0)) {
+		return -1;
+	}
+	while (done < okm_len) {
+		size_t take = okm_len - done;
+		if (take > CRYPTO_HKDF_SHA256_SIZE) {
+			take = CRYPTO_HKDF_SHA256_SIZE;
+		}
+		msgs[0] = t;
+		sizes[0] = (counter == 1) ? 0 : CRYPTO_HKDF_SHA256_SIZE;
+		msgs[1] = (info != NULL) ? info : (const void*)t;
+		sizes[1] = info_len;
+		msgs[2] = &counter;
+		sizes[2] = 1;
+		hash_hmac_sha256(msgs, sizes, 3, prk, CRYPTO_HKDF_SHA256_SIZE, t);
+		memcpy((unsigned char*)okm + done, t, take);
+		done += take;
+		counter++;
+	}
+	return 0;
+}
+
+// one-shot HKDF: Extract then Expand
+int CRYPTO_HKDF_SHA256_Derive(void *okm, size_t okm_len,
+		const void *ikm, int ikm_len, const void *salt, int salt_len,
+		const void *info, int info_len)
+{
+	IUINT8 prk[CRYPTO_HKDF_SHA256_SIZE];
+	if (CRYPTO_HKDF_SHA256_Extract(prk, salt, salt_len, ikm, ikm_len) != 0) {
+		return -1;
+	}
+	return CRYPTO_HKDF_SHA256_Expand(okm, okm_len, prk, info, info_len);
+}
+
+
+//=====================================================================
+// Utilities
+//=====================================================================
+
+// fast NON-cryptographic key length adapter
+int CRYPTO_KeyStretch(void *out, int outlen, const void *in, int inlen)
+{
+	IUINT32 hash1;
+	char head[4];
+	const IUINT8 *src;
+	IUINT8 *dst;
+	int i, j;
+
+	if (out == NULL || in == NULL) {
+		return -1;
+	}
+	else if (outlen <= 0) {
+		return -1;
+	}
+	else if (inlen <= 0) {
+		memset(out, 0, (size_t)outlen);
+		return 0;
+	}
+	hash1 = hash_lua_string(in, (unsigned int)inlen, 0x811c9dc5);
+	is_encode32u_lsb(head, hash1);
+	if (outlen <= 4) {
+		memcpy(out, head, (size_t)outlen);
+		return 0;
+	}
+	memcpy(out, head, 4);
+	src = (const IUINT8*)in;
+	dst = (IUINT8*)out + 4;
+	j = 0;
+	for (i = 0; i < outlen - 4; i++) {
+		dst[i] = src[j++];
+		if (j >= inlen) {
+			j = 0;
+		}
 	}
 	return 0;
 }

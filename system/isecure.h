@@ -213,6 +213,27 @@ void HASH_SHA1_Init(HASH_SHA1_CTX *ctx);
 void HASH_SHA1_Update(HASH_SHA1_CTX *ctx, const void *input, unsigned int len);
 void HASH_SHA1_Final(HASH_SHA1_CTX *ctx, unsigned char digest[20]);
 
+//---------------------------------------------------------------------
+// SHA-1 hardware acceleration callback
+//---------------------------------------------------------------------
+// single-block compression callback slot, same convention as the
+// other isecure callbacks: install once at startup, never swap at
+// runtime, default NULL = built-in implementation.
+//
+// contract: compress one 64-byte big-endian block into state,
+// state[0..4] holds the standard SHA-1 chain words (big-endian
+// values as plain u32), updated in place exactly like
+// HASH_SHA1_Transform. covers Update/Final/HMAC automatically;
+// the ctx is not required to be aligned (use unaligned loads).
+// SHA-NI (x86 leaf 7 EBX bit 25) and ARMv8 CE SHA1 instructions
+// consume this layout directly - no transform step needed, which
+// is why (unlike GCM) there is a single callback per algorithm.
+typedef void (*HASH_SHA1_COMPRESS_PROC)(IUINT32 state[5],
+		const IUINT8 *block);
+
+// callback slot, default NULL (built-in implementation)
+extern HASH_SHA1_COMPRESS_PROC HASH_SHA1_COMPRESS_CB;
+
 
 //=====================================================================
 // SHA-256: Secure Hash Algorithm 256-bit (FIPS 180-4)
@@ -227,6 +248,20 @@ void HASH_SHA256_Init(HASH_SHA256_CTX *ctx);
 void HASH_SHA256_Update(HASH_SHA256_CTX *ctx, const void *input, unsigned int len);
 void HASH_SHA256_Final(HASH_SHA256_CTX *ctx, unsigned char digest[32]);
 
+//---------------------------------------------------------------------
+// SHA-256 hardware acceleration callback
+//---------------------------------------------------------------------
+// same install-once convention, default NULL = built-in software.
+// contract: compress one 64-byte big-endian block into state,
+// state[0..7] holds the standard SHA-256 chain words updated in
+// place exactly like HASH_SHA256_Transform. covers Update/Final,
+// HMAC-SHA256 and HKDF-SHA256 automatically.
+typedef void (*HASH_SHA256_COMPRESS_PROC)(IUINT32 state[8],
+		const IUINT8 *block);
+
+// callback slot, default NULL (built-in implementation)
+extern HASH_SHA256_COMPRESS_PROC HASH_SHA256_COMPRESS_CB;
+
 
 //=====================================================================
 // UTILITIES
@@ -234,6 +269,15 @@ void HASH_SHA256_Final(HASH_SHA256_CTX *ctx, unsigned char digest[32]);
 
 // convert digests to string
 char* hash_digest_to_string(char *out, const unsigned char *in, int size);
+
+// convert hex string to digests, returns the number of bytes written to
+// out (or the number of bytes that would be written if out is NULL, so it
+// can be used to probe the required buffer size). leading whitespace and
+// an optional "0x"/"0X"/"$" prefix are skipped, and conversion stops at
+// the first non-hex character (trailing garbage is silently ignored).
+// if size < 0 the input is treated as NUL-terminated, otherwise only the
+// first size bytes are used, and out must hold at least size/2 bytes.
+int hash_string_to_digest(unsigned char *out, const char *in, int size);
 
 // calculate md5sum and convert digests to string
 char* hash_md5sum(char *out, const void *in, unsigned int len);
@@ -252,6 +296,9 @@ IUINT32 hash_checksum(const void *in, unsigned int len);
 
 // calculate adler32 and return result
 IUINT32 hash_adler32(const void *in, unsigned int len);
+
+// calculate a hash value for a Lua string, used in Lua internal string table
+IUINT32 hash_lua_string(const void *in, unsigned int len, unsigned int seed);
 
 
 //=====================================================================
@@ -395,6 +442,29 @@ void CRYPTO_CHACHA20_Init(CRYPTO_CHACHA20_CTX *ctx,
 void CRYPTO_CHACHA20_Update(CRYPTO_CHACHA20_CTX *ctx, void *out,
 		const void *in, size_t size);
 
+//---------------------------------------------------------------------
+// chacha20 hardware acceleration callback
+//---------------------------------------------------------------------
+// bulk keystream generation callback slot, same convention as the
+// other isecure callbacks: install once at startup, never swap at
+// runtime, default NULL = built-in implementation.
+//
+// generates 'blocks' consecutive 64-byte keystream blocks starting
+// at the counter in ctx->state[12], writing blocks*64 bytes to the
+// caller-provided buffer out, then advances ctx->state[12] by
+// 'blocks'. does NOT touch ctx->keystream / ctx->position (the
+// caller manages consumption). state[16] is the standard chacha
+// layout (constants || key || counter || nonce), so SIMD backends
+// (AVX2 processes 8 blocks per pass) can load it directly. called
+// from inside CRYPTO_CHACHA20_Update with a stack staging buffer,
+// so both raw chacha20 and the ChaCha20-Poly1305 AEAD data path are
+// covered automatically; the ctx is not required to be aligned.
+typedef void (*CRYPTO_CHACHA20_BLOCKS_PROC)(CRYPTO_CHACHA20_CTX *ctx,
+		IUINT8 *out, size_t blocks);
+
+// callback slot, default NULL (built-in implementation)
+extern CRYPTO_CHACHA20_BLOCKS_PROC CRYPTO_CHACHA20_BLOCKS_CB;
+
 
 
 //=====================================================================
@@ -416,14 +486,60 @@ typedef struct {
 	IUINT32 key_length;
 }   CRYPTO_AES_CTX;
 
-// keylen: 16, 24, 32 bytes
-void CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen);
+// keylen: 16, 24, 32 bytes. returns 0 on success, -1 on invalid
+// arguments (NULL key, or keylen other than 16/24/32 -- non-standard
+// lengths are rejected, NOT silently extended or truncated; on error
+// the context is zeroed and must be re-initialized before use)
+int CRYPTO_AES_Init(CRYPTO_AES_CTX *ctx, const IUINT8 *key, IUINT32 keylen);
 
 // encrypt a single AES block (16 bytes)
 void CRYPTO_AES_Encrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in);
 
 // decrypt a single AES block (16 bytes)
 void CRYPTO_AES_Decrypt(CRYPTO_AES_CTX *ctx, IUINT8 *out, const IUINT8 *in);
+
+
+//---------------------------------------------------------------------
+// AES/GCM hardware acceleration callbacks
+//---------------------------------------------------------------------
+// single-block encryption callback slot, same convention as
+// CRYPTO_X25519_SCALARMULT_CB: install once at startup, never swap
+// at runtime, read lock-free. when NULL (default) the built-in
+// software implementation above is used and behavior is unchanged.
+//
+// ctx contract: the callback receives a context prepared by the
+// built-in CRYPTO_AES_Init and MUST consume the standard round-key
+// layout, i.e. key_enc[] as 'rounds+1' groups of 4 u32 (rounds =
+// 6 + key_length/4, 10/12/14) stored as little-endian words. on
+// little-endian machines (all x86) the in-memory byte order of each
+// group equals the FIPS-197 round key, so hardware AES engines
+// (x86 AES-NI, ARMv8 CE) can load it directly. the ctx is NOT
+// guaranteed to be 16-byte aligned: use unaligned loads. ctx->
+// key_length must keep the raw key size in bytes. out and in may
+// alias (in is fully consumed before out is written).
+typedef void (*CRYPTO_AES_CRYPT_PROC)(CRYPTO_AES_CTX *ctx,
+		IUINT8 *out, const IUINT8 *in);
+
+// callback slot, default NULL (built-in implementation)
+extern CRYPTO_AES_CRYPT_PROC CRYPTO_AES_ENCRYPT_CB;
+
+// GF(2^128) hash-key transform callback for AES-GCM: invoked once
+// inside CRYPTO_GCM_Init right after H = E_K(0) is computed. it may
+// rewrite the 16 bytes of H in place with an implementation-private
+// representation (e.g. bit- or byte-reordered for CLMUL). MUST be
+// installed together with CRYPTO_GCM_MUL_CB: the built-in bit-serial
+// multiplication can no longer interpret a transformed H. CRYPTO_GCM_
+// Reset reuses the transformed H as-is, so no re-transform happens.
+typedef void (*CRYPTO_GCM_HASHKEY_PROC)(IUINT8 H[16]);
+
+// GF(2^128) multiplication callback for AES-GCM: X = X * H in place,
+// where H is the (possibly transformed) value of ctx->H. covers all
+// internal call sites of the built-in crypto_gcm_mul(), including
+// GHASH chaining, non-96-bit-IV J0 derivation and the final tag.
+typedef void (*CRYPTO_GCM_MUL_PROC)(IUINT8 X[16], const IUINT8 H[16]);
+
+extern CRYPTO_GCM_HASHKEY_PROC CRYPTO_GCM_HASHKEY_CB;
+extern CRYPTO_GCM_MUL_PROC CRYPTO_GCM_MUL_CB;
 
 
 //=====================================================================
@@ -450,33 +566,122 @@ typedef struct {
 
 #define CRYPTO_GCM_TAG_SIZE 16
 
-// initialize AES-GCM context with key
-void CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
+// initialize AES-GCM context with key (keylen: 16/24/32 bytes),
+// returns 0 on success, -1 on invalid arguments
+int CRYPTO_GCM_Init(CRYPTO_GCM_CTX *ctx, const IUINT8 *key,
 		IUINT32 keylen);
 
-// reset AES-GCM context with iv
-void CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
+// reset AES-GCM context with iv (any length > 0), returns 0 on
+// success, -1 on invalid arguments (NULL iv or iv_len == 0) or an
+// uninitialized key (Reset after a failed Init is refused)
+int CRYPTO_GCM_Reset(CRYPTO_GCM_CTX *ctx, const IUINT8 *iv,
 		size_t iv_len);
 
-// update additional authenticated data (AAD)
-void CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
+// update additional authenticated data (AAD), must precede
+// Encrypt/Decrypt, returns 0 on success, -1 on misuse (inactive ctx
+// or data already started)
+int CRYPTO_GCM_UpdateAAD(CRYPTO_GCM_CTX *ctx, const void *aad,
 		size_t aad_len);
 
-// encrypt data
-void CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
+// encrypt data, returns 0 on success, -1 on misuse or bad arguments
+int CRYPTO_GCM_Encrypt(CRYPTO_GCM_CTX *ctx, void *out,
 		const void *in, size_t len);
 
-// decrypt data
-void CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
+// decrypt data, returns 0 on success, -1 on misuse or bad arguments
+int CRYPTO_GCM_Decrypt(CRYPTO_GCM_CTX *ctx, void *out,
 		const void *in, size_t len);
 
-// finalize and get authentication tag
-void CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
+// finalize and get authentication tag (tag_len <= 16), returns 0 on
+// success, -1 if tag_len > 16 or the ctx is inactive (Final/CheckTag
+// already ran and consumed the message state)
+int CRYPTO_GCM_Final(CRYPTO_GCM_CTX *ctx, IUINT8 *tag,
 		size_t tag_len);
 
-// check authentication tag, return 0 if tag matches
+// check authentication tag, return 0 if tag matches, -1 on mismatch,
+// invalid tag_len (0 or > 16) or inactive ctx
 int CRYPTO_GCM_CheckTag(CRYPTO_GCM_CTX *ctx, const IUINT8 *tag,
 		size_t tag_len);
+
+
+//=====================================================================
+// CRYPTO_POLY1305: ChaCha20-Poly1305 AEAD (RFC 8439), stream-based
+// authenticated encryption, same usage model as CRYPTO_GCM_* above
+//=====================================================================
+typedef struct {
+	CRYPTO_CHACHA20_CTX chacha;	// keystream generator (counter from 1)
+	IUINT8 key[32];				// saved chacha20 key (32 bytes)
+	IUINT32 poly_r[5];			// poly1305 r (clamped, 26-bit limbs)
+	IUINT32 poly_h[5];			// poly1305 accumulator
+	IUINT32 poly_pad[4];		// poly1305 s (one-time key part)
+	IUINT8 aad_buf[16];			// AAD staging block
+	IUINT8 data_buf[16];		// ciphertext staging block
+	IUINT32 aad_buf_len;
+	IUINT32 data_buf_len;
+	IUINT64 aad_len;
+	IUINT64 data_len;
+	int aad_finalized;
+	int data_started;
+	int active;
+}	CRYPTO_POLY1305_CTX;
+
+#define CRYPTO_POLY1305_TAG_SIZE 16
+
+// initialize context with key (32 bytes), returns 0 on success,
+// -1 on NULL key
+int CRYPTO_POLY1305_Init(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *key);
+
+// reset context with nonce (12 bytes) and start a new message:
+// derives the poly1305 one-time key from chacha20 block 0,
+// returns 0 on success, -1 on NULL nonce
+int CRYPTO_POLY1305_Reset(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *nonce);
+
+// update additional authenticated data (AAD), must precede
+// Encrypt/Decrypt, returns 0 on success, -1 on misuse (inactive ctx
+// or data already started)
+int CRYPTO_POLY1305_UpdateAAD(CRYPTO_POLY1305_CTX *ctx, const void *aad,
+		size_t aad_len);
+
+// encrypt data (out may alias in), tag is computed over the
+// ciphertext, returns 0 on success, -1 on misuse or bad arguments
+int CRYPTO_POLY1305_Encrypt(CRYPTO_POLY1305_CTX *ctx, void *out,
+		const void *in, size_t len);
+
+// decrypt data (out may alias in), returns 0 on success, -1 on
+// misuse or bad arguments
+int CRYPTO_POLY1305_Decrypt(CRYPTO_POLY1305_CTX *ctx, void *out,
+		const void *in, size_t len);
+
+// finalize and get authentication tag (tag_len <= 16), returns 0 on
+// success, -1 if tag_len > 16 or the ctx is inactive
+int CRYPTO_POLY1305_Final(CRYPTO_POLY1305_CTX *ctx, IUINT8 *tag,
+		size_t tag_len);
+
+// check authentication tag, return 0 if tag matches, -1 on mismatch,
+// invalid tag_len (0 or > 16) or inactive ctx
+int CRYPTO_POLY1305_CheckTag(CRYPTO_POLY1305_CTX *ctx, const IUINT8 *tag,
+		size_t tag_len);
+
+//---------------------------------------------------------------------
+// poly1305 hardware acceleration callback
+//---------------------------------------------------------------------
+// bulk block-absorption callback slot, same install-once convention
+// as the other callbacks, default NULL = built-in implementation.
+//
+// absorbs nblocks full 16-byte message blocks (zero-padded to block
+// multiples by the caller, exactly like the built-in feed) into the
+// accumulator: per block, h = (h + m_i + 2^128) * r mod 2^130-5.
+// reads ctx->poly_r and reads/writes ctx->poly_h, both in the
+// canonical 26-bit limb format, and leaves h in the same partially
+// reduced form as the built-in crypto_poly1305_block, so the
+// built-in mac_finish keeps working and software/backend blocks can
+// interleave within one message. the ctx is not required to be
+// aligned. a bulk call lets a SIMD backend amortize its key-rotation
+// vectors over many blocks; nblocks == 1 may take a scalar fallback.
+typedef void (*CRYPTO_POLY1305_BLOCK_PROC)(CRYPTO_POLY1305_CTX *ctx,
+		const IUINT8 *m, size_t nblocks);
+
+// callback slot, default NULL (built-in implementation)
+extern CRYPTO_POLY1305_BLOCK_PROC CRYPTO_POLY1305_BLOCK_CB;
 
 
 //=====================================================================
@@ -556,6 +761,8 @@ IUINT32 RANDOM_PCG_Next(RANDOM_PCG *pcg);
 // next random number within 0 <= x < bound
 IUINT32 RANDOM_PCG_RANGE(RANDOM_PCG *pcg, IUINT32 bound);
 
+// fill buffer with random bytes
+void RANDOM_PCG_Fill(RANDOM_PCG *pcg, void *buf, size_t size);
 
 
 //=====================================================================
@@ -593,17 +800,8 @@ IUINT32 hmac_signature_time(const char *signature);
 typedef void (*CRYPTO_X25519_SCALARMULT_PROC)(unsigned char out[32],
 		const unsigned char secret[32], const unsigned char point[32]);
 
-/**
- * optional fixed basepoint acceleration: out = clamp(secret) * 9.
- * when NULL, CRYPTO_X25519_Public falls back to the scalarmult slot
- * above (both slots NULL = built-in implementation).
- */
-typedef void (*CRYPTO_X25519_BASEPOINT_PROC)(unsigned char out[32],
-		const unsigned char secret[32]);
-
-// callback slots, default NULL (built-in implementation)
+// callback slot, default NULL (built-in implementation)
 extern CRYPTO_X25519_SCALARMULT_PROC CRYPTO_X25519_SCALARMULT_CB;
-extern CRYPTO_X25519_BASEPOINT_PROC CRYPTO_X25519_BASEPOINT_CB;
 
 /**
  * generate a random private key (32 bytes) via CRYPTO_OS_RANDOM.
@@ -647,6 +845,72 @@ static inline IUINT64 CRYPTO_SplitMix64(IUINT64 x) {
 	x ^= x >> 31;
 	return x;
 }
+
+// splitmix64 style RNG: state is updated, returns next random number
+static inline IUINT64 CRYPTO_SplitMix64_Next(IUINT64 *state) {
+	IUINT64 x = *state;
+	*state = x + CRYPTO_MAKE_QWORD(0x9e3779b9, 0x7f4a7c15);
+	return CRYPTO_SplitMix64(x);
+}
+
+// xorshift32: simple fast statistically good RNG, 
+// NOT cryptographically secure
+static inline IUINT32 CRYPTO_XorShift32(IUINT32 x) {
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	return x;
+}
+
+// xorshift64: simple fast statistically good RNG,
+// NOT cryptographically secure
+static inline IUINT64 CRYPTO_XorShift64(IUINT64 x) {
+	x ^= x << 13;
+	x ^= x >> 7;
+	x ^= x << 17;
+	return x;
+}
+
+
+//=====================================================================
+// CRYPTO HKDF: HMAC-SHA256 based key derivation (RFC 5869)
+//=====================================================================
+
+// hash output / PRK size in bytes
+#define CRYPTO_HKDF_SHA256_SIZE 32
+
+// maximum output length in bytes (255 hash blocks per RFC 5869)
+#define CRYPTO_HKDF_SHA256_MAX (255 * 32)
+
+// Extract step: PRK = HMAC-SHA256(salt, IKM). salt may be NULL or
+// empty, which is replaced by 32 zero bytes as required by RFC 5869.
+// returns 0 on success, -1 on invalid arguments
+int CRYPTO_HKDF_SHA256_Extract(IUINT8 prk[CRYPTO_HKDF_SHA256_SIZE],
+		const void *salt, int salt_len, const void *ikm, int ikm_len);
+
+// Expand step: OKM = HKDF-Expand(PRK, info, okm_len), returns the
+// derived output key material. returns 0 on success, -1 if okm_len
+// is 0 or above CRYPTO_HKDF_SHA256_MAX, or the info pointer and
+// length disagree
+int CRYPTO_HKDF_SHA256_Expand(void *okm, size_t okm_len,
+		const IUINT8 prk[CRYPTO_HKDF_SHA256_SIZE],
+		const void *info, int info_len);
+
+// one-shot convenience: OKM = HKDF(IKM, salt, info, okm_len), i.e.
+// Extract followed by Expand. returns 0 on success, -1 otherwise
+int CRYPTO_HKDF_SHA256_Derive(void *okm, size_t okm_len,
+		const void *ikm, int ikm_len, const void *salt, int salt_len,
+		const void *info, int info_len);
+
+
+//=====================================================================
+// Utilities
+//=====================================================================
+
+// fast NON-cryptographic key length adapter
+int CRYPTO_KeyStretch(void *out, int outlen, const void *in, int inlen);
+
+
 
 
 #ifdef __cplusplus
