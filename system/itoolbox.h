@@ -227,6 +227,15 @@ int signal_quiting();
 void signal_watcher(void (*watcher)(int));
 
 
+//---------------------------------------------------------------------
+// initialize
+//---------------------------------------------------------------------
+
+// bootstrap modules in this folder
+void iposix_bootstrap(void);
+
+
+
 #ifdef __cplusplus
 }
 #endif

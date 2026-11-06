@@ -2001,37 +2001,195 @@ int iposix_path_wrename(const wchar_t *oldname, const wchar_t *newname)
 
 
 //=====================================================================
-// Panic
+// Fatal and Backtrace
 //=====================================================================
 
-// panic handler function pointer
-void (*iposix_panic_cb)(const char *fn, int ln, const char *msg) = NULL;
+// fatal notification hook, see comments in iposix.h
+void (*iposix_fatal_cb)(const char *msg) = NULL;
+
+// backtrace hook, see comments in iposix.h
+void (*iposix_backtrace_cb)(const char *msg) = NULL;
 
 
 //---------------------------------------------------------------------
-// panic at file and line with formatted message
+// print "FATAL: fn:line: message" to stderr, notify the hooks above,
+// then abort(): never returns
 //---------------------------------------------------------------------
-void iposix_panic_at(const char *fn, int line, const char *fmt, ...)
+IPOSIX_NOINLINE void iposix_fatal_at(const char *fn, int line, const char *fmt, ...)
 {
 	va_list ap;
-	char buffer[1024];
 
-	if (iposix_panic_cb == NULL) {
+	// default destination: the message always goes to stderr, even
+	// when a notification hook is installed
+	va_start(ap, fmt);
+	fprintf(stderr, "\nFATAL: %s:%d: ", fn, line);
+	vfprintf(stderr, fmt, ap);
+	fprintf(stderr, "\n");
+	va_end(ap);
+	fflush(stderr);
+
+	// extra destination: hand the same message to the hook, for extra
+	// logging or a GUI MessageBox; the hook must return normally
+	if (iposix_fatal_cb) {
+		char buffer[1280];
+		char tmp[1024];
 		va_start(ap, fmt);
-		fprintf(stderr, "PANIC: %s (%d): ", fn, line);
-		vfprintf(stderr, fmt, ap);
-		fprintf(stderr, "\n");
+#if defined(_MSC_VER) || defined(__WATCOMC__)
+		_vsnprintf(tmp, sizeof(tmp) - 1, fmt, ap);
+		tmp[sizeof(tmp) - 1] = 0;
+		_snprintf(buffer, sizeof(buffer) - 1, "FATAL: %s:%d: %s", fn, line, tmp);
+		buffer[sizeof(buffer) - 1] = 0;
+#else
+		vsnprintf(tmp, sizeof(tmp), fmt, ap);
+		snprintf(buffer, sizeof(buffer), "FATAL: %s:%d: %s", fn, line, tmp);
+#endif
 		va_end(ap);
-		fflush(stderr);
+		iposix_fatal_cb(buffer);
 	}
-	else {
-		va_start(ap, fmt);
-		vsprintf(buffer, fmt, ap);
-		va_end(ap);
-		iposix_panic_cb(fn, line, buffer);
+
+	// backtrace comes after the message, if a handler is installed
+	if (iposix_backtrace_cb) {
+		iposix_backtrace_cb("Backtrace:");
+	}
+	else if (iposix_bt_backend() != NULL) {
+		iposix_bt_dump("Backtrace:", 1);
 	}
 
 	abort();
+}
+
+
+//=====================================================================
+// Backtrace: capture and dump interface
+//=====================================================================
+
+static const iposix_bt_ops *volatile iposix_bt_active = NULL;
+
+// install backend once at startup, before threads are created.
+int iposix_bt_install(const iposix_bt_ops *ops)
+{
+	// validate everything before touching the active pointer:
+	// there is no half-installed state to roll back from
+	if (ops == NULL || ops->name == NULL || ops->capture == NULL)
+		return -1;
+	iposix_bt_active = ops;
+	return 0;
+}
+
+// active backend name, NULL before any install
+const char *iposix_bt_backend(void)
+{
+	if (iposix_bt_active == NULL) {
+		return NULL;
+	}
+	return iposix_bt_active->name;
+}
+
+// the clamp after the indirect call is load bearing: code after the
+// call keeps this frame on the stack, a tail call (which gcc -O2
+// would happily do) would shift every frame index by one
+IPOSIX_NOINLINE int iposix_bt_capture(void **address, int max, int skip)
+{
+	int n;
+	if (address == NULL || max <= 0) return -1;
+	if (skip < 0) skip = 0;
+	if (iposix_bt_active == NULL) {
+		return -2;
+	}
+	n = iposix_bt_active->capture(skip + 1, address, max);
+	return (n <= max) ? n : max;
+}
+
+// symbolize one address: fills name/module/file/line/offset.
+int iposix_bt_symbolize(void *address, iposix_bt_info *info)
+{
+	if (address == NULL || info == NULL) return -1;
+
+	memset(info, 0, sizeof(*info));
+
+	if (iposix_bt_active == NULL) return -2;
+	if (iposix_bt_active->symbolize == NULL) return -3;
+
+	return iposix_bt_active->symbolize(address, info);
+}
+
+// format an info into text ("name+0x1a at file:123", falling back
+// to "module+0x4012a0", or "??" when nothing was resolved).
+char *iposix_bt_string(char *string, int maxlen, const iposix_bt_info *info)
+{
+	static char bt_string_buf[IPOSIX_BT_STRING_MAX];
+	char *buf;
+	const char *sym;
+
+	if (info == NULL) return NULL;
+
+	if (string == NULL) {
+		buf = bt_string_buf;
+		maxlen = (int)sizeof(bt_string_buf);
+	}
+	else {
+		buf = string;
+		if (maxlen <= 0)
+			return NULL;
+	}
+
+	sym = (info->name[0] != 0) ? info->name : info->module;
+	if (sym[0] == 0) {
+		snprintf(buf, (size_t)maxlen, "??");
+		return buf;
+	}
+
+	snprintf(buf, (size_t)maxlen, "%s+0x%llx", sym,
+			(unsigned long long)info->offset);
+
+	if (info->file[0] != 0 && info->line > 0) {
+		size_t len = strlen(buf);
+		if (len < (size_t)maxlen - 1)
+			snprintf(buf + len, (size_t)(maxlen - (int)len),
+					" at %s:%d", info->file, info->line);
+	}
+
+	return buf;
+}
+
+#ifndef IPOSIX_BT_DUMP_MAX
+#define IPOSIX_BT_DUMP_MAX 64
+#endif
+
+// one-shot: capture (this call's own frame skipped) and print
+// formatted frames to stderr. safe with any backend.
+IPOSIX_NOINLINE int iposix_bt_dump(const char *prefix, int skip)
+{
+	void *frames[IPOSIX_BT_DUMP_MAX];
+	iposix_bt_info info;
+	int n, i;
+
+	skip = (skip < 0) ? 0 : skip;
+	n = iposix_bt_capture(frames, IPOSIX_BT_DUMP_MAX, skip + 1);
+
+	if (n <= 0) {
+		if (prefix != NULL) {
+			fprintf(stderr, "%s\n", prefix);
+		}
+		fprintf(stderr, "backtrace unavailable on this platform\n");
+		return -1;
+	}
+
+	if (prefix != NULL) {
+		fprintf(stderr, "%s\n", prefix);
+	}
+
+	for (i = 0; i < n; i++) {
+		char where[IPOSIX_BT_STRING_MAX];
+		iposix_bt_symbolize(frames[i], &info);
+		iposix_bt_string(where, (int)sizeof(where), &info);
+		fprintf(stderr, "#%-2d 0x%llx in %s\n", i,
+				(unsigned long long)(uintptr_t)frames[i], where);
+	}
+
+	fflush(stderr);
+
+	return n;
 }
 
 

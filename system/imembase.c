@@ -37,7 +37,7 @@
 void *(*__ihook_malloc)(size_t size) = NULL;
 void (*__ihook_free)(void *) = NULL;
 void *(*__ihook_realloc)(void *, size_t size) = NULL;
-void (*__ihook_panic)(const char *msg, const char *, int) = NULL;
+void (*__ihook_panic)(const char *msg) = NULL;
 
 
 /* allocate memory with a custom allocator or system allocator */
@@ -78,11 +78,11 @@ void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size)
 	return realloc(ptr, size);
 }
 
-/* panic with a custom message, file and line number */
-void internal_panicat(const char *msg, const char *file, int line)
+/* panic with a custom message */
+void internal_panic(const char *msg)
 {
 	if (__ihook_panic) {
-		__ihook_panic(msg, file, line);
+		__ihook_panic(msg);
 	}
 	abort();
 }

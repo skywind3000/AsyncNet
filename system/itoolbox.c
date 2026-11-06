@@ -14,6 +14,8 @@
 #include "imembase.h"
 #include "imemdata.h"
 #include "imemkind.h"
+#include "inetbase.h"
+#include "isecure.h"
 
 
 //=====================================================================
@@ -1093,5 +1095,43 @@ void signal_watcher(void (*watcher)(int))
 {
 	_signal_watcher = watcher;
 }
+
+
+//=====================================================================
+// Bootstrap
+//=====================================================================
+
+#ifdef __cplusplus
+extern "C" void (*__ihook_panic)(const char *msg);
+#else
+extern void (*__ihook_panic)(const char *msg);
+#endif
+
+// internal panic callback
+static void _iposix_panic(const char *msg)
+{
+	fprintf(stderr, "\nPANIC: %s\n", msg);
+	fflush(stderr);
+}
+
+// bootstrap callback, called once
+static void _iposix_bootstrap_cb(void)
+{
+	_initialize_feature |= IFEATURE_VISTA_RWLOCK;
+	_initialize_feature |= IFEATURE_VISTA_COND;
+	_initialize_feature |= IFEATURE_LARGE_FDSET;
+	_initialize_feature |= IFEATURE_KEVENT_REFRESH;
+	CRYPTO_OS_RANDOM_CB = iposix_random_bytes;
+	__ihook_panic = _iposix_panic;
+	isocket_init();
+}
+
+// bootstrap modules in this folder
+void iposix_bootstrap(void)
+{
+	static int inited = 0;
+	ithread_once(&inited, _iposix_bootstrap_cb);
+}
+
 
 

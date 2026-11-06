@@ -198,6 +198,27 @@ extern "C" {
 #endif
 
 //---------------------------------------------------------------------
+// Compiler hints
+//---------------------------------------------------------------------
+
+// keep the function body from being inlined into any caller, at both
+// compile time and link time (LTO: gcc/clang -flto, MSVC /GL+/LTCG).
+// clang (including clang-cl) defines __GNUC__, so it takes the
+// attribute branch below. required by functions whose frame budget
+// is baked into backtrace accounting: iposix_fatal_at, iposix_bt_dump
+// and iposix_bt_capture
+#ifndef IPOSIX_NOINLINE
+#if defined(__GNUC__)
+#define IPOSIX_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#define IPOSIX_NOINLINE __declspec(noinline)
+#else
+#define IPOSIX_NOINLINE
+#endif
+#endif
+
+
+//---------------------------------------------------------------------
 // Posix Stat
 //---------------------------------------------------------------------
 #define ISTAT_IFMT		0170000		// file type mask
@@ -488,17 +509,81 @@ int iposix_path_wrename(const wchar_t *oldname, const wchar_t *newname);
 
 
 //---------------------------------------------------------------------
-// Panic
+// Fatal and Backtrace
 //---------------------------------------------------------------------
 
-// panic handler function pointer
-extern void (*iposix_panic_cb)(const char *fn, int ln, const char *msg);
+// fatal notification hook: receives the final formatted message, in
+// addition to the default stderr output, so it can be written into a
+// log file or shown in a GUI MessageBox; must return normally, the
+// process always aborts at the end of iposix_fatal_at
+extern void (*iposix_fatal_cb)(const char *msg);
 
-// convenient macro for panic
-#define iposix_panic(...) iposix_panic_at(__FILE__, __LINE__, __VA_ARGS__)
+// backtrace hook: called right after the fatal message, if a handler
+// (e.g. the stacktrace module) is installed; must return normally too
+extern void (*iposix_backtrace_cb)(const char *msg);
 
-// panic at file and line with formatted message
-void iposix_panic_at(const char *fn, int line, const char *fmt, ...);
+// print "FATAL: fn:line: message" to stderr, notify the hooks above,
+// then abort(): never returns
+IPOSIX_NOINLINE void iposix_fatal_at(const char *fn, int line, const char *fmt, ...);
+
+// convenient iposix_fatal_at with the current file and line
+#define iposix_fatal(...) iposix_fatal_at(__FILE__, __LINE__, __VA_ARGS__)
+
+
+//---------------------------------------------------------------------
+// Backtrace: capture and dump interface
+//---------------------------------------------------------------------
+#ifndef IPOSIX_BT_MAX_PATH
+#define IPOSIX_BT_MAX_PATH       256
+#endif
+
+#define IPOSIX_BT_STRING_MAX     (IPOSIX_BT_MAX_PATH * 2 + 128)
+
+// symbol info of one code address. all string fields use "" for
+// unknown, so a zero-initialized struct means "nothing resolved".
+typedef struct iposix_bt_info {
+    char   name[IPOSIX_BT_MAX_PATH];   // nearest symbol, "" unknown
+    char   module[IPOSIX_BT_MAX_PATH]; // module file name, no path
+    char   file[IPOSIX_BT_MAX_PATH];   // source file, "" unknown
+    int    line;                       // source line, 0 unknown
+    long long offset;                  // see the offset base rule
+} iposix_bt_info;
+
+// backend vtable: capture and symbolize must come from the same
+// provider, so they are registered as one unit.
+// capture contract: frame 0 is the caller of the capture function
+// itself (the backend's own frame never appears); "skip" drops that
+// many additional frames. returns the number of frames written
+// (never more than "max"), or -1 for error.
+typedef struct iposix_bt_ops {
+    const char *name;    // static string, for iposix_bt_backend()
+    int  (*capture)(int skip, void **address, int max);   // required
+    int  (*symbolize)(void *address, iposix_bt_info *info); // NULL ok
+} iposix_bt_ops;
+
+
+// install backend once at startup, before threads are created.
+int iposix_bt_install(const iposix_bt_ops *ops);
+
+// active backend name, NULL before any install
+const char *iposix_bt_backend(void);
+
+// capture raw code addresses (return addresses) into the caller
+// buffer. frame 0 is the caller of this function; "skip" drops
+// that many additional frames (wrappers etc.), negative means 0.
+IPOSIX_NOINLINE int iposix_bt_capture(void **address, int max, int skip);
+
+// symbolize one address: fills name/module/file/line/offset.
+int iposix_bt_symbolize(void *address, iposix_bt_info *info);
+
+// format an info into text ("name+0x1a at file:123", falling back
+// to "module+0x4012a0", or "??" when nothing was resolved).
+char *iposix_bt_string(char *string, int maxlen, const iposix_bt_info *info);
+
+// one-shot: capture (this call's own frame skipped) and print
+// formatted frames to stderr. safe with any backend.
+IPOSIX_NOINLINE int iposix_bt_dump(const char *prefix, int skip);
+
 
 
 //---------------------------------------------------------------------

@@ -184,11 +184,8 @@ void internal_free(struct IALLOCATOR *allocator, void *ptr);
 /* reallocate memory with a custom allocator or system allocator */
 void* internal_realloc(struct IALLOCATOR *allocator, void *ptr, size_t size);
 
-/* panic with a custom message, file and line number */
-void internal_panicat(const char *msg, const char *file, int line);
-
-/* panic with a custom message, automatically insert file and line num */
-#define internal_panic(msg) internal_panicat((msg), __FILE__, __LINE__)
+/* panic with a custom message */
+void internal_panic(const char *msg);
 
 
 /*====================================================================*/
