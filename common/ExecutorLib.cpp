@@ -1,9 +1,9 @@
 //=====================================================================
 //
-// ExecutorLite.cpp - 
+// ExecutorLib.cpp -
 //
 // Created by skywind on 2025/11/24
-// Last Modified: 2025/12/01 16:42:20
+// Last Modified: 2026/09/23 00:00:00
 //
 //=====================================================================
 #include "ExecutorLib.h"
@@ -33,11 +33,8 @@ DeferExecutor::~DeferExecutor()
 // ctor
 //---------------------------------------------------------------------
 DeferExecutor::DeferExecutor(CAsyncLoop *loop): 
-	_loop(loop), _postpone(loop)
+	_loop(loop)
 {
-	_postpone.SetCallback([this]() {
-		this->OnPostpone();
-	});
 	_next_index = 1;
 	_current_uid = -1;
 }
@@ -58,27 +55,16 @@ DeferExecutor::DeferExecutor(AsyncLoop &loop):
 //---------------------------------------------------------------------
 DeferExecutor::DeferExecutor(DeferExecutor &&src):
 	_task_map(std::move(src._task_map)),
-	_pending_remove(std::move(src._pending_remove)),
 	_next_index(src._next_index),
 	_current_uid(src._current_uid),
-	_loop(src._loop),
-	_postpone(_loop)
+	_loop(src._loop)
 {
-	_postpone.SetCallback([this]() {
-		this->OnPostpone();
-	});
 	for (auto &pair : _task_map) {
 		DeferTask *task = pair.second;
 		task->parent = this;
 	}
 	src._next_index = 0;
-	if (src._postpone.IsActive()) {
-		src._postpone.Stop();
-	}
 	src._loop = NULL;
-	if (!_pending_remove.empty()) {
-		_postpone.Ensure();
-	}
 }
 
 
@@ -308,25 +294,23 @@ void DeferExecutor::TimerCallback(CAsyncLoop *loop, CAsyncTimer *timer)
 }
 
 
-//---------------------------------------------------------------------
-// process postponed tasks
-//---------------------------------------------------------------------
-void DeferExecutor::OnPostpone()
-{
-	while (_pending_remove.empty() == false) {
-		int uid = _pending_remove.front();
-		_pending_remove.pop_front();
-		Cancel(uid);
-	}
-	if (_postpone.IsActive()) {
-		_postpone.Stop();
-	}
-}
-
-
 //=====================================================================
 // ForegroundExecutor
 //=====================================================================
+
+
+//---------------------------------------------------------------------
+// invoke trampoline (loop thread): arg points to the std::function
+// living on the Send() caller's stack. exceptions from the function
+// are caught by AsyncInvoke::InvokeCB and logged there instead of
+// unwinding through the C dispatch frames
+//---------------------------------------------------------------------
+static int ForegroundInvokeCB(void *arg)
+{
+	std::function<void()> *fn = (std::function<void()>*)arg;
+	(*fn)();
+	return 0;
+}
 
 
 //---------------------------------------------------------------------
@@ -334,7 +318,10 @@ void DeferExecutor::OnPostpone()
 //---------------------------------------------------------------------
 ForegroundExecutor::~ForegroundExecutor()
 {
-	_initialized = false;
+	{
+		System::CriticalScope scope_lock(_foreground_lock);
+		_initialized = false;
+	}
 	Flush(false);
 	if (_semaphore.IsActive()) {
 		_semaphore.Stop();
@@ -349,13 +336,13 @@ ForegroundExecutor::~ForegroundExecutor()
 // ctor
 //---------------------------------------------------------------------
 ForegroundExecutor::ForegroundExecutor(AsyncLoop &loop):
-	_loop(loop), _semaphore(loop), _timer(loop)
+	_loop(loop), _semaphore(loop), _timer(loop), _invoke(loop)
 {
 	_batch_limit = 0;
 	_batch_interval = 20;
-	_signaled = false;
 	_semaphore.SetCallback(std::bind(&ForegroundExecutor::OnForegroundSemaphore, this));
 	_timer.SetCallback(std::bind(&ForegroundExecutor::OnForegroundTimer, this));
+	_invoke.SetCallback(ForegroundInvokeCB);
 	_semaphore.Start();
 	_initialized = true;
 }
@@ -367,13 +354,32 @@ ForegroundExecutor::ForegroundExecutor(AsyncLoop &loop):
 //---------------------------------------------------------------------
 bool ForegroundExecutor::Post(std::function<void()> fn)
 {
-	if (_initialized) {
-		System::CriticalScope scope_lock(_foreground_lock);
-		_foreground_tasks.push(std::move(fn));
-		_signaled = true;
-		_semaphore.Post();
+	System::CriticalScope scope_lock(_foreground_lock);
+	if (!_initialized) {
+		return false;
 	}
+	_foreground_tasks.push(std::move(fn));
+	_semaphore.Post();
 	return true;
+}
+
+
+//---------------------------------------------------------------------
+// send a task from any thread and block until it has been executed
+// in the foreground event loop (or the timeout expires)
+//---------------------------------------------------------------------
+int ForegroundExecutor::Send(std::function<void()> fn, IINT32 millisec)
+{
+	if (!fn) {
+		return ASYNC_INVOKE_EINVAL;
+	}
+	if (_initialized == false) {
+		return ASYNC_INVOKE_ECLOSING;
+	}
+	// fn lives on this stack frame: the invoke contract guarantees
+	// it never runs after a timed-out call returns, and exceptions
+	// from it are caught and logged by AsyncInvoke::Call
+	return _invoke.Call(&fn, millisec);
 }
 
 
@@ -407,7 +413,6 @@ int ForegroundExecutor::ProcessForegroundTasks(int max_count)
 		_foreground_pending.pop();
 	}
 	_foreground_lock.enter();
-	_signaled = false;
 	if (max_count > 0) {
 		for (; max_count > 0; max_count--) {
 			if (_foreground_tasks.empty()) break;
@@ -425,7 +430,17 @@ int ForegroundExecutor::ProcessForegroundTasks(int max_count)
 		auto task = std::move(_foreground_pending.front());
 		_foreground_pending.pop();
 		if (task != nullptr) {
-			task();
+			try {
+				task();
+			}
+			catch (const std::exception &e) {
+				async_loop_log(_loop.GetLoop(), -1,
+					"ForegroundExecutor task threw an exception: %s", e.what());
+			}
+			catch (...) {
+				async_loop_log(_loop.GetLoop(), -1,
+					"ForegroundExecutor task threw an unknown exception");
+			}
 		}
 	}
 	return count;
@@ -493,6 +508,8 @@ ThreadExecutor::~ThreadExecutor()
 ThreadExecutor::ThreadExecutor()
 {
 	_running = false;
+	_thread_count = 0;
+	_inflight_count = 0;
 }
 
 
@@ -502,6 +519,8 @@ ThreadExecutor::ThreadExecutor()
 ThreadExecutor::ThreadExecutor(int count)
 {
 	_running = false;
+	_thread_count = 0;
+	_inflight_count = 0;
 	Start(count < 1 ? 2 : count);
 }
 
@@ -519,16 +538,40 @@ bool ThreadExecutor::Start(int count)
 
 	_thread_count = count;
 
+	// reset shared state before spawning workers so a restart never
+	// inherits leftover tasks or a stale in-flight counter
+	_background_lock.enter();
+	while (!_normal_tasks.empty()) _normal_tasks.pop();
+	while (!_priority_tasks.empty()) _priority_tasks.pop();
+	_inflight_count = 0;
+	_background_lock.leave();
+
 	_running = true;
 
-	for (int i = 0; i < _thread_count; ++i) {
-		std::string namae = System::StringFormat("ThreadExecutor(%d)", i + 1);
-		System::Thread *thread = new System::Thread(
-				[this]() { return this->ThreadProc(); },
-				namae.c_str()); 
-		assert(thread); 
-		_threads.push_back(thread); 
-		thread->start();
+	try {
+		for (int i = 0; i < _thread_count; ++i) {
+			std::string name = System::StringFormat("ThreadExecutor(%d)", i + 1);
+			System::Thread *thread = new System::Thread(
+					[this]() { return this->ThreadProc(); },
+					name.c_str());
+			_threads.push_back(thread);
+			thread->start();
+		}
+	}
+	catch (...) {
+		// roll back to a clean stopped state so the object is never left
+		// half-started (_running true with a partial thread set)
+		_running = false;
+		WakeBackgroundThread(true);
+		for (size_t i = 0; i < _threads.size(); ++i) {
+			System::Thread *thread = _threads[i];
+			if (thread) {
+				thread->join();
+				delete thread;
+			}
+		}
+		_threads.clear();
+		return false;
 	}
 
 	return true;
@@ -540,8 +583,10 @@ bool ThreadExecutor::Start(int count)
 //---------------------------------------------------------------------
 void ThreadExecutor::Stop()
 {
-	if (_running == false) return;
-	_running = false;
+	// atomic latch: only the caller that actually flips _running from
+	// true to false proceeds to join, so concurrent Stop()/Start() can
+	// never double-join or double-delete the same thread objects
+	if (!_running.exchange(false)) return;
 	WakeBackgroundThread(true);
 	for (size_t i = 0; i < _threads.size(); ++i) {
 		System::Thread *thread = _threads[i];
@@ -551,6 +596,15 @@ void ThreadExecutor::Stop()
 		}
 	}
 	_threads.clear();
+	// all workers have exited: discard any tasks still queued (they will
+	// never run) and reset the in-flight counter so GetPendingCount()/Wait()
+	// do not report stale values, then release anyone blocked in Wait().
+	_background_lock.enter();
+	while (!_normal_tasks.empty()) _normal_tasks.pop();
+	while (!_priority_tasks.empty()) _priority_tasks.pop();
+	_inflight_count = 0;
+	_drain_cond.wake_all();
+	_background_lock.leave();
 }
 
 
@@ -560,49 +614,58 @@ void ThreadExecutor::Stop()
 int ThreadExecutor::ThreadProc()
 {
 	while (_running) {
-		int remain = 0;
-		if (remain == 0) {
-			_background_lock.enter();
-			remain += (int)_normal_tasks.size();
-			remain += (int)_priority_tasks.size();
-			if (remain == 0) {
-				_background_cond.sleep(_background_lock, 2000);
-			}
-			_background_lock.leave();
-		}
-		if (remain == 0) continue;
-		if (!_running) break;
 		std::function<void()> task = nullptr;
 		_background_lock.enter();
-		if (!_priority_tasks.empty()) {
-			task = std::move(_priority_tasks.front());
-			_priority_tasks.pop();
-		}
-		else if (!_normal_tasks.empty()) {
-			task = std::move(_normal_tasks.front());
-			_normal_tasks.pop();
+		while (_running) {
+			if (!_priority_tasks.empty()) {
+				task = std::move(_priority_tasks.front());
+				_priority_tasks.pop();
+				break;
+			}
+			if (!_normal_tasks.empty()) {
+				task = std::move(_normal_tasks.front());
+				_normal_tasks.pop();
+				break;
+			}
+			// no task ready: wait for a push or shutdown, the 2s cap
+			// re-checks _running so Stop() is never missed
+			_background_cond.sleep(_background_lock, 2000);
 		}
 		_background_lock.leave();
-		if (task != nullptr) {
-			try {
-				task();
-			}
-			catch (const std::exception &e) {
-				if (_error_handler) {
-					_error_handler(e);
-				} else {
-					std::cerr << "ThreadExecutor: task exception: " << e.what() << std::endl;
-				}
-			}
-			catch (...) {
-				if (_unknow_error_handler) {
-					_unknow_error_handler();
-				}
-				else {
-					std::cerr << "ThreadExecutor: unknown task exception" << std::endl;
-				}
+		if (task == nullptr) break;
+		try {
+			task();
+		}
+		catch (const std::exception &e) {
+			std::function<void(const std::exception &)> handler;
+			_background_lock.enter();
+			handler = _error_handler;
+			_background_lock.leave();
+			if (handler) {
+				handler(e);
+			} else {
+				std::cerr << "ThreadExecutor: task exception: " << e.what() << std::endl;
 			}
 		}
+		catch (...) {
+			std::function<void()> handler;
+			_background_lock.enter();
+			handler = _unknow_error_handler;
+			_background_lock.leave();
+			if (handler) {
+				handler();
+			}
+			else {
+				std::cerr << "ThreadExecutor: unknown task exception" << std::endl;
+			}
+		}
+		_background_lock.enter();
+		_inflight_count--;
+		if (_inflight_count <= 0) {
+			_inflight_count = 0;
+			_drain_cond.wake_all();
+		}
+		_background_lock.leave();
 	}
 	return 0;
 }
@@ -628,8 +691,12 @@ void ThreadExecutor::WakeBackgroundThread(bool wake_all)
 //---------------------------------------------------------------------
 bool ThreadExecutor::Push(std::function<void()> fn, int priority)
 {
-	if (_running == false) return false;
 	_background_lock.enter();
+	if (_running == false) {
+		_background_lock.leave();
+		return false;
+	}
+	_inflight_count++;
 	if (priority <= 0) {
 		_normal_tasks.push(std::move(fn));
 	} else {
@@ -642,10 +709,55 @@ bool ThreadExecutor::Push(std::function<void()> fn, int priority)
 
 
 //---------------------------------------------------------------------
+// block the calling thread until all pushed tasks have been consumed
+//---------------------------------------------------------------------
+bool ThreadExecutor::Wait(int millisec)
+{
+	IINT64 start = iclock64();
+	bool drained = false;
+	_background_lock.enter();
+	// only a pool that is still running can genuinely drain: Stop()
+	// discards queued tasks and zeroes the counter, after which the count
+	// carries no information, so being stopped never counts as drained.
+	while (_running) {
+		if (_inflight_count == 0) {
+			drained = true;
+			break;
+		}
+		if (millisec < 0) {
+			_drain_cond.sleep(_background_lock, 100);
+		}
+		else {
+			IINT64 remain = (IINT64)millisec - (iclock64() - start);
+			if (remain <= 0) break;
+			unsigned long slice = (remain > 100)? 100 : (unsigned long)remain;
+			_drain_cond.sleep(_background_lock, slice);
+		}
+	}
+	_background_lock.leave();
+	return drained;
+}
+
+
+//---------------------------------------------------------------------
+// get the number of unfinished tasks (waiting+running) in the queue
+//---------------------------------------------------------------------
+int ThreadExecutor::GetPendingCount() const
+{
+	int hr = 0;
+	_background_lock.enter();
+	hr = _inflight_count;
+	_background_lock.leave();
+	return hr;
+}
+
+
+//---------------------------------------------------------------------
 // set the error handler for background thread
 //---------------------------------------------------------------------
 void ThreadExecutor::SetErrorHandler(std::function<void(const std::exception&)> handler)
 {
+	System::CriticalScope scope_lock(_background_lock);
 	_error_handler = std::move(handler);
 }
 
@@ -655,6 +767,7 @@ void ThreadExecutor::SetErrorHandler(std::function<void(const std::exception&)> 
 //---------------------------------------------------------------------
 void ThreadExecutor::SetUnknowErrorHandler(std::function<void()> handler)
 {
+	System::CriticalScope scope_lock(_background_lock);
 	_unknow_error_handler = std::move(handler);
 }
 
@@ -670,8 +783,13 @@ int ThreadExecutor::_default_thread_count = 2;
 //---------------------------------------------------------------------
 ThreadExecutor& ThreadExecutor::Instance()
 {
+#if 0
+	static ThreadExecutor *instance = new ThreadExecutor(_default_thread_count);
+	return *instance;
+#else
 	static ThreadExecutor instance(_default_thread_count);
 	return instance;
+#endif
 }
 
 

@@ -1,8 +1,8 @@
 //=====================================================================
 //
-// ExecutorLite.h - 
+// ExecutorLib.h -
 //
-// Last Modified: 2025/11/24 14:11:42
+// Last Modified: 2026/09/23 00:00:00
 //
 //=====================================================================
 #pragma once
@@ -20,6 +20,7 @@
 
 #include "AsyncEvt.h"
 #include "AsyncKit.h"
+#include "AsyncSub.h"
 
 
 //---------------------------------------------------------------------
@@ -73,9 +74,6 @@ private:
 	// current event loop iteration, returns a unique ID for the task
 	int Schedule(int milliseconds, std::function<void()> fn, int repeat = 1);
 
-	// process postponed tasks
-	void OnPostpone();
-
 	// allocate a new unique task ID
 	int AllocateTaskID();
 
@@ -98,11 +96,9 @@ private:
 	};
 
 	std::unordered_map<int, DeferTask*> _task_map;
-	std::list<int> _pending_remove;
 	int _next_index;
 	int _current_uid;
 	CAsyncLoop *_loop;
-	AsyncPostpone _postpone;
 };
 
 
@@ -122,8 +118,23 @@ public:
 public:
 
 	// post a task from any thread to be executed in the
-	// foreground event loop
+	// foreground event loop. returns true if the task was
+	// enqueued, false if it was dropped because the executor
+	// is uninitialized/closing. enqueueing only: a true return
+	// tells nothing about execution. a task that throws is caught
+	// and logged (async_loop_log), the loop thread survives.
 	bool Post(std::function<void()> fn);
+
+	// send a task from any thread to the foreground event loop and
+	// block until it has been executed there (or the timeout
+	// expires). unlike Post, the return value tells whether fn
+	// actually ran. millisec: negative (or IEVENT_INFINITE) waits
+	// forever, otherwise timeout in ms. returns ASYNC_INVOKE_OK /
+	// ASYNC_INVOKE_ETIMEDOUT / ASYNC_INVOKE_EINVAL /
+	// ASYNC_INVOKE_ECLOSING. called from the loop thread itself, fn
+	// runs immediately without blocking. a fn that throws is caught
+	// and logged in the loop thread. Send() is not ordered with Post().
+	int Send(std::function<void()> fn, IINT32 millisec = -1);
 
 	// flush all pending tasks
 	void Flush(bool execute_pending = false);
@@ -147,12 +158,12 @@ private:
 
 	int _batch_limit;
 	int _batch_interval;
-	bool _signaled;
-	bool _initialized;
+	std::atomic<bool> _initialized;
 
 	AsyncLoop &_loop;
 	AsyncSemaphore _semaphore;
 	AsyncTimer _timer;
+	AsyncInvoke _invoke;
 };
 
 
@@ -181,6 +192,18 @@ public:
 	// push a task to be executed in background thread
 	bool Push(std::function<void()> fn, int priority = 0);
 
+	// block the calling thread until all pushed tasks have been
+	// consumed (queues drained AND no worker executing a task).
+	// must NOT be called from a worker thread of this pool, otherwise
+	// it deadlocks. millisec: negative waits forever, otherwise a
+	// timeout in milliseconds. returns true if all tasks are drained,
+	// false on timeout or the pool being stopped. tasks pushed after
+	// Wait() is entered are not accounted for.
+	bool Wait(int millisec = -1);
+
+	// get the number of unfinished tasks (waiting+running) in the queue
+	int GetPendingCount() const;
+
 	// set the error handler for background thread
 	// by default, errors are printed to stderr
 	void SetErrorHandler(std::function<void(const std::exception&)> handler);
@@ -208,8 +231,9 @@ private:
 	std::queue<std::function<void()>> _normal_tasks;
 	std::queue<std::function<void()>> _priority_tasks;
 
-	System::CriticalSection _background_lock;
+	mutable System::CriticalSection _background_lock;
 	System::ConditionVariable _background_cond;
+	System::ConditionVariable _drain_cond;
 
 	std::function<void(const std::exception &)> _error_handler;
 	std::function<void()> _unknow_error_handler;
@@ -218,8 +242,9 @@ private:
 
 	static int _default_thread_count;
 
-	bool _running;
+	std::atomic<bool> _running;
 	int _thread_count;
+	int _inflight_count;
 };
 
 

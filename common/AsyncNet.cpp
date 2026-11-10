@@ -1,4 +1,4 @@
-//=====================================================================
+﻿//=====================================================================
 //
 // AsyncNet.cpp - 
 //
@@ -67,8 +67,10 @@ AsyncNet::AsyncNet(AsyncNet &&other):
 {
 	_core = other._core;
 	_loop = async_core_loop(_core);
+	_current = other._current;
 	other._core = NULL;
-	OnSocketInit = NULL;
+	OnSocketInit = std::move(other.OnSocketInit);
+	async_core_install(_core, SocketInitHook, this);
 }
 
 
@@ -458,14 +460,14 @@ std::string AsyncNet::SockNameText(long hid)
 {
 	PosixAddress addr;
 	isockaddr_union su;
-	int size;
+	int size = (int)sizeof(su);
 	SockName(hid, &su.address, &size);
 	if (su.address.sa_family == AF_UNIX) {
 		char tmp[256];
 		std::string text = isockaddr_union_string(&su, tmp);
 		return text;
 	}
-	memcpy(addr.address(), &su, sizeof(addr));
+	memcpy(addr.address(), &su, size);
 	return addr.ToString();
 }
 
@@ -477,14 +479,14 @@ std::string AsyncNet::PeerNameText(long hid)
 {
 	PosixAddress addr;
 	isockaddr_union su;
-	int size = sizeof(su);
+	int size = (int)sizeof(su);
 	PeerName(hid, &su.address, &size);
 	if (su.address.sa_family == AF_UNIX) {
 		char tmp[256];
 		std::string text = isockaddr_union_string(&su, tmp);
 		return text;
 	}
-	memcpy(addr.address(), &su, sizeof(addr));
+	memcpy(addr.address(), &su, size);
 	return addr.ToString();
 }
 
@@ -526,7 +528,7 @@ int AsyncNet::SetTos(unsigned int tos)
 
 
 //---------------------------------------------------------------------
-// 创建一个循环的 ASYNC_CORE_EVT_TIMER 事件，返回 id
+// 创建一个一次性的 ASYNC_CORE_EVT_TIMER 事件，返回 id
 //---------------------------------------------------------------------
 int AsyncNet::SetTimeout(int delay, int tag)
 {
@@ -539,7 +541,7 @@ int AsyncNet::SetTimeout(int delay, int tag)
 
 
 //---------------------------------------------------------------------
-// 创建一个一次性的 ASYNC_CORE_EVT_TIMER 事件，返回 id
+// 创建一个循环的 ASYNC_CORE_EVT_TIMER 事件，返回 id
 //---------------------------------------------------------------------
 int AsyncNet::SetInterval(int delay, int tag)
 {
