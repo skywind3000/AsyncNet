@@ -1,9 +1,10 @@
 //=====================================================================
 //
 // inetssl.h - SSL/TLS stream filter for CAsyncStream
-//
-// Created by skywind on 2026/04/21
 // Last Modified: 2026/04/23
+//
+// Linux: -lssl -lcrypto
+// MinGW/Win32: -lssl -lcrypto -lcrypt32
 //
 //=====================================================================
 #ifndef _INETSSL_H_

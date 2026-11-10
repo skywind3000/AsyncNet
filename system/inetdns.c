@@ -3410,7 +3410,6 @@ CAsyncDNS *async_dns_new(CAsyncLoop *loop, int flags)
     CAsyncDNS *dns;
 
     if (loop == NULL) return NULL;
-    isocket_init();
 
     dns = (CAsyncDNS*)ikmem_malloc(sizeof(CAsyncDNS));
     if (dns == NULL) return NULL;

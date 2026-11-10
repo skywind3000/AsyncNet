@@ -2010,6 +2010,10 @@ void (*iposix_fatal_cb)(const char *msg) = NULL;
 // backtrace hook, see comments in iposix.h
 void (*iposix_backtrace_cb)(const char *msg) = NULL;
 
+#ifndef IPOSIX_BT_DUMP_MAX
+#define IPOSIX_BT_DUMP_MAX 64
+#endif
+
 
 //---------------------------------------------------------------------
 // print "FATAL: fn:line: message" to stderr, notify the hooks above,
@@ -2047,12 +2051,48 @@ IPOSIX_NOINLINE void iposix_fatal_at(const char *fn, int line, const char *fmt, 
 		iposix_fatal_cb(buffer);
 	}
 
-	// backtrace comes after the message, if a handler is installed
-	if (iposix_backtrace_cb) {
-		iposix_backtrace_cb("Backtrace:");
-	}
-	else if (iposix_bt_backend() != NULL) {
-		iposix_bt_dump("Backtrace:", 1);
+	// backtrace comes after the message: the library renders it and
+	// writes every line to stderr; the hook, if installed, receives
+	// the same lines as an extra destination - it does not replace
+	// the stderr output and does not render anything itself
+	if (iposix_backtrace_cb != NULL || iposix_bt_backend() != NULL) {
+		void *frames[IPOSIX_BT_DUMP_MAX];
+		iposix_bt_info info;
+		int n, i;
+
+		// skip 1 drops this frame, so frame 0 is the caller of
+		// iposix_fatal_at
+		n = iposix_bt_capture(frames, IPOSIX_BT_DUMP_MAX, 1);
+
+		fprintf(stderr, "Backtrace:\n");
+		if (iposix_backtrace_cb != NULL) {
+			iposix_backtrace_cb("Backtrace:");
+		}
+
+		if (n <= 0) {
+			fprintf(stderr, "backtrace unavailable on this platform\n");
+			if (iposix_backtrace_cb != NULL) {
+				iposix_backtrace_cb(
+					"backtrace unavailable on this platform");
+			}
+		}
+		else {
+			for (i = 0; i < n; i++) {
+				char where[IPOSIX_BT_STRING_MAX];
+				char line[IPOSIX_BT_STRING_MAX + 32];
+				iposix_bt_symbolize(frames[i], &info);
+				iposix_bt_string(where, (int)sizeof(where), &info);
+				snprintf(line, sizeof(line), "#%-2d 0x%llx in %s", i,
+						(unsigned long long)(size_t)frames[i],
+						where);
+				fprintf(stderr, "%s\n", line);
+				if (iposix_backtrace_cb != NULL) {
+					iposix_backtrace_cb(line);
+				}
+			}
+		}
+
+		fflush(stderr);
 	}
 
 	abort();
@@ -2152,10 +2192,6 @@ char *iposix_bt_string(char *string, int maxlen, const iposix_bt_info *info)
 	return buf;
 }
 
-#ifndef IPOSIX_BT_DUMP_MAX
-#define IPOSIX_BT_DUMP_MAX 64
-#endif
-
 // one-shot: capture (this call's own frame skipped) and print
 // formatted frames to stderr. safe with any backend.
 IPOSIX_NOINLINE int iposix_bt_dump(const char *prefix, int skip)
@@ -2184,7 +2220,8 @@ IPOSIX_NOINLINE int iposix_bt_dump(const char *prefix, int skip)
 		iposix_bt_symbolize(frames[i], &info);
 		iposix_bt_string(where, (int)sizeof(where), &info);
 		fprintf(stderr, "#%-2d 0x%llx in %s\n", i,
-				(unsigned long long)(uintptr_t)frames[i], where);
+				(unsigned long long)(size_t)frames[i],
+				where);
 	}
 
 	fflush(stderr);

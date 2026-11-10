@@ -1124,6 +1124,8 @@ static void _iposix_bootstrap_cb(void)
 	CRYPTO_OS_RANDOM_CB = iposix_random_bytes;
 	__ihook_panic = _iposix_panic;
 	isocket_init();
+	iposix_clock_nanosec(IPOSIX_CLOCK_REALTIME);
+	iposix_reg_ensure();
 }
 
 // bootstrap modules in this folder

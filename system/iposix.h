@@ -518,8 +518,9 @@ int iposix_path_wrename(const wchar_t *oldname, const wchar_t *newname);
 // process always aborts at the end of iposix_fatal_at
 extern void (*iposix_fatal_cb)(const char *msg);
 
-// backtrace hook: called right after the fatal message, if a handler
-// (e.g. the stacktrace module) is installed; must return normally too
+// backtrace notification hook: receives every line of the fatal
+// backtrace, one call per line (no trailing newline), in addition
+// to the stderr output; must return normally, the process aborts
 extern void (*iposix_backtrace_cb)(const char *msg);
 
 // print "FATAL: fn:line: message" to stderr, notify the hooks above,
@@ -563,6 +564,7 @@ typedef struct iposix_bt_ops {
 
 
 // install backend once at startup, before threads are created.
+// returns 0 on success, -1 for invalid ops (name/capture missing).
 int iposix_bt_install(const iposix_bt_ops *ops);
 
 // active backend name, NULL before any install
@@ -571,9 +573,16 @@ const char *iposix_bt_backend(void);
 // capture raw code addresses (return addresses) into the caller
 // buffer. frame 0 is the caller of this function; "skip" drops
 // that many additional frames (wrappers etc.), negative means 0.
+// returns the number of frames written, -1 for invalid arguments,
+// -2 when no backend is installed.
 IPOSIX_NOINLINE int iposix_bt_capture(void **address, int max, int skip);
 
-// symbolize one address: fills name/module/file/line/offset.
+// symbolize one address: fills name/module/file/line/offset (the
+// info is always zeroed first, unresolved fields stay ""/0).
+// returns 0 when resolved (partially or fully), -1 when the
+// backend resolved nothing or the arguments were invalid,
+// -2 when no backend is installed, -3 when the backend has no
+// symbolize callback.
 int iposix_bt_symbolize(void *address, iposix_bt_info *info);
 
 // format an info into text ("name+0x1a at file:123", falling back
